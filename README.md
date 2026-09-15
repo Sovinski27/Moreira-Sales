@@ -1,67 +1,63 @@
-# ğŸ¥– Sistema de CRM, FidelizaÃ§Ã£o e RetenÃ§Ã£o para Panificadora
+# ?? Panificadora Moreira Sales — Ecossistema Integrado & CRM de Balcão
 
-Sistema de frente de caixa rÃ¡pida e retenÃ§Ã£o de clientes desenvolvido especialmente para o segmento de panificadora e confeitaria em Umuarama - PR.
-
-Projetado para **eliminar o cliente anÃ´nimo no balcÃ£o em menos de 3 segundos** e evitar filas mesmo nos horÃ¡rios de pico.
+> **Sistema de Gestão Omnichannel, Fidelização sem Filas, Autoatendimento nas Mesas e Gestão Financeira/Insumos para Panificadoras e Confeitarias.**
 
 ---
 
-## ğŸš€ Funcionalidades do MVP (Fase 1)
+## ?? Visão Geral
 
-### 1. Frente de Caixa RÃ¡pida (`/caixa`)
-- **IdentificaÃ§Ã£o < 3 segundos**: Busca instantÃ¢nea por nÃºmero de WhatsApp.
-- **Cadastro RelÃ¢mpago**: Se o cliente for novo, o sistema pede apenas o primeiro nome (em campo com foco automÃ¡tico).
-- **Contador Mensal InstantÃ¢neo**: Exibe na hora quantas compras o cliente fez no mÃªs vigente e a barra de progresso atÃ© o brinde.
-- **BotÃµes de Valores RÃ¡pidos**: R$ 5, R$ 10, R$ 15, R$ 20, R$ 30, R$ 50 ou digitaÃ§Ã£o direta com confirmaÃ§Ã£o via tecla `Enter`.
-- **Gatilho de Fidelidade Visual e Sonoro**: Na 10Âª compra do mÃªs, uma tela verde comemorativa com confetes e aviso sonoro instrui a atendente a entregar o brinde (*1 CafÃ© com PÃ£o na Chapa*).
-- **AutomaÃ§Ã£o WhatsApp**: BotÃ£o com 1 clique para enviar mensagem comemorativa prÃ©-formatada para o cliente.
-
-### 2. Painel de GestÃ£o do ProprietÃ¡rio (`/admin`)
-- **Ranking Mensal de Clientes VIPs**:
-  - ClassificaÃ§Ã£o por frequÃªncia com selos **Ouro** (+12 compras/mÃªs), **Prata** (6 a 12 compras/mÃªs) e **Bronze** (1 a 5 compras/mÃªs).
-  - Identifica os 20% de clientes que trazem 80% do faturamento.
-- **MÃ³dulo Anti-Churn ("Clientes Sumidos")**:
-  - Detecta automaticamente clientes fiÃ©is (>5 compras no mÃªs anterior) que nÃ£o aparecem hÃ¡ mais de 15 dias.
-  - BotÃ£o direto de WhatsApp para resgatar o cliente com mensagem calorosa e mimo de cortesia.
-- **Totalizadores em Tempo Real**: Faturamento estimado no mÃªs, total de visitas, clientes ativos e ticket mÃ©dio.
-- **ExportaÃ§Ã£o para Excel / CSV**: Download imediato com dados compatÃ­veis com Excel.
-- **ConfiguraÃ§Ãµes**: Ajuste da meta mensal de compras, descriÃ§Ã£o do prÃªmio e textos padrÃ£o das mensagens.
+O projeto é um ecossistema digital completo sob medida desenvolvido em **React 18** e **Supabase (PostgreSQL)**. Ele resolve o problema do "cliente anônimo" no balcão, automatiza o autoatendimento por QR Code nas mesas, integra um atendente virtual de Inteligência Artificial no WhatsApp e oferece controle financeiro rigoroso com ficha técnica e gestão de insumos.
 
 ---
 
-## ğŸ› ï¸ Tecnologias Utilizadas
-- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS, Lucide React, Canvas Confetti.
-- **Backend / Database**: PostgreSQL via Supabase (com script DDL, triggers e RLS em `supabase/schema.sql`).
-- **ResiliÃªncia Offline / Demo**: Fallback automÃ¡tico em `LocalStorage` com dados realistas de demonstraÃ§Ã£o caso as chaves do Supabase ainda nÃ£o estejam configuradas.
+## ?? Principais Funcionalidades
+
+### ?? 1. Frente de Caixa Ultrarrápida (/caixa)
+* **Identificação em < 3 segundos**: Busca pelo número do WhatsApp (DD) 9XXXX-XXXX sem causar filas.
+* **Cadastro Relâmpago**: Modal de 1 campo (*Nome*) para novos clientes.
+* **Gatilho Verde de Fidelidade**: Tela pisca em verde com animação ao atingir a meta mensal de compras (ex: 10ª compra) para entrega do brinde na hora.
+
+### ?? 2. Autoatendimento nas Mesas (QR Code & PWA)
+* **Cardápio Digital PWA**: Navegação interativa organizada em 5 categorias (*Pães/Diários, Salgados/Lanches, Confeitaria/Doces, Bebidas/Cafeteria e Frios/Laticínios*).
+* **Autocadastro Passivo**: Registro de Nome e WhatsApp no envio do pedido diretamente da mesa.
+
+### ?? 3. Atendente Virtual com IA no WhatsApp (Gemini API)
+* Atendimento 24/7 para esclarecer dúvidas sobre produtos, horários de funcionamento e recebimento de pedidos para Delivery ou Retirada.
+
+### ?? 4. Central de Administração & CRM (/admin)
+* **Ranking Mensal de Clientes Fiéis**: Classificação dinâmica nos níveis **Bronze, Prata e Ouro** com apuração do dia 1º ao fim de cada mês.
+* **Módulo Anti-Churn**: Identificação automática de clientes ausentes há **mais de 15 dias** com disparo de cupom via WhatsApp em 1 clique.
+* **Controle de Acessos & Audit Log**: Permissões por função (Admin, Gerente, Operador) e trilha de auditoria de alterações no sistema.
+
+### ?? 5. Gestão de Insumos, Ficha Técnica & CMV
+* **Cadastro de Insumos e Fornecedores**: Controle de estoque de matérias-primas por quilo, grama, litro ou unidade.
+* **Ficha Técnica (BOM)**: Cálculo automático do custo real de produção de cada item do cardápio.
+* **Precificação & Margem Bruta**: Indicador em tempo real do lucro líquido por produto e baixa automática de insumos a cada venda.
 
 ---
 
-## ğŸ“¦ Como Rodar o Projeto Localmente
+## ??? Stack Tecnológica
 
-1. **Instalar dependÃªncias**:
-   ```bash
-   npm install
-   ```
-
-2. **Executar em modo desenvolvimento**:
-   ```bash
-   npm run dev
-   ```
-   Acesse a aplicaÃ§Ã£o no navegador em `http://localhost:5173`.
-
-3. **Atalhos RÃ¡pidos**:
-   - `F1`: Vai para a Frente de Caixa.
-   - `F2`: Vai para o Painel do Dono.
+* **Frontend**: React 18+, TypeScript, Vite, Tailwind CSS, Lucide Icons, Shadcn/ui.
+* **Backend & Database**: Supabase (PostgreSQL), Row Level Security (RLS), Edge Functions.
+* **Integrações**: API do Google Gemini (IA), Gateway WhatsApp (Z-API / Evolution API via Webhook).
 
 ---
 
-## ğŸ—„ï¸ Como Conectar ao Supabase (Opcional)
+## ?? Arquitetura do Sistema
 
-1. Crie um projeto gratuito no [supabase.com](https://supabase.com).
-2. No painel do Supabase, abra o **SQL Editor** e execute o conteÃºdo do arquivo `supabase/schema.sql`.
-3. Crie um arquivo `.env` na raiz do projeto com as suas credenciais:
-   ```env
-   VITE_SUPABASE_URL=https://sua-url-aqui.supabase.co
-   VITE_SUPABASE_ANON_KEY=sua-chave-anon-aqui
-   ```
-4. Reinicie o servidor `npm run dev`. O badge no cabeÃ§alho exibirÃ¡ **"Supabase Online"**.
+`	ext
+[ Cliente (Mesa / WhatsApp / Balcão) ]
+                  ¦
+                  ?
+   [ Frontend React 18 (PWA / Caixa / Admin) ]
+                  ¦
+                  ?
+   [ Supabase Nuvem (PostgreSQL + RLS) ] ?--? [ API Gemini (IA) ]
+                  ¦
+                  ?
+  [ Gateway WhatsApp (Evolution / Z-API) ]
+`
+
+## ?? Licença & Propriedade
+Desenvolvido por Sovinski Ltda (CNPJ: 64.062.783/0001-10) — Direitos reservados.
