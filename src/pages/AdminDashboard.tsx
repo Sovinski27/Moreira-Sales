@@ -9,6 +9,7 @@ import { CategoriaModal } from '../components/CategoriaModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { AlertModal } from '../components/AlertModal';
 import { BiReports } from '../components/BiReports';
+import { CmvDashboard } from '../components/CmvDashboard';
 import { fetchProdutos, fetchCategorias, saveProduto, saveCategoria } from '../services/db';
 import { 
   Users,
@@ -25,6 +26,9 @@ import {
   Check, 
   ArrowUpRight, 
   Sliders,
+  Package,
+  BarChart2,
+  Calculator,
   CheckCircle2,
   Globe,
   RotateCcw
@@ -311,6 +315,45 @@ export const AdminDashboard: React.FC = () => {
         >
           <Users className="w-4 h-4" />
           <span>Todos os Clientes</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('catalogo')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
+            activeSubTab === 'catalogo'
+              ? 'bg-amber-600 text-white shadow-sm'
+              : 'text-stone-600 hover:bg-stone-100'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          <span>Cat�logo & Produtos</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('cmv')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
+            activeSubTab === 'cmv'
+              ? 'bg-amber-600 text-white shadow-sm'
+              : 'text-stone-600 hover:bg-stone-100'
+          }`}
+        >
+          <Calculator className="w-4 h-4" />
+          <span>Precifica��o & CMV</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('bi')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
+            activeSubTab === 'bi'
+              ? 'bg-amber-600 text-white shadow-sm'
+              : 'text-stone-600 hover:bg-stone-100'
+          }`}
+        >
+          <BarChart2 className="w-4 h-4" />
+          <span>Relat�rios BI</span>
         </button>
 
         <button
