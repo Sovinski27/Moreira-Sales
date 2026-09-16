@@ -298,10 +298,7 @@ export const AdminDashboard: React.FC = () => {
             </span>
           )}
 
-      {/* CONTEÚDO DA ABA 6: RELATÓRIOS BI */}
-      {activeSubTab === 'bi' && (
-        <BiReports />
-      )}
+
         </button>
 
         <button
@@ -315,6 +312,45 @@ export const AdminDashboard: React.FC = () => {
         >
           <Users className="w-4 h-4" />
           <span>Todos os Clientes</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('catalogo')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
+            activeSubTab === 'catalogo'
+              ? 'bg-amber-600 text-white shadow-sm'
+              : 'text-stone-600 hover:bg-stone-100'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          <span>Catálogo & Produtos</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('cmv')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
+            activeSubTab === 'cmv'
+              ? 'bg-amber-600 text-white shadow-sm'
+              : 'text-stone-600 hover:bg-stone-100'
+          }`}
+        >
+          <Calculator className="w-4 h-4" />
+          <span>Precificação & CMV</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('bi')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
+            activeSubTab === 'bi'
+              ? 'bg-amber-600 text-white shadow-sm'
+              : 'text-stone-600 hover:bg-stone-100'
+          }`}
+        >
+          <BarChart2 className="w-4 h-4" />
+          <span>Relatórios BI</span>
         </button>
 
         <button
@@ -447,10 +483,7 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* CONTEÚDO DA ABA 6: RELATÓRIOS BI */}
-      {activeSubTab === 'bi' && (
-        <BiReports />
-      )}
+
       {/* CONTEÚDO DA ABA 2: CLIENTES SUMIDOS (ANTI-CHURN) */}
       {activeSubTab === 'churn' && (
         <div className="space-y-4">
@@ -687,6 +720,61 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* CONTEÚDO DA ABA CATÁLOGO */}
+      {activeSubTab === 'catalogo' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-black text-stone-900">Catálogo de Produtos</h2>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setCategoriaModalConfig({ isOpen: true, categoria: null })}
+                className="bg-stone-200 hover:bg-stone-300 text-stone-800 px-4 py-2 rounded-xl font-bold transition-colors"
+              >
+                + Nova Categoria
+              </button>
+              <button
+                type="button"
+                onClick={() => setProdutoModalConfig({ isOpen: true, produto: null })}
+                className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-xl font-bold transition-colors"
+              >
+                + Novo Produto
+              </button>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {produtos.map(produto => (
+              <div key={produto.id} className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm flex flex-col justify-between">
+                <div>
+                  <h3 className="font-bold text-lg text-stone-900">{produto.nome}</h3>
+                  <p className="text-stone-500 mt-1">R$ {produto.preco.toFixed(2)}</p>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProdutoModalConfig({ isOpen: true, produto })}
+                    className="text-amber-600 font-bold hover:underline text-sm"
+                  >
+                    Editar Produto
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CONTEÚDO DA ABA CMV */}
+      {activeSubTab === 'cmv' && (
+        <CmvDashboard />
+      )}
+
+      {/* CONTEÚDO DA ABA BI */}
+      {activeSubTab === 'bi' && (
+        <BiReports />
       )}
 
       {/* CONTEÚDO DA ABA 4: CONFIGURAÇÕES DA FIDELIDADE & WHATSAPP */}
