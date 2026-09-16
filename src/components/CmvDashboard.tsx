@@ -16,7 +16,8 @@ export const CmvDashboard: React.FC = () => {
   const [produtos, setProdutos] = useState<Produto[]>([]);
 
   const [simuladorProdutoId, setSimuladorProdutoId] = useState<string | null>(null);
-  const [margemDesejada, setMargemDesejada] = useState<string>('50');
+  const [margemDesejada, setMargemDesejada] = useState<string>('100');
+  const [modoPrecificacao, setModoPrecificacao] = useState<'markup' | 'margem'>('markup');
 
   const [modalFornecedorOpen, setModalFornecedorOpen] = useState(false);
   const [novoFornecedor, setNovoFornecedor] = useState<Partial<Fornecedor>>({});
@@ -131,6 +132,46 @@ export const CmvDashboard: React.FC = () => {
 
   const formatMoney = (v: number) => `R$ ${v.toFixed(2)}`;
 
+  const calcularPrecoSimulado = (custo: number) => {
+    const valorNum = parseFloat(margemDesejada) || 0;
+    let precoSugerido = 0;
+    let isInvalid = false;
+    let lucroSugerido = 0;
+    let margemFinal = 0;
+    let markupFinal = 0;
+
+    if (modoPrecificacao === 'markup') {
+      // Porcentagem de Lucro sobre o Custo (Markup) -> SEM LIMITE!
+      if (valorNum < 0) {
+        isInvalid = true;
+      } else {
+        lucroSugerido = custo * (valorNum / 100);
+        precoSugerido = custo + lucroSugerido;
+        margemFinal = precoSugerido > 0 ? (lucroSugerido / precoSugerido) * 100 : 0;
+        markupFinal = valorNum;
+      }
+    } else {
+      // Margem sobre o Preço de Venda (máx < 100%)
+      if (valorNum >= 100 || valorNum < 0) {
+        isInvalid = true;
+      } else {
+        precoSugerido = custo / (1 - (valorNum / 100));
+        lucroSugerido = precoSugerido - custo;
+        margemFinal = valorNum;
+        markupFinal = custo > 0 ? (lucroSugerido / custo) * 100 : 0;
+      }
+    }
+
+    return {
+      precoSugerido: isInvalid ? 0 : precoSugerido,
+      lucroSugerido: isInvalid ? 0 : lucroSugerido,
+      margemFinal: isInvalid ? 0 : margemFinal,
+      markupFinal: isInvalid ? 0 : markupFinal,
+      isInvalid,
+      valorNum
+    };
+  };
+
   const handleSaveFornecedor = async () => {
     if (!novoFornecedor.nome_empresa?.trim() || !novoFornecedor.contato_whatsapp?.trim()) {
       setAlertConfig({ isOpen: true, title: "Aviso", message: "Preencha o nome da empresa e contato." });
@@ -237,9 +278,7 @@ export const CmvDashboard: React.FC = () => {
               const perigo = margem < 50;
               
               const isSimulando = simuladorProdutoId === p.id;
-              const margemNum = parseFloat(margemDesejada) || 0;
-              const isMarginInvalid = margemNum >= 100;
-              const precoSugerido = isMarginInvalid ? 0 : custo / (1 - (margemNum / 100));
+              const { precoSugerido, lucroSugerido, margemFinal, isInvalid } = calcularPrecoSimulado(custo);
 
               return (
                 <div key={p.id} className={`p-4 rounded-xl shadow-sm border ${perigo ? 'border-red-200 bg-red-50/50' : 'border-amber-100 bg-white'}`}>
@@ -274,7 +313,8 @@ export const CmvDashboard: React.FC = () => {
                         setSimuladorProdutoId(null);
                       } else {
                         setSimuladorProdutoId(p.id);
-                        setMargemDesejada('50');
+                        setMargemDesejada('100');
+                        setModoPrecificacao('markup');
                       }
                     }}
                     className="w-full bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-medium hover:bg-blue-200 transition-colors"
@@ -285,26 +325,103 @@ export const CmvDashboard: React.FC = () => {
                   {isSimulando && (
                     <div className="mt-4 pt-4 border-t border-slate-200 space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Margem Desejada (%)</label>
-                        <input
-                          type="number"
-                          value={margemDesejada}
-                          onChange={(e) => setMargemDesejada(e.target.value)}
-                          className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Preço Sugerido</label>
-                        <div className={`text-xl font-bold ${isMarginInvalid ? 'text-red-600' : 'text-green-700'}`}>
-                          {isMarginInvalid ? 'Inválido' : formatMoney(precoSugerido)}
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                          Modo de Precificação
+                        </label>
+                        <div className="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                          <button
+                            type="button"
+                            onClick={() => { setModoPrecificacao('markup'); setMargemDesejada('100'); }}
+                            className={`py-1.5 px-2 rounded-lg text-center transition-all ${modoPrecificacao === 'markup' ? 'bg-white shadow text-amber-700 font-bold' : 'text-slate-500 hover:text-slate-800'}`}
+                          >
+                            % Lucro s/ Custo (Sem limite)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setModoPrecificacao('margem'); setMargemDesejada('50'); }}
+                            className={`py-1.5 px-2 rounded-lg text-center transition-all ${modoPrecificacao === 'margem' ? 'bg-white shadow text-amber-700 font-bold' : 'text-slate-500 hover:text-slate-800'}`}
+                          >
+                            Margem s/ Venda (%)
+                          </button>
                         </div>
                       </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="block text-sm font-medium text-slate-700">
+                            {modoPrecificacao === 'markup' ? 'Porcentagem de Lucro (%)' : 'Margem sobre Venda (%)'}
+                          </label>
+                          <span className="text-xs text-amber-600 font-medium">
+                            {modoPrecificacao === 'markup' ? 'Sem limite (100% dobra, 200% triplica)' : 'Máx: 99%'}
+                          </span>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            step="5"
+                            value={margemDesejada}
+                            onChange={(e) => setMargemDesejada(e.target.value)}
+                            className="w-full border border-slate-300 rounded-xl px-3 py-2 text-slate-900 font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 pr-10"
+                            placeholder={modoPrecificacao === 'markup' ? 'Ex: 100' : 'Ex: 50'}
+                          />
+                          <span className="absolute right-3 top-2.5 text-slate-400 font-bold">%</span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {modoPrecificacao === 'markup' ? (
+                            ['50', '100', '150', '200', '300', '500'].map(val => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={() => setMargemDesejada(val)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${margemDesejada === val ? 'bg-amber-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                              >
+                                +{val}% {val === '100' ? '(Dobro)' : val === '200' ? '(Triplo)' : ''}
+                              </button>
+                            ))
+                          ) : (
+                            ['30', '40', '50', '60', '70', '80'].map(val => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={() => setMargemDesejada(val)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${margemDesejada === val ? 'bg-amber-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                              >
+                                {val}%
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-medium text-slate-500">Preço Sugerido:</span>
+                          <span className={`text-xl font-black ${isInvalid ? 'text-red-600' : 'text-emerald-600'}`}>
+                            {isInvalid ? 'Inválido' : formatMoney(precoSugerido)}
+                          </span>
+                        </div>
+                        {!isInvalid && (
+                          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 text-xs text-slate-600">
+                            <div>
+                              <span>Lucro líquido: </span>
+                              <strong className="text-emerald-700 font-bold">{formatMoney(lucroSugerido)}</strong>
+                            </div>
+                            <div className="text-right">
+                              <span>Margem no caixa: </span>
+                              <strong className="text-slate-800 font-bold">{margemFinal.toFixed(1)}%</strong>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <button
                         onClick={() => handleAplicarPreco(p, precoSugerido)}
-                        disabled={isMarginInvalid}
-                        className={`w-full px-4 py-2.5 rounded-lg font-bold transition-colors ${isMarginInvalid ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                        disabled={isInvalid || precoSugerido <= 0}
+                        className={`w-full px-4 py-2.5 rounded-xl font-bold transition-all shadow-sm ${isInvalid || precoSugerido <= 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-[0.98]'}`}
                       >
-                        Aplicar Preço Sugerido
+                        Aplicar Preço Sugerido ({formatMoney(precoSugerido)})
                       </button>
                     </div>
                   )}
@@ -334,9 +451,7 @@ export const CmvDashboard: React.FC = () => {
                   const perigo = margem < 50;
                   
                   const isSimulando = simuladorProdutoId === p.id;
-                  const margemNum = parseFloat(margemDesejada) || 0;
-                  const isMarginInvalid = margemNum >= 100;
-                  const precoSugerido = isMarginInvalid ? 0 : custo / (1 - (margemNum / 100));
+                  const { precoSugerido, lucroSugerido, margemFinal, isInvalid } = calcularPrecoSimulado(custo);
 
                   return (
                     <React.Fragment key={p.id}>
@@ -361,42 +476,123 @@ export const CmvDashboard: React.FC = () => {
                                 setSimuladorProdutoId(null);
                               } else {
                                 setSimuladorProdutoId(p.id);
-                                setMargemDesejada('50');
+                                setMargemDesejada('100');
+                                setModoPrecificacao('markup');
                               }
                             }}
-                            className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm font-medium hover:bg-blue-200 whitespace-nowrap"
+                            className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-200 transition-colors whitespace-nowrap"
                           >
                             {isSimulando ? 'Fechar' : 'Simular Preço'}
                           </button>
                         </td>
                       </tr>
                       {isSimulando && (
-                        <tr className="bg-blue-50/30 border-b border-amber-50">
-                          <td colSpan={6} className="p-4">
-                            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
-                              <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Margem Desejada (%)</label>
-                                <input
-                                  type="number"
-                                  value={margemDesejada}
-                                  onChange={(e) => setMargemDesejada(e.target.value)}
-                                  className="border border-slate-300 rounded px-3 py-1.5 w-32 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Preço Sugerido</label>
-                                <div className={`text-lg font-bold ${isMarginInvalid ? 'text-red-600' : 'text-green-700'}`}>
-                                  {isMarginInvalid ? 'Inválido' : formatMoney(precoSugerido)}
+                        <tr className="bg-amber-50/40 border-b border-amber-100 animate-fadeIn">
+                          <td colSpan={6} className="p-4 sm:p-5">
+                            <div className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm space-y-4">
+                              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                                <div>
+                                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Simulador de Precificação Inteligente</span>
+                                  <h4 className="font-bold text-slate-800 text-base">Definir Novo Preço para: <span className="text-amber-700">{p.nome}</span></h4>
+                                </div>
+
+                                <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold self-start md:self-auto">
+                                  <button
+                                    type="button"
+                                    onClick={() => { setModoPrecificacao('markup'); setMargemDesejada('100'); }}
+                                    className={`py-1.5 px-3 rounded-lg transition-all ${modoPrecificacao === 'markup' ? 'bg-white shadow text-amber-700 font-bold' : 'text-slate-500 hover:text-slate-800'}`}
+                                  >
+                                    % Lucro sobre Custo (Sem limite)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setModoPrecificacao('margem'); setMargemDesejada('50'); }}
+                                    className={`py-1.5 px-3 rounded-lg transition-all ${modoPrecificacao === 'margem' ? 'bg-white shadow text-amber-700 font-bold' : 'text-slate-500 hover:text-slate-800'}`}
+                                  >
+                                    Margem sobre Venda (%)
+                                  </button>
                                 </div>
                               </div>
-                              <div className="pt-0 sm:pt-6">
-                                <button
-                                  onClick={() => handleAplicarPreco(p, precoSugerido)}
-                                  disabled={isMarginInvalid}
-                                  className={`px-4 py-1.5 rounded font-medium whitespace-nowrap ${isMarginInvalid ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
-                                >
-                                  Aplicar Preço Sugerido
-                                </button>
+
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                                <div className="space-y-1.5">
+                                  <div className="flex justify-between items-center text-xs">
+                                    <label className="font-bold text-slate-700">
+                                      {modoPrecificacao === 'markup' ? 'Porcentagem de Lucro (%)' : 'Margem Desejada (%)'}
+                                    </label>
+                                    <span className="text-amber-600 font-medium">
+                                      {modoPrecificacao === 'markup' ? '✨ Sem limite (100% dobra, 200% triplica)' : 'Máx: 99%'}
+                                    </span>
+                                  </div>
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="5"
+                                      value={margemDesejada}
+                                      onChange={(e) => setMargemDesejada(e.target.value)}
+                                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-slate-900 font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 pr-10"
+                                      placeholder={modoPrecificacao === 'markup' ? 'Ex: 100' : 'Ex: 50'}
+                                    />
+                                    <span className="absolute right-3 top-2.5 text-slate-400 font-bold">%</span>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-1 pt-1">
+                                    {modoPrecificacao === 'markup' ? (
+                                      ['50', '100', '150', '200', '300', '500'].map(val => (
+                                        <button
+                                          key={val}
+                                          type="button"
+                                          onClick={() => setMargemDesejada(val)}
+                                          className={`px-2 py-0.5 rounded text-xs font-bold transition-all ${margemDesejada === val ? 'bg-amber-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                                        >
+                                          +{val}% {val === '100' ? '(Dobro)' : val === '200' ? '(Triplo)' : ''}
+                                        </button>
+                                      ))
+                                    ) : (
+                                      ['30', '40', '50', '60', '70', '80'].map(val => (
+                                        <button
+                                          key={val}
+                                          type="button"
+                                          onClick={() => setMargemDesejada(val)}
+                                          className={`px-2 py-0.5 rounded text-xs font-bold transition-all ${margemDesejada === val ? 'bg-amber-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                                        >
+                                          {val}%
+                                        </button>
+                                      ))
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-3 gap-2 text-center">
+                                  <div>
+                                    <span className="block text-[11px] text-slate-500 font-medium">Custo Base</span>
+                                    <span className="text-sm font-bold text-slate-700">{formatMoney(custo)}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[11px] text-slate-500 font-medium">Preço Sugerido</span>
+                                    <span className={`text-base font-black ${isInvalid ? 'text-red-600' : 'text-emerald-600'}`}>
+                                      {isInvalid ? 'Inválido' : formatMoney(precoSugerido)}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[11px] text-slate-500 font-medium">Lucro Líquido</span>
+                                    <span className="text-sm font-bold text-emerald-700">+{formatMoney(lucroSugerido)}</span>
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-col justify-center">
+                                  <button
+                                    onClick={() => handleAplicarPreco(p, precoSugerido)}
+                                    disabled={isInvalid || precoSugerido <= 0}
+                                    className={`w-full py-3 px-4 rounded-xl font-bold transition-all shadow-sm ${isInvalid || precoSugerido <= 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-[0.98]'}`}
+                                  >
+                                    Aplicar Preço Sugerido ({formatMoney(precoSugerido)})
+                                  </button>
+                                  <span className="text-[11px] text-slate-500 text-center mt-1">
+                                    Margem calculada: <strong>{margemFinal.toFixed(1)}%</strong>
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </td>
