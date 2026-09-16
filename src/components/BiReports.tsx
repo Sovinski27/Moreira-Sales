@@ -3,7 +3,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend 
 } from 'recharts';
-import { Calendar, TrendingUp, Package, Users, Activity, BarChart2, Download, DollarSign, PieChart as PieChartIcon } from 'lucide-react';
+import { Calendar, TrendingUp, Package, Users, Activity, BarChart2, Download, DollarSign, PieChart as PieChartIcon, ChevronDown } from 'lucide-react';
 import { useLoyalty } from '../context/LoyaltyContext';
 import { Compra } from '../types';
 import { 
@@ -322,14 +322,14 @@ export const BiReports: React.FC = () => {
                 <div className="flex flex-col sm:flex-row gap-4 items-end">
                   <div>
                     <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1">Modo de Abatimento</label>
-                    <select 
+                    <div className="relative"><select 
                       className="bg-stone-50 border border-stone-200 text-stone-700 py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 w-full appearance-none"
                       value={custosConfig.tipo}
                       onChange={(e) => setCustosConfig({...custosConfig, tipo: e.target.value as 'mensal' | 'percentual'})}
                     >
                       <option value="mensal">Valor Fixo Mensal (R$)</option>
                       <option value="percentual">Porcentagem das Vendas (%)</option>
-                    </select>
+                    </select><ChevronDown className="w-4 h-4 absolute right-3 top-3.5 text-stone-400 pointer-events-none" /></div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1">
