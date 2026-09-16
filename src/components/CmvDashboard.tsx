@@ -42,6 +42,10 @@ export const CmvDashboard: React.FC = () => {
 
   const getCustoProduto = (produtoId: string) => {
     const fichasProduto = fichas.filter(f => f.produto_id === produtoId);
+    if (fichasProduto.length === 0) {
+      const prod = produtos.find(p => p.id === produtoId);
+      return prod?.custo || 0;
+    }
     let custo = 0;
     fichasProduto.forEach(f => {
       const ins = insumos.find(i => i.id === f.insumo_id);
@@ -177,7 +181,7 @@ export const CmvDashboard: React.FC = () => {
           <h3 className="text-lg sm:text-xl font-bold text-amber-900 mb-4">Análise de Custos e Margem (CMV)</h3>
           {/* Mobile View */}
           <div className="block sm:hidden space-y-4">
-            {produtos.filter(p => fichas.some(f => f.produto_id === p.id)).map(p => {
+            {produtos.map(p => {
               const custo = getCustoProduto(p.id);
               const lucro = p.preco - custo;
               const margem = p.preco > 0 ? (lucro / p.preco) * 100 : 0;
@@ -274,7 +278,7 @@ export const CmvDashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {produtos.filter(p => fichas.some(f => f.produto_id === p.id)).map(p => {
+                {produtos.map(p => {
                   const custo = getCustoProduto(p.id);
                   const lucro = p.preco - custo;
                   const margem = p.preco > 0 ? (lucro / p.preco) * 100 : 0;

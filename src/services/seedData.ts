@@ -264,19 +264,77 @@ export const INITIAL_PRODUTOS: Produto[] = [
 ];
 
 export const INITIAL_FORNECEDORES: Fornecedor[] = [
-  { id: 'forn-1', nome_empresa: 'Moinho Real', contato_whatsapp: '11999999999', cidade: 'São Paulo' },
-  { id: 'forn-2', nome_empresa: 'Laticínios Fazenda', contato_whatsapp: '11888888888', cidade: 'Campinas' }
+  { id: 'forn-1', nome_empresa: 'Moinho Real', contato_whatsapp: '11999998888', cidade: 'São Paulo' },
+  { id: 'forn-2', nome_empresa: 'Laticínios Fazenda da Serra', contato_whatsapp: '19988887777', cidade: 'Campinas' },
+  { id: 'forn-3', nome_empresa: 'Grãos do Cerrado Café Especial', contato_whatsapp: '35998871122', cidade: 'Varginha' },
+  { id: 'forn-4', nome_empresa: 'Distribuidora Avícola Prime', contato_whatsapp: '44997658899', cidade: 'Maringá' },
+  { id: 'forn-5', nome_empresa: 'Distribuidora Doce Sabor', contato_whatsapp: '41984563322', cidade: 'Curitiba' }
 ];
 
 export const INITIAL_INSUMOS: Insumo[] = [
-  { id: 'insumo-1', nome: 'Farinha de Trigo', unidade_medida: 'kg', preco_custo: 4.50, quantidade_estoque: 50, estoque_minimo: 10, fornecedor_id: 'forn-1' },
-  { id: 'insumo-2', nome: 'Leite Integral', unidade_medida: 'l', preco_custo: 3.20, quantidade_estoque: 20, estoque_minimo: 5, fornecedor_id: 'forn-2' },
-  { id: 'insumo-3', nome: 'Açúcar Refinado', unidade_medida: 'kg', preco_custo: 3.80, quantidade_estoque: 30, estoque_minimo: 10, fornecedor_id: 'forn-1' }
+  { id: 'insumo-1', nome: 'Farinha de Trigo Especial', unidade_medida: 'kg', preco_custo: 4.20, quantidade_estoque: 85, estoque_minimo: 20, fornecedor_id: 'forn-1' },
+  { id: 'insumo-2', nome: 'Leite Integral Pasteurizado', unidade_medida: 'l', preco_custo: 3.80, quantidade_estoque: 42, estoque_minimo: 15, fornecedor_id: 'forn-2' },
+  { id: 'insumo-3', nome: 'Açúcar Cristal Refinado', unidade_medida: 'kg', preco_custo: 3.60, quantidade_estoque: 50, estoque_minimo: 15, fornecedor_id: 'forn-1' },
+  { id: 'insumo-4', nome: 'Café em Grãos Gourmet', unidade_medida: 'kg', preco_custo: 68.00, quantidade_estoque: 14, estoque_minimo: 4, fornecedor_id: 'forn-3' },
+  { id: 'insumo-5', nome: 'Manteiga Primeira Linha', unidade_medida: 'kg', preco_custo: 38.00, quantidade_estoque: 10, estoque_minimo: 3, fornecedor_id: 'forn-2' },
+  { id: 'insumo-6', nome: 'Queijo Minas Meia Cura', unidade_medida: 'kg', preco_custo: 44.00, quantidade_estoque: 15, estoque_minimo: 5, fornecedor_id: 'forn-2' },
+  { id: 'insumo-7', nome: 'Polvilho Azedo', unidade_medida: 'kg', preco_custo: 8.50, quantidade_estoque: 25, estoque_minimo: 8, fornecedor_id: 'forn-1' },
+  { id: 'insumo-8', nome: 'Ovos Caipiras Selecionados', unidade_medida: 'un', preco_custo: 0.75, quantidade_estoque: 150, estoque_minimo: 30, fornecedor_id: 'forn-4' },
+  { id: 'insumo-9', nome: 'Peito de Frango Desfiado Temperado', unidade_medida: 'kg', preco_custo: 22.00, quantidade_estoque: 20, estoque_minimo: 6, fornecedor_id: 'forn-4' },
+  { id: 'insumo-10', nome: 'Carne Bovina Moída Temperada', unidade_medida: 'kg', preco_custo: 26.00, quantidade_estoque: 18, estoque_minimo: 5, fornecedor_id: 'forn-4' },
+  { id: 'insumo-11', nome: 'Chocolate em Pó 50% Cacau', unidade_medida: 'kg', preco_custo: 32.00, quantidade_estoque: 12, estoque_minimo: 3, fornecedor_id: 'forn-5' },
+  { id: 'insumo-12', nome: 'Creme Confeiteiro Tradicional', unidade_medida: 'kg', preco_custo: 18.00, quantidade_estoque: 14, estoque_minimo: 4, fornecedor_id: 'forn-5' },
+  { id: 'insumo-13', nome: 'Cenoura Fresca', unidade_medida: 'kg', preco_custo: 4.50, quantidade_estoque: 16, estoque_minimo: 5, fornecedor_id: 'forn-1' }
 ];
 
 export const INITIAL_FICHAS_TECNICAS: FichaTecnica[] = [
-  { id: 'ficha-1', produto_id: 'prod-4', insumo_id: 'insumo-1', quantidade_utilizada: 0.05 },
-  { id: 'ficha-2', produto_id: 'prod-4', insumo_id: 'insumo-3', quantidade_utilizada: 0.005 }
+  // 1. Café Expresso: 12g de café gourmet
+  { id: 'ficha-1', produto_id: 'prod-1', insumo_id: 'insumo-4', quantidade_utilizada: 0.012 },
+
+  // 2. Pingado Média: 10g café + 150ml leite
+  { id: 'ficha-2', produto_id: 'prod-2', insumo_id: 'insumo-4', quantidade_utilizada: 0.010 },
+  { id: 'ficha-3', produto_id: 'prod-2', insumo_id: 'insumo-2', quantidade_utilizada: 0.150 },
+
+  // 3. Cappuccino: 12g café + 150ml leite + 25g chocolate
+  { id: 'ficha-4', produto_id: 'prod-3', insumo_id: 'insumo-4', quantidade_utilizada: 0.012 },
+  { id: 'ficha-5', produto_id: 'prod-3', insumo_id: 'insumo-2', quantidade_utilizada: 0.150 },
+  { id: 'ficha-6', produto_id: 'prod-3', insumo_id: 'insumo-11', quantidade_utilizada: 0.025 },
+
+  // 4. Pão Francês: 50g farinha + 3g açúcar
+  { id: 'ficha-7', produto_id: 'prod-4', insumo_id: 'insumo-1', quantidade_utilizada: 0.050 },
+  { id: 'ficha-8', produto_id: 'prod-4', insumo_id: 'insumo-3', quantidade_utilizada: 0.003 },
+
+  // 5. Pão de Queijo: 35g polvilho + 25g queijo minas + 20ml leite + 0.2 un ovo
+  { id: 'ficha-9', produto_id: 'prod-5', insumo_id: 'insumo-7', quantidade_utilizada: 0.035 },
+  { id: 'ficha-10', produto_id: 'prod-5', insumo_id: 'insumo-6', quantidade_utilizada: 0.025 },
+  { id: 'ficha-11', produto_id: 'prod-5', insumo_id: 'insumo-2', quantidade_utilizada: 0.020 },
+  { id: 'ficha-12', produto_id: 'prod-5', insumo_id: 'insumo-8', quantidade_utilizada: 0.2 },
+
+  // 6. Pão na Chapa c/ Manteiga: 50g farinha + 20g manteiga
+  { id: 'ficha-13', produto_id: 'prod-6', insumo_id: 'insumo-1', quantidade_utilizada: 0.050 },
+  { id: 'ficha-14', produto_id: 'prod-6', insumo_id: 'insumo-5', quantidade_utilizada: 0.020 },
+
+  // 7. Coxinha de Frango: 40g farinha + 80g frango desfiado + 30ml leite
+  { id: 'ficha-15', produto_id: 'prod-7', insumo_id: 'insumo-1', quantidade_utilizada: 0.040 },
+  { id: 'ficha-16', produto_id: 'prod-7', insumo_id: 'insumo-9', quantidade_utilizada: 0.080 },
+  { id: 'ficha-17', produto_id: 'prod-7', insumo_id: 'insumo-2', quantidade_utilizada: 0.030 },
+
+  // 8. Esfiha de Carne: 45g farinha + 70g carne moída
+  { id: 'ficha-18', produto_id: 'prod-8', insumo_id: 'insumo-1', quantidade_utilizada: 0.045 },
+  { id: 'ficha-19', produto_id: 'prod-8', insumo_id: 'insumo-10', quantidade_utilizada: 0.070 },
+
+  // 9. Fatia Bolo de Cenoura: 40g farinha + 30g açúcar + 50g cenoura + 0.3 un ovo + 25g chocolate
+  { id: 'ficha-20', produto_id: 'prod-9', insumo_id: 'insumo-1', quantidade_utilizada: 0.040 },
+  { id: 'ficha-21', produto_id: 'prod-9', insumo_id: 'insumo-3', quantidade_utilizada: 0.030 },
+  { id: 'ficha-22', produto_id: 'prod-9', insumo_id: 'insumo-13', quantidade_utilizada: 0.050 },
+  { id: 'ficha-23', produto_id: 'prod-9', insumo_id: 'insumo-8', quantidade_utilizada: 0.3 },
+  { id: 'ficha-24', produto_id: 'prod-9', insumo_id: 'insumo-11', quantidade_utilizada: 0.025 },
+
+  // 10. Sonho de Creme: 45g farinha + 20g açúcar + 60g creme confeiteiro + 0.2 un ovo
+  { id: 'ficha-25', produto_id: 'prod-10', insumo_id: 'insumo-1', quantidade_utilizada: 0.045 },
+  { id: 'ficha-26', produto_id: 'prod-10', insumo_id: 'insumo-3', quantidade_utilizada: 0.020 },
+  { id: 'ficha-27', produto_id: 'prod-10', insumo_id: 'insumo-12', quantidade_utilizada: 0.060 },
+  { id: 'ficha-28', produto_id: 'prod-10', insumo_id: 'insumo-8', quantidade_utilizada: 0.2 }
 ];
 
 export const INITIAL_HISTORICO_COMPRAS: HistoricoCompraInsumo[] = [];

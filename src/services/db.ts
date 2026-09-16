@@ -1,6 +1,6 @@
 import { Cliente, Compra, ConfiguracaoFidelidade, Categoria, Produto, ItemCarrinho } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { INITIAL_CLIENTES, INITIAL_COMPRAS, INITIAL_CONFIG, INITIAL_CATEGORIAS, INITIAL_PRODUTOS } from './seedData';
+import { INITIAL_CLIENTES, INITIAL_COMPRAS, INITIAL_CONFIG, INITIAL_CATEGORIAS, INITIAL_PRODUTOS, INITIAL_FORNECEDORES, INITIAL_INSUMOS, INITIAL_FICHAS_TECNICAS } from './seedData';
 import { cleanPhone } from './whatsapp';
 
 export const STORAGE_KEYS = {
@@ -46,6 +46,9 @@ export function resetToDemoData(): void {
   localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(INITIAL_CONFIG));
   localStorage.setItem(STORAGE_KEYS.CATEGORIAS, JSON.stringify(INITIAL_CATEGORIAS));
   localStorage.setItem(STORAGE_KEYS.PRODUTOS, JSON.stringify(INITIAL_PRODUTOS));
+  localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(INITIAL_FORNECEDORES));
+  localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(INITIAL_INSUMOS));
+  localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(INITIAL_FICHAS_TECNICAS));
 }
 
 // --- DATA ACCESS LAYER ---
@@ -428,52 +431,67 @@ export async function deleteMesaAberta(id: string): Promise<void> {
 
 // --- CMV ---
 export async function fetchFornecedores(): Promise<any[]> {
-  const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
-  return getLocal('panificadora_fornecedores', []);
+  const v = localStorage.getItem(STORAGE_KEYS.FORNECEDORES);
+  const list = v ? JSON.parse(v) : [];
+  if (!list || list.length === 0) {
+    localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(INITIAL_FORNECEDORES));
+    return INITIAL_FORNECEDORES;
+  }
+  return list;
 }
 export async function saveFornecedor(f: any): Promise<any> {
   const list = await fetchFornecedores();
   const id = f.id || 'forn-' + Date.now();
   const newF = { ...f, id };
   const exists = list.some(x => x.id === f.id); const updated = exists ? list.map(x => x.id === f.id ? newF : x) : [...list, newF];
-  localStorage.setItem('panificadora_fornecedores', JSON.stringify(updated));
+  localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(updated));
   return newF;
 }
 export async function deleteFornecedor(id: string): Promise<void> {
   const list = await fetchFornecedores();
-  localStorage.setItem('panificadora_fornecedores', JSON.stringify(list.filter(x => x.id !== id)));
+  localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(list.filter(x => x.id !== id)));
 }
 export async function fetchInsumos(): Promise<any[]> {
-  const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
-  return getLocal('panificadora_insumos', []);
+  const v = localStorage.getItem(STORAGE_KEYS.INSUMOS);
+  const list = v ? JSON.parse(v) : [];
+  if (!list || list.length === 0) {
+    localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(INITIAL_INSUMOS));
+    return INITIAL_INSUMOS;
+  }
+  return list;
 }
 export async function saveInsumo(i: any): Promise<any> {
   const list = await fetchInsumos();
   const id = i.id || 'insumo-' + Date.now();
   const newI = { ...i, id };
   const exists = list.some(x => x.id === newI.id); const updated = exists ? list.map(x => x.id === newI.id ? newI : x) : [...list, newI];
-  localStorage.setItem('panificadora_insumos', JSON.stringify(updated));
+  localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(updated));
   return newI;
 }
 export async function deleteInsumo(id: string): Promise<void> {
   const list = await fetchInsumos();
-  localStorage.setItem('panificadora_insumos', JSON.stringify(list.filter(x => x.id !== id)));
+  localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(list.filter(x => x.id !== id)));
 }
 export async function fetchFichasTecnicas(): Promise<any[]> {
-  const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
-  return getLocal('panificadora_fichas_tecnicas', []);
+  const v = localStorage.getItem(STORAGE_KEYS.FICHAS_TECNICAS);
+  const list = v ? JSON.parse(v) : [];
+  if (!list || list.length === 0) {
+    localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(INITIAL_FICHAS_TECNICAS));
+    return INITIAL_FICHAS_TECNICAS;
+  }
+  return list;
 }
 export async function saveFichaTecnica(f: any): Promise<any> {
   const list = await fetchFichasTecnicas();
   const id = f.id || 'ficha-' + Date.now();
   const newF = { ...f, id };
   const exists = list.some(x => x.id === newF.id); const updated = exists ? list.map(x => x.id === newF.id ? newF : x) : [...list, newF];
-  localStorage.setItem('panificadora_fichas_tecnicas', JSON.stringify(updated));
+  localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(updated));
   return newF;
 }
 export async function deleteFichaTecnica(id: string): Promise<void> {
   const list = await fetchFichasTecnicas();
-  localStorage.setItem('panificadora_fichas_tecnicas', JSON.stringify(list.filter(x => x.id !== id)));
+  localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(list.filter(x => x.id !== id)));
 }
 export async function registrarCompraInsumo(insumoId: string, quantidade: number, valorTotalPago: number): Promise<void> {
   const insumos = await fetchInsumos();
