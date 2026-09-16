@@ -13,6 +13,7 @@ export const STORAGE_KEYS = {
   INSUMOS: 'panificadora_insumos',
   FICHAS_TECNICAS: 'panificadora_fichas_tecnicas',
   HISTORICO_COMPRAS: 'panificadora_historico_compras',
+  CUSTOS_FIXOS: 'panificadora_custos_fixos',
 };
 
 // --- MOCK / LOCAL STORAGE ENGINE ---
@@ -495,4 +496,12 @@ export async function registrarCompraInsumo(insumoId: string, quantidade: number
     data: new Date().toISOString()
   };
   localStorage.setItem('panificadora_historico_compras_insumos', JSON.stringify([novoRegistro, ...historico]));
+}
+
+export async function fetchCustosFixos(): Promise<import('../types').CustosFixosConfig> {
+  return getLocal<import('../types').CustosFixosConfig>(STORAGE_KEYS.CUSTOS_FIXOS, { tipo: 'percentual', valor: 0 });
+}
+
+export async function saveCustosFixos(config: import('../types').CustosFixosConfig): Promise<void> {
+  setLocal(STORAGE_KEYS.CUSTOS_FIXOS, config);
 }

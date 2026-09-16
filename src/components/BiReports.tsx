@@ -3,7 +3,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend 
 } from 'recharts';
-import { Calendar, TrendingUp, Package, Users, Activity, BarChart2 } from 'lucide-react';
+import { Calendar, TrendingUp, Package, Users, Activity, BarChart2, Download, DollarSign, PieChart as PieChartIcon } from 'lucide-react';
 import { useLoyalty } from '../context/LoyaltyContext';
 import { Compra } from '../types';
 import { 
@@ -12,7 +12,9 @@ import {
   calcFormasPagamento
 } from '../services/bi';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
-import { getLocal, STORAGE_KEYS } from '../services/db';
+import { getLocal, STORAGE_KEYS, fetchCustosFixos, saveCustosFixos } from '../services/db';
+import { AlertModal } from './AlertModal';
+import { CustosFixosConfig } from '../types';
 
 const COLORS = ['#d97706', '#9ca3af', '#059669', '#3b82f6'];
 
@@ -21,6 +23,65 @@ export const BiReports: React.FC = () => {
   const [filter, setFilter] = useState<DateFilter>('30d');
   const [fallbackCompras, setFallbackCompras] = useState<Compra[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'dre'>('overview');
+  const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: 'Aviso', message: '' });
+  const customAlert = (msg: string) => setAlertConfig({ isOpen: true, title: 'Aviso', message: msg });
+  const [custosConfig, setCustosConfig] = useState<CustosFixosConfig>({ tipo: 'percentual', valor: 0 });
+  const [custosLoading, setCustosLoading] = useState(true);
+
+  useEffect(() => {
+    fetchCustosFixos().then(config => {
+      setCustosConfig(config);
+      setCustosLoading(false);
+    });
+  }, []);
+
+  const handleSaveCustos = async () => {
+    await saveCustosFixos(custosConfig);
+    customAlert('Configurações de Custos Fixos salvas com sucesso!');
+  };
+
+  const downloadCSV = () => {
+    const lines = ['Data,Faturamento Bruto,Custo Variavel (CMV),Custo Fixo Rateado,Lucro Liquido Real'];
+    let diasNoFiltro = 30;
+    if (filter === 'hoje') diasNoFiltro = 1;
+    if (filter === '7d') diasNoFiltro = 7;
+    
+    // Calcula o custo fixo rateado base
+    let totalCustoFixoAbater = 0;
+    if (custosConfig.tipo === 'mensal') {
+      totalCustoFixoAbater = (custosConfig.valor / 30) * diasNoFiltro;
+    }
+    
+    const countVendas = filtered.length;
+    const custoFixoPorVenda = countVendas > 0 ? (totalCustoFixoAbater / countVendas) : 0;
+
+    filtered.forEach(c => {
+      const custoVar = c.custo_total || 0;
+      const faturamento = c.valor || 0;
+      
+      let custoFixoDaVenda = 0;
+      if (custosConfig.tipo === 'mensal') {
+        custoFixoDaVenda = custoFixoPorVenda;
+      } else {
+        custoFixoDaVenda = faturamento * (custosConfig.valor / 100);
+      }
+      
+      const lucroLiquido = faturamento - custoVar - custoFixoDaVenda;
+      
+      lines.push(`${c.data_compra},${faturamento.toFixed(2)},${custoVar.toFixed(2)},${custoFixoDaVenda.toFixed(2)},${lucroLiquido.toFixed(2)}`);
+    });
+    
+    const csvContent = "data:text/csv;charset=utf-8," + lines.join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "relatorio_dre.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
 
   useEffect(() => {
     if (!contextCompras || contextCompras.length === 0) {
@@ -56,9 +117,23 @@ export const BiReports: React.FC = () => {
             <BarChart2 className="w-6 h-6 text-amber-600" />
             Inteligência de Vendas (BI)
           </h2>
-          <p className="text-sm text-stone-500 mt-1">
+          <p className="text-sm text-stone-500 mt-1 mb-4">
             Análise detalhada de faturamento, ticket médio e comportamento de compra.
           </p>
+          <div className="flex bg-stone-100 p-1 rounded-xl w-fit">
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'overview' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
+              >
+                <PieChartIcon className="w-4 h-4" /> Visão Geral
+              </button>
+              <button
+                onClick={() => setActiveTab('dre')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'dre' ? 'bg-white shadow text-green-700' : 'text-stone-500 hover:text-stone-700'}`}
+              >
+                <DollarSign className="w-4 h-4" /> DRE / Lucratividade
+              </button>
+          </div>
         </div>
         
         <div className="flex overflow-x-auto bg-stone-100 p-1 rounded-xl w-full sm:w-auto hide-scrollbar">
@@ -90,6 +165,7 @@ export const BiReports: React.FC = () => {
       </div>
 
       {/* KPIs Rápidos */}
+      {activeTab === 'overview' && (<>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
@@ -231,6 +307,117 @@ export const BiReports: React.FC = () => {
           </div>
         </div>
       </div>
+      </>)}
+
+      {activeTab === 'dre' && (
+        <div className="space-y-6 animate-fadeIn">
+          <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm flex flex-col md:flex-row gap-6 justify-between items-start">
+            <div>
+              <h3 className="text-lg font-black text-stone-900 mb-2">Configuração de Custos Fixos</h3>
+              <p className="text-sm text-stone-500 mb-4 max-w-md">
+                Configure os custos da sua operação (Aluguel, Luz, Salários) para abatermos proporcionalmente do faturamento bruto e calcular o Lucro Líquido Real.
+              </p>
+              
+              {!custosLoading && (
+                <div className="flex flex-col sm:flex-row gap-4 items-end">
+                  <div>
+                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1">Modo de Abatimento</label>
+                    <select 
+                      className="bg-stone-50 border border-stone-200 text-stone-700 py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 w-full appearance-none"
+                      value={custosConfig.tipo}
+                      onChange={(e) => setCustosConfig({...custosConfig, tipo: e.target.value as 'mensal' | 'percentual'})}
+                    >
+                      <option value="mensal">Valor Fixo Mensal (R$)</option>
+                      <option value="percentual">Porcentagem das Vendas (%)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1">
+                      {custosConfig.tipo === 'mensal' ? 'Valor Mensal Total (R$)' : 'Desconto Fixo (%)'}
+                    </label>
+                    <input 
+                      type="number" 
+                      className="bg-white border border-stone-200 text-stone-700 py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 w-32"
+                      value={custosConfig.valor}
+                      onChange={(e) => setCustosConfig({...custosConfig, valor: Number(e.target.value)})}
+                    />
+                  </div>
+                  <button 
+                    onClick={handleSaveCustos}
+                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-6 rounded-xl transition-colors shadow-sm"
+                  >
+                    Salvar Regra
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            <div className="w-full md:w-auto text-right">
+               <button 
+                  onClick={downloadCSV}
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-stone-900 hover:bg-black text-white font-bold py-3 px-6 rounded-xl transition-colors shadow-sm"
+                >
+                  <Download className="w-5 h-5" /> Exportar CSV
+                </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
+             <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[600px]">
+                  <thead>
+                    <tr className="bg-stone-50 border-b border-stone-100 text-stone-500 text-sm">
+                      <th className="py-4 px-6 font-semibold">Data da Venda</th>
+                      <th className="py-4 px-6 font-semibold">Valor Bruto</th>
+                      <th className="py-4 px-6 font-semibold text-red-500">CMV (Insumos)</th>
+                      <th className="py-4 px-6 font-semibold text-orange-500">Custo Fixo (Rateio)</th>
+                      <th className="py-4 px-6 font-semibold text-green-600">Lucro Líquido Real</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {filtered.map(c => {
+                       let diasNoFiltro = 30;
+                       if (filter === 'hoje') diasNoFiltro = 1;
+                       if (filter === '7d') diasNoFiltro = 7;
+                       let totalCustoFixoAbater = 0;
+                       if (custosConfig.tipo === 'mensal') {
+                         totalCustoFixoAbater = (custosConfig.valor / 30) * diasNoFiltro;
+                       }
+                       const countVendas = filtered.length;
+                       const custoFixoPorVenda = countVendas > 0 ? (totalCustoFixoAbater / countVendas) : 0;
+                       
+                       const custoVar = c.custo_total || 0;
+                       const faturamento = c.valor || 0;
+                       let custoFixoDaVenda = 0;
+                       if (custosConfig.tipo === 'mensal') {
+                         custoFixoDaVenda = custoFixoPorVenda;
+                       } else {
+                         custoFixoDaVenda = faturamento * (custosConfig.valor / 100);
+                       }
+                       const lucroLiquido = faturamento - custoVar - custoFixoDaVenda;
+
+                       return (
+                         <tr key={c.id} className="hover:bg-stone-50/50">
+                           <td className="py-4 px-6 text-stone-900">{c.data_compra}</td>
+                           <td className="py-4 px-6 font-medium">R$ {faturamento.toFixed(2)}</td>
+                           <td className="py-4 px-6 text-red-600">- R$ {custoVar.toFixed(2)}</td>
+                           <td className="py-4 px-6 text-orange-600">- R$ {custoFixoDaVenda.toFixed(2)}</td>
+                           <td className="py-4 px-6 font-black text-green-600">R$ {lucroLiquido.toFixed(2)}</td>
+                         </tr>
+                       )
+                    })}
+                    {filtered.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-stone-500">Nenhuma venda encontrada no período.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+             </div>
+          </div>
+        </div>
+      )}
+      <AlertModal isOpen={alertConfig.isOpen} title={alertConfig.title} message={alertConfig.message} onClose={() => setAlertConfig({ ...alertConfig, isOpen: false })} />
     </div>
   );
 };

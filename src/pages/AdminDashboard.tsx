@@ -160,9 +160,10 @@ export const AdminDashboard: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      
-      {/* CABEÇALHO DO PAINEL & BOTÃO EXPORTAR */}
+    <>
+      <div className="space-y-6 animate-fadeIn">
+        
+        {/* CABEÇALHO DO PAINEL & BOTÃO EXPORTAR */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -940,6 +941,7 @@ export const AdminDashboard: React.FC = () => {
           </form>
         </div>
       )}
+      </div>
 
       {perfilCliente && (
         <ClienteProfileModal
@@ -997,6 +999,6 @@ export const AdminDashboard: React.FC = () => {
         message={alertConfig.message}
         onClose={() => setAlertConfig({ ...alertConfig, isOpen: false })}
       />
-    </div>
+    </>
   );
 };

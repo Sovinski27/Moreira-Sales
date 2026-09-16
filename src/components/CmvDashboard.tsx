@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Fornecedor, Insumo, FichaTecnica, Produto } from '../types';
 import { fetchFornecedores, fetchInsumos, fetchFichasTecnicas, fetchProdutos, saveFornecedor, saveInsumo, saveFichaTecnica, deleteFornecedor, deleteInsumo, deleteFichaTecnica, registrarCompraInsumo, saveProduto } from '../services/db';
-import { Package, Truck, FileText, AlertTriangle, Calculator, Plus, Trash2, Edit3, ShoppingCart, X } from 'lucide-react';
+import { Package, Truck, FileText, AlertTriangle, Calculator, Plus, Trash2, Edit3, ShoppingCart, X, ChevronDown } from 'lucide-react';
+import { AlertModal } from './AlertModal';
+import { ConfirmModal } from './ConfirmModal';
 
 export const CmvDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'insumos' | 'fornecedores' | 'fichas' | 'cmv'>('cmv');
+  const [activeTab, setActiveTab] = useState<'cmv' | 'insumos' | 'fornecedores' | 'fichas'>('cmv');
   
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -24,6 +26,8 @@ export const CmvDashboard: React.FC = () => {
   const [modalFichaOpen, setModalFichaOpen] = useState(false);
   const [novaFichaProdutoId, setNovaFichaProdutoId] = useState<string>('');
   const [novaFichaIngredientes, setNovaFichaIngredientes] = useState<Array<Partial<FichaTecnica>>>([{ insumo_id: '', quantidade_utilizada: 0 }]);
+  const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: 'Aviso', message: '' });
+  const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: 'Confirmação', message: '', onConfirm: () => {} });
 
   const loadData = async () => {
     setFornecedores(await fetchFornecedores());
@@ -56,7 +60,7 @@ export const CmvDashboard: React.FC = () => {
     if (valorStr === null) return; // User cancelled
     
     if (qtdStr.trim() === '' || valorStr.trim() === '') {
-      alert('Atenção: A quantidade e o valor devem ser preenchidos.');
+      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Atenção: A quantidade e o valor devem ser preenchidos.' });
       return;
     }
 
@@ -64,22 +68,22 @@ export const CmvDashboard: React.FC = () => {
     const val = parseFloat(valorStr.replace(',', '.'));
     
     if (isNaN(qtd) || qtd <= 0) {
-      alert('Erro: Quantidade inválida. Digite um número maior que zero.');
+      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Erro: Quantidade inválida. Digite um número maior que zero.' });
       return;
     }
     
     if (isNaN(val) || val < 0) {
-      alert('Erro: Valor inválido. Digite um número positivo.');
+      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Erro: Valor inválido. Digite um número positivo.' });
       return;
     }
 
     try {
       await registrarCompraInsumo(insumoId, qtd, val);
       loadData();
-      alert('Compra registrada e estoque atualizado com sucesso!');
+      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Compra registrada e estoque atualizado com sucesso!' });
     } catch (err) {
       console.error(err);
-      alert('Erro ao registrar a compra. Tente novamente.');
+      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Erro ao registrar a compra. Tente novamente.' });
     }
   };
 
@@ -88,10 +92,10 @@ export const CmvDashboard: React.FC = () => {
       await saveProduto({ ...produto, preco: novoPreco });
       setSimuladorProdutoId(null);
       loadData();
-      alert('Preço atualizado com sucesso!');
+      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Preço atualizado com sucesso!' });
     } catch (err) {
       console.error(err);
-      alert('Erro ao atualizar preço.');
+      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Erro ao atualizar preço.' });
     }
   };
 
@@ -99,7 +103,7 @@ export const CmvDashboard: React.FC = () => {
 
   const handleSaveFornecedor = async () => {
     if (!novoFornecedor.nome_empresa?.trim() || !novoFornecedor.contato_whatsapp?.trim()) {
-      alert("Preencha o nome da empresa e contato.");
+      setAlertConfig({ isOpen: true, title: "Aviso", message: "Preencha o nome da empresa e contato." });
       return;
     }
     await saveFornecedor(novoFornecedor as Fornecedor);
@@ -110,7 +114,7 @@ export const CmvDashboard: React.FC = () => {
 
   const handleSaveInsumo = async () => {
     if (!novoInsumo.nome?.trim() || !novoInsumo.fornecedor_id || novoInsumo.preco_custo === undefined || isNaN(novoInsumo.preco_custo) || novoInsumo.preco_custo < 0) {
-      alert("Preencha nome, fornecedor e preço de custo (maior ou igual a zero).");
+      setAlertConfig({ isOpen: true, title: "Aviso", message: "Preencha nome, fornecedor e preço de custo (maior ou igual a zero)." });
       return;
     }
     await saveInsumo({
@@ -125,7 +129,7 @@ export const CmvDashboard: React.FC = () => {
 
   const handleSaveFicha = async () => {
     if (!novaFichaProdutoId) {
-      alert("Selecione um produto.");
+      setAlertConfig({ isOpen: true, title: "Aviso", message: "Selecione um produto." });
       return;
     }
 
@@ -134,7 +138,7 @@ export const CmvDashboard: React.FC = () => {
     );
 
     if (validIngredients.length === 0) {
-      alert("Adicione pelo menos um ingrediente com quantidade válida (maior que zero).");
+      setAlertConfig({ isOpen: true, title: "Aviso", message: "Adicione pelo menos um ingrediente com quantidade válida (maior que zero)." });
       return;
     }
 
@@ -151,11 +155,11 @@ export const CmvDashboard: React.FC = () => {
       setModalFichaOpen(false);
       setNovaFichaProdutoId('');
       setNovaFichaIngredientes([{ insumo_id: '', quantidade_utilizada: 0 }]);
-      alert("Receita salva com sucesso!");
+      setAlertConfig({ isOpen: true, title: "Aviso", message: "Receita salva com sucesso!" });
       loadData();
     } catch (error) {
       console.error(error);
-      alert("Erro ao salvar a receita. Algumas inserções podem ter falhado.");
+      setAlertConfig({ isOpen: true, title: "Aviso", message: "Erro ao salvar a receita. Algumas inserções podem ter falhado." });
     }
   };
 
@@ -171,7 +175,93 @@ export const CmvDashboard: React.FC = () => {
       {activeTab === 'cmv' && (
         <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-4 sm:p-6">
           <h3 className="text-lg sm:text-xl font-bold text-amber-900 mb-4">Análise de Custos e Margem (CMV)</h3>
-          <div className="overflow-x-auto">
+          {/* Mobile View */}
+          <div className="block sm:hidden space-y-4">
+            {produtos.filter(p => fichas.some(f => f.produto_id === p.id)).map(p => {
+              const custo = getCustoProduto(p.id);
+              const lucro = p.preco - custo;
+              const margem = p.preco > 0 ? (lucro / p.preco) * 100 : 0;
+              const perigo = margem < 50;
+              
+              const isSimulando = simuladorProdutoId === p.id;
+              const margemNum = parseFloat(margemDesejada) || 0;
+              const isMarginInvalid = margemNum >= 100;
+              const precoSugerido = isMarginInvalid ? 0 : custo / (1 - (margemNum / 100));
+
+              return (
+                <div key={p.id} className={`p-4 rounded-xl shadow-sm border ${perigo ? 'border-red-200 bg-red-50/50' : 'border-amber-100 bg-white'}`}>
+                  <div className="flex justify-between items-start mb-3 gap-2">
+                    <div className="font-bold text-lg text-slate-800 flex items-start gap-2 break-words">
+                      <span>{p.nome}</span>
+                      {perigo && <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />}
+                    </div>
+                    <span className={`flex-shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${perigo ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                      {margem.toFixed(1)}%
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-2 text-sm mb-4">
+                    <div className="bg-slate-50 p-2 rounded">
+                      <div className="text-slate-500 text-xs mb-1">Venda</div>
+                      <div className="font-medium text-slate-800">{formatMoney(p.preco)}</div>
+                    </div>
+                    <div className="bg-slate-50 p-2 rounded">
+                      <div className="text-slate-500 text-xs mb-1">Custo</div>
+                      <div className="font-medium text-red-600">{formatMoney(custo)}</div>
+                    </div>
+                    <div className="bg-slate-50 p-2 rounded">
+                      <div className="text-slate-500 text-xs mb-1">Lucro</div>
+                      <div className="font-bold text-green-600">{formatMoney(lucro)}</div>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      if (isSimulando) {
+                        setSimuladorProdutoId(null);
+                      } else {
+                        setSimuladorProdutoId(p.id);
+                        setMargemDesejada('50');
+                      }
+                    }}
+                    className="w-full bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-medium hover:bg-blue-200 transition-colors"
+                  >
+                    {isSimulando ? 'Fechar Simulador' : 'Simular Preço'}
+                  </button>
+
+                  {isSimulando && (
+                    <div className="mt-4 pt-4 border-t border-slate-200 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Margem Desejada (%)</label>
+                        <input
+                          type="number"
+                          value={margemDesejada}
+                          onChange={(e) => setMargemDesejada(e.target.value)}
+                          className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Preço Sugerido</label>
+                        <div className={`text-xl font-bold ${isMarginInvalid ? 'text-red-600' : 'text-green-700'}`}>
+                          {isMarginInvalid ? 'Inválido' : formatMoney(precoSugerido)}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleAplicarPreco(p, precoSugerido)}
+                        disabled={isMarginInvalid}
+                        className={`w-full px-4 py-2.5 rounded-lg font-bold transition-colors ${isMarginInvalid ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                      >
+                        Aplicar Preço Sugerido
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop View */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full min-w-[600px]">
               <thead>
                 <tr className="bg-amber-50 text-amber-900 text-left">
@@ -371,7 +461,7 @@ export const CmvDashboard: React.FC = () => {
                           <button onClick={() => { setNovaFichaProdutoId(f.produto_id); setNovaFichaIngredientes([f]); setModalFichaOpen(true); }} className="p-1 text-slate-400 hover:text-blue-600 rounded" title="Editar Quantidade">
                             <Edit3 className="w-4 h-4" />
                           </button>
-                          <button onClick={async () => { if(confirm('Remover ingrediente da receita?')) { await deleteFichaTecnica(f.id); loadData(); } }} className="p-1 text-slate-400 hover:text-red-600 rounded" title="Remover Ingrediente">
+                          <button onClick={async () => { setConfirmConfig({ isOpen: true, title: 'Confirmação', message: 'Remover ingrediente da receita?', onConfirm: async () => { await deleteFichaTecnica(f.id); loadData(); } }) }} className="p-1 text-slate-400 hover:text-red-600 rounded" title="Remover Ingrediente">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
@@ -438,22 +528,32 @@ export const CmvDashboard: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Fornecedor Principal</label>
-                <select value={novoInsumo.fornecedor_id || ''} onChange={e => setNovoInsumo({...novoInsumo, fornecedor_id: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2">
+                <div className="relative">
+                  <select value={novoInsumo.fornecedor_id || ''} onChange={e => setNovoInsumo({...novoInsumo, fornecedor_id: e.target.value})} className="appearance-none bg-white border border-stone-200 text-stone-700 py-2 px-3 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
                   <option value="">Selecione...</option>
                   {fornecedores.map(f => (
                     <option key={f.id} value={f.id}>{f.nome_empresa}</option>
                   ))}
                 </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-stone-500">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Unidade de Medida</label>
-                <select value={novoInsumo.unidade_medida || 'kg'} onChange={e => setNovoInsumo({...novoInsumo, unidade_medida: e.target.value as any})} className="w-full border border-slate-300 rounded px-3 py-2">
+                <div className="relative">
+                  <select value={novoInsumo.unidade_medida || 'kg'} onChange={e => setNovoInsumo({...novoInsumo, unidade_medida: e.target.value as any})} className="appearance-none bg-white border border-stone-200 text-stone-700 py-2 px-3 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
                   <option value="kg">Quilogramas (kg)</option>
                   <option value="g">Gramas (g)</option>
                   <option value="l">Litros (l)</option>
                   <option value="ml">Mililitros (ml)</option>
                   <option value="un">Unidade (un)</option>
                 </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-stone-500">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Preço de Custo (Por unidade escolhida)</label>
@@ -489,12 +589,17 @@ export const CmvDashboard: React.FC = () => {
             <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Produto (Final)</label>
-                <select value={novaFichaProdutoId} onChange={e => setNovaFichaProdutoId(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2">
+                <div className="relative">
+                  <select value={novaFichaProdutoId} onChange={e => setNovaFichaProdutoId(e.target.value)} className="appearance-none bg-white border border-stone-200 text-stone-700 py-2 px-3 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
                   <option value="">Selecione o produto...</option>
                   {produtos.map(p => (
                     <option key={p.id} value={p.id}>{p.nome}</option>
                   ))}
                 </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-stone-500">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
               </div>
               
               <div className="space-y-3">
@@ -502,18 +607,23 @@ export const CmvDashboard: React.FC = () => {
                 {novaFichaIngredientes.map((ing, idx) => (
                   <div key={idx} className="flex space-x-2 items-start border p-3 rounded bg-slate-50">
                     <div className="flex-1 space-y-2">
-                      <select value={ing.insumo_id || ''} onChange={e => {
-                        const newIngs = [...novaFichaIngredientes];
-                        newIngs[idx] = { ...newIngs[idx], insumo_id: e.target.value };
-                        setNovaFichaIngredientes(newIngs);
-                      }} className="w-full border border-slate-300 rounded px-3 py-2">
-                        <option value="">Selecione o insumo...</option>
-                        {insumos.map(i => (
-                          <option key={i.id} value={i.id}>{i.nome} (por {i.unidade_medida})</option>
-                        ))}
-                      </select>
-                      <div>
-                        <input type="number" step="0.001" value={ing.quantidade_utilizada || ''} onChange={e => {
+                      <div className="relative">
+                        <select value={ing.insumo_id || ''} onChange={e => {
+                          const newIngs = [...novaFichaIngredientes];
+                          newIngs[idx] = { ...newIngs[idx], insumo_id: e.target.value };
+                          setNovaFichaIngredientes(newIngs);
+                        }} className="appearance-none bg-white border border-stone-200 text-stone-700 py-2 px-3 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
+                          <option value="">Selecione o insumo...</option>
+                          {insumos.map(i => (
+                            <option key={i.id} value={i.id}>{i.nome} (por {i.unidade_medida})</option>
+                          ))}
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-stone-500">
+                          <ChevronDown className="w-4 h-4" />
+                        </div>
+                      </div>
+                    <div>
+                      <input type="number" step="0.001" value={ing.quantidade_utilizada || ''} onChange={e => {
                           const newIngs = [...novaFichaIngredientes];
                           newIngs[idx] = { ...newIngs[idx], quantidade_utilizada: parseFloat(e.target.value) };
                           setNovaFichaIngredientes(newIngs);
@@ -545,6 +655,14 @@ export const CmvDashboard: React.FC = () => {
           </div>
         </div>, document.body
       )}
+      <AlertModal isOpen={alertConfig.isOpen} title={alertConfig.title} message={alertConfig.message} onClose={() => setAlertConfig({ ...alertConfig, isOpen: false })} />
+      <ConfirmModal isOpen={confirmConfig.isOpen} title={confirmConfig.title} message={confirmConfig.message} onConfirm={confirmConfig.onConfirm} onClose={() => setConfirmConfig({ ...confirmConfig, isOpen: false })} />
+      <AlertModal
+        isOpen={alertConfig.isOpen}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

@@ -132,3 +132,9 @@ export interface MesaAberta {
   carrinho: ItemCarrinho[];
   total: number;
 }
+
+export type TipoCustoFixo = 'mensal' | 'percentual';
+export interface CustosFixosConfig {
+  tipo: TipoCustoFixo;
+  valor: number;
+}

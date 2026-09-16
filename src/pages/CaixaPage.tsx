@@ -219,7 +219,7 @@ export const CaixaPage: React.FC = () => {
         }
 
         if (!nomeDoCliente) {
-          alert('Por favor, informe ao menos o Nome do cliente para o cadastro relâmpago.');
+          setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Por favor, informe ao menos o Nome do cliente para o cadastro relâmpago.' });
           nomeInputRef.current?.focus();
           isProcessandoRef.current = false; setIsProcessando(false); return true; }
 
@@ -241,12 +241,12 @@ export const CaixaPage: React.FC = () => {
         setTimeout(() => setSucessoMensagem(null), 3500);
         resetarFormulario();
       } else {
-        alert('Digite o número de WhatsApp do cliente antes de confirmar ou prossiga sem identificação se aplicável (não implementado no MVP original, exige telefone).');
+        setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Digite o número de WhatsApp do cliente antes de confirmar ou prossiga sem identificação se aplicável (não implementado no MVP original, exige telefone).' });
         phoneInputRef.current?.focus();
       }
     } catch (err) {
       console.error('Erro ao registrar compra no caixa:', err);
-      alert('Houve um erro ao processar a compra. Tente novamente.');
+      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Houve um erro ao processar a compra. Tente novamente.' });
     } finally {
       isProcessandoRef.current = false;
       setIsProcessando(false);
@@ -295,7 +295,7 @@ export const CaixaPage: React.FC = () => {
       buscaInputRef.current?.blur();
     } else {
       if (produtosFiltrados.length === 0) {
-        alert('Produto não encontrado. Digite um valor se quiser adicioná-mo como avulso.');
+        setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Produto não encontrado. Digite um valor se quiser adicioná-mo como avulso.' });
         valorInputRef.current?.focus();
       }
     }
