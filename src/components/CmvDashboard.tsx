@@ -22,7 +22,8 @@ export const CmvDashboard: React.FC = () => {
   const [novoInsumo, setNovoInsumo] = useState<Partial<Insumo>>({ unidade_medida: 'kg', quantidade_estoque: 0, estoque_minimo: 0, preco_custo: 0 });
 
   const [modalFichaOpen, setModalFichaOpen] = useState(false);
-  const [novaFicha, setNovaFicha] = useState<Partial<FichaTecnica>>({ quantidade_utilizada: 0 });
+  const [novaFichaProdutoId, setNovaFichaProdutoId] = useState<string>('');
+  const [novaFichaIngredientes, setNovaFichaIngredientes] = useState<Array<Partial<FichaTecnica>>>([{ insumo_id: '', quantidade_utilizada: 0 }]);
 
   const loadData = async () => {
     setFornecedores(await fetchFornecedores());
@@ -123,14 +124,39 @@ export const CmvDashboard: React.FC = () => {
   };
 
   const handleSaveFicha = async () => {
-    if (!novaFicha.produto_id || !novaFicha.insumo_id || !novaFicha.quantidade_utilizada || isNaN(novaFicha.quantidade_utilizada) || novaFicha.quantidade_utilizada <= 0) {
-      alert("Preencha produto, insumo e quantidade (maior que zero).");
+    if (!novaFichaProdutoId) {
+      alert("Selecione um produto.");
       return;
     }
-    await saveFichaTecnica(novaFicha as FichaTecnica);
-    setNovaFicha(prev => ({ ...prev, insumo_id: '', quantidade_utilizada: 0 }));
-    alert("Insumo adicionado à receita! Você pode continuar adicionando outros ingredientes.");
-    loadData();
+
+    const validIngredients = novaFichaIngredientes.filter(
+      (ing) => ing.insumo_id && ing.quantidade_utilizada && !isNaN(ing.quantidade_utilizada) && ing.quantidade_utilizada > 0
+    );
+
+    if (validIngredients.length === 0) {
+      alert("Adicione pelo menos um ingrediente com quantidade válida (maior que zero).");
+      return;
+    }
+
+    try {
+      for (let i = 0; i < validIngredients.length; i++) {
+        const ing = validIngredients[i];
+        await saveFichaTecnica({
+          ...ing,
+          id: ing.id || `ficha-${Date.now()}-${i}-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11)}`,
+          produto_id: novaFichaProdutoId,
+        } as FichaTecnica);
+      }
+      
+      setModalFichaOpen(false);
+      setNovaFichaProdutoId('');
+      setNovaFichaIngredientes([{ insumo_id: '', quantidade_utilizada: 0 }]);
+      alert("Receita salva com sucesso!");
+      loadData();
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao salvar a receita. Algumas inserções podem ter falhado.");
+    }
   };
 
   return (
@@ -318,7 +344,11 @@ export const CmvDashboard: React.FC = () => {
         <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-bold text-amber-900">Fichas Técnicas (BOM)</h3>
-            <button onClick={() => setModalFichaOpen(true)} className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
+            <button onClick={() => {
+              setNovaFichaProdutoId('');
+              setNovaFichaIngredientes([{ insumo_id: '', quantidade_utilizada: 0 }]);
+              setModalFichaOpen(true);
+            }} className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
               <Plus className="w-5 h-5 mr-2" />
               Nova Receita
             </button>
@@ -336,7 +366,7 @@ export const CmvDashboard: React.FC = () => {
                       <div className="flex items-center space-x-3">
                         <span className="font-medium text-slate-700">{f.quantidade_utilizada} {ins.unidade_medida} <span className="text-slate-400 ml-2">({formatMoney(f.quantidade_utilizada * ins.preco_custo)})</span></span>
                         <div className="flex items-center space-x-1">
-                          <button onClick={() => { setNovaFicha(f); setModalFichaOpen(true); }} className="p-1 text-slate-400 hover:text-blue-600 rounded" title="Editar Quantidade">
+                          <button onClick={() => { setNovaFichaProdutoId(f.produto_id); setNovaFichaIngredientes([f]); setModalFichaOpen(true); }} className="p-1 text-slate-400 hover:text-blue-600 rounded" title="Editar Quantidade">
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button onClick={async () => { if(confirm('Remover ingrediente da receita?')) { await deleteFichaTecnica(f.id); loadData(); } }} className="p-1 text-slate-400 hover:text-red-600 rounded" title="Remover Ingrediente">
@@ -447,9 +477,9 @@ export const CmvDashboard: React.FC = () => {
 
       {modalFichaOpen && createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-            <div className="flex justify-between items-center p-4 border-b border-slate-100">
-              <h3 className="text-xl font-bold text-slate-800">Nova Receita / Insumo no Produto</h3>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-4 border-b border-slate-100 sticky top-0 bg-white">
+              <h3 className="text-xl font-bold text-slate-800">Nova Receita / Insumos</h3>
               <button onClick={() => setModalFichaOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-6 h-6" />
               </button>
@@ -457,29 +487,57 @@ export const CmvDashboard: React.FC = () => {
             <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Produto (Final)</label>
-                <select value={novaFicha.produto_id || ''} onChange={e => setNovaFicha({...novaFicha, produto_id: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2">
+                <select value={novaFichaProdutoId} onChange={e => setNovaFichaProdutoId(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2">
                   <option value="">Selecione o produto...</option>
                   {produtos.map(p => (
                     <option key={p.id} value={p.id}>{p.nome}</option>
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Insumo / Ingrediente</label>
-                <select value={novaFicha.insumo_id || ''} onChange={e => setNovaFicha({...novaFicha, insumo_id: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2">
-                  <option value="">Selecione o insumo...</option>
-                  {insumos.map(i => (
-                    <option key={i.id} value={i.id}>{i.nome} (por {i.unidade_medida})</option>
-                  ))}
-                </select>
+              
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-slate-700">Ingredientes</label>
+                {novaFichaIngredientes.map((ing, idx) => (
+                  <div key={idx} className="flex space-x-2 items-start border p-3 rounded bg-slate-50">
+                    <div className="flex-1 space-y-2">
+                      <select value={ing.insumo_id || ''} onChange={e => {
+                        const newIngs = [...novaFichaIngredientes];
+                        newIngs[idx] = { ...newIngs[idx], insumo_id: e.target.value };
+                        setNovaFichaIngredientes(newIngs);
+                      }} className="w-full border border-slate-300 rounded px-3 py-2">
+                        <option value="">Selecione o insumo...</option>
+                        {insumos.map(i => (
+                          <option key={i.id} value={i.id}>{i.nome} (por {i.unidade_medida})</option>
+                        ))}
+                      </select>
+                      <div>
+                        <input type="number" step="0.001" value={ing.quantidade_utilizada || ''} onChange={e => {
+                          const newIngs = [...novaFichaIngredientes];
+                          newIngs[idx] = { ...newIngs[idx], quantidade_utilizada: parseFloat(e.target.value) };
+                          setNovaFichaIngredientes(newIngs);
+                        }} className="w-full border border-slate-300 rounded px-3 py-2" placeholder="Quantidade Utilizada" />
+                        {idx === novaFichaIngredientes.length - 1 && <p className="text-xs text-slate-500 mt-1">Informe a quantidade baseada na unidade.</p>}
+                      </div>
+                    </div>
+                    {novaFichaIngredientes.length > 1 && (
+                      <button onClick={() => {
+                        const newIngs = novaFichaIngredientes.filter((_, i) => i !== idx);
+                        setNovaFichaIngredientes(newIngs);
+                      }} className="text-red-500 hover:text-red-700 p-2 mt-1">
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Quantidade Utilizada</label>
-                <input type="number" step="0.001" value={novaFicha.quantidade_utilizada || ''} onChange={e => setNovaFicha({...novaFicha, quantidade_utilizada: parseFloat(e.target.value)})} className="w-full border border-slate-300 rounded px-3 py-2" placeholder="Ex: 0.5" />
-                <p className="text-xs text-slate-500 mt-1">Informe a quantidade com base na unidade de medida do insumo.</p>
-              </div>
-              <button onClick={handleSaveFicha} className="w-full bg-amber-600 text-white font-bold py-2 px-4 rounded hover:bg-amber-700">
-                Adicionar à Ficha
+
+              <button onClick={() => setNovaFichaIngredientes([...novaFichaIngredientes, { insumo_id: '', quantidade_utilizada: 0 }])} className="text-amber-600 font-medium text-sm flex items-center hover:text-amber-700">
+                <Plus className="w-4 h-4 mr-1" />
+                Adicionar outro ingrediente
+              </button>
+
+              <button onClick={handleSaveFicha} className="w-full bg-amber-600 text-white font-bold py-2 px-4 rounded hover:bg-amber-700 mt-4">
+                Salvar Receita
               </button>
             </div>
           </div>
