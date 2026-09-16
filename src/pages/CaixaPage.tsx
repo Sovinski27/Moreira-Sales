@@ -446,13 +446,13 @@ export const CaixaPage: React.FC = () => {
           )}
         </h1>
         {(!mesaSelecionada) && (
-          <div className="flex bg-stone-100 p-1.5 rounded-2xl">
+          <div className="flex bg-stone-100 p-1.5 rounded-2xl w-full sm:w-auto">
             <button
               onClick={() => {
                 setModoCaixa('balcao');
                 setCarrinho([]);
               }}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${modoCaixa === 'balcao' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
+              className={`flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${modoCaixa === 'balcao' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
             >
               <Monitor className="w-5 h-5" />
               Balcão
@@ -462,7 +462,7 @@ export const CaixaPage: React.FC = () => {
                 setModoCaixa('mesas');
                 setCarrinho([]);
               }}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${modoCaixa === 'mesas' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
+              className={`flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${modoCaixa === 'mesas' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
             >
               <LayoutGrid className="w-5 h-5" />
               Mesas
@@ -689,13 +689,13 @@ export const CaixaPage: React.FC = () => {
               </div>
             ) : (
               carrinho.map(item => (
-                <div key={item.id_temp} className="flex items-center justify-between bg-stone-50/50 p-3 rounded-2xl border border-stone-100/50 hover:bg-stone-50 transition-colors">
-                  <div className="flex-1 min-w-0 pr-4">
+                <div key={item.id_temp} className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-stone-50/50 p-3 rounded-2xl border border-stone-100/50 hover:bg-stone-50 transition-colors gap-3 sm:gap-0">
+                  <div className="flex-1 min-w-0 pr-4 w-full sm:w-auto">
                     <p className="font-semibold text-stone-800 truncate">{item.produto.nome}</p>
                     <p className="text-xs font-mono text-stone-500">R$ {item.produto.preco.toFixed(2)} un.</p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                    <div className="flex items-center bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden shrink-0">
                       <button type="button" onClick={() => alterarQuantidade(item.id_temp, -1)} className="px-2 py-1 hover:bg-stone-50 active:bg-stone-100 transition-colors">
                         <Minus className="w-4 h-4 text-stone-500" />
                       </button>
@@ -710,10 +710,10 @@ export const CaixaPage: React.FC = () => {
                         <Plus className="w-4 h-4 text-stone-500" />
                       </button>
                     </div>
-                    <span className="w-20 text-right font-black font-mono text-amber-600">
+                    <span className="w-20 text-right font-black font-mono text-amber-600 shrink-0">
                       R$ {item.subtotal.toFixed(2)}
                     </span>
-                    <button type="button" onClick={() => removerDoCarrinho(item.id_temp)} className="p-1.5 text-stone-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors">
+                    <button type="button" onClick={() => removerDoCarrinho(item.id_temp)} className="p-1.5 text-stone-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors shrink-0">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>

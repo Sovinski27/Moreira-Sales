@@ -725,9 +725,9 @@ export const AdminDashboard: React.FC = () => {
       {/* CONTEÚDO DA ABA CATÁLOGO */}
       {activeSubTab === 'catalogo' && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h2 className="text-2xl font-black text-stone-900">Catálogo de Produtos</h2>
-            <div className="flex gap-3">
+            <div className="flex gap-3 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setCategoriaModalConfig({ isOpen: true, categoria: null })}

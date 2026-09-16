@@ -161,7 +161,7 @@ export const CmvDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex space-x-2 border-b border-amber-200">
+      <div className="flex space-x-2 border-b border-amber-200 overflow-x-auto whitespace-nowrap pb-1">
         <button onClick={() => setActiveTab('cmv')} className={`py-2 px-4 ${activeTab === 'cmv' ? 'border-b-2 border-amber-600 font-bold text-amber-800' : 'text-amber-600'}`}><Calculator className="w-4 h-4 inline mr-2"/> Precificação e CMV</button>
         <button onClick={() => setActiveTab('insumos')} className={`py-2 px-4 ${activeTab === 'insumos' ? 'border-b-2 border-amber-600 font-bold text-amber-800' : 'text-amber-600'}`}><Package className="w-4 h-4 inline mr-2"/> Insumos</button>
         <button onClick={() => setActiveTab('fornecedores')} className={`py-2 px-4 ${activeTab === 'fornecedores' ? 'border-b-2 border-amber-600 font-bold text-amber-800' : 'text-amber-600'}`}><Truck className="w-4 h-4 inline mr-2"/> Fornecedores</button>
@@ -169,10 +169,10 @@ export const CmvDashboard: React.FC = () => {
       </div>
 
       {activeTab === 'cmv' && (
-        <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-6">
-          <h3 className="text-xl font-bold text-amber-900 mb-4">Análise de Custos e Margem (CMV)</h3>
+        <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-4 sm:p-6">
+          <h3 className="text-lg sm:text-xl font-bold text-amber-900 mb-4">Análise de Custos e Margem (CMV)</h3>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[600px]">
               <thead>
                 <tr className="bg-amber-50 text-amber-900 text-left">
                   <th className="p-3 rounded-tl-lg">Produto</th>
@@ -221,7 +221,7 @@ export const CmvDashboard: React.FC = () => {
                                 setMargemDesejada('50');
                               }
                             }}
-                            className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm font-medium hover:bg-blue-200"
+                            className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm font-medium hover:bg-blue-200 whitespace-nowrap"
                           >
                             {isSimulando ? 'Fechar' : 'Simular Preço'}
                           </button>
@@ -230,7 +230,7 @@ export const CmvDashboard: React.FC = () => {
                       {isSimulando && (
                         <tr className="bg-blue-50/30 border-b border-amber-50">
                           <td colSpan={6} className="p-4">
-                            <div className="flex items-center space-x-4">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
                               <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Margem Desejada (%)</label>
                                 <input
@@ -246,11 +246,11 @@ export const CmvDashboard: React.FC = () => {
                                   {isMarginInvalid ? 'Inválido' : formatMoney(precoSugerido)}
                                 </div>
                               </div>
-                              <div className="pt-6">
+                              <div className="pt-0 sm:pt-6">
                                 <button
                                   onClick={() => handleAplicarPreco(p, precoSugerido)}
                                   disabled={isMarginInvalid}
-                                  className={`px-4 py-1.5 rounded font-medium ${isMarginInvalid ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                                  className={`px-4 py-1.5 rounded font-medium whitespace-nowrap ${isMarginInvalid ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
                                 >
                                   Aplicar Preço Sugerido
                                 </button>
@@ -269,68 +269,70 @@ export const CmvDashboard: React.FC = () => {
       )}
 
       {activeTab === 'insumos' && (
-        <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-bold text-amber-900">Estoque de Insumos</h3>
-            <button onClick={() => setModalInsumoOpen(true)} className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
+        <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2 sm:gap-0">
+            <h3 className="text-lg sm:text-xl font-bold text-amber-900">Estoque de Insumos</h3>
+            <button onClick={() => setModalInsumoOpen(true)} className="w-full sm:w-auto justify-center bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
               <Plus className="w-5 h-5 mr-2" />
               Novo Insumo
             </button>
           </div>
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-amber-50 text-amber-900">
-                <th className="p-3">Insumo</th>
-                <th className="p-3">Fornecedor</th>
-                <th className="p-3">Custo / Unidade</th>
-                <th className="p-3">Estoque Atual</th>
-                <th className="p-3">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {insumos.map(i => {
-                const forn = fornecedores.find(f => f.id === i.fornecedor_id);
-                const baixo = i.quantidade_estoque <= i.estoque_minimo;
-                return (
-                  <tr key={i.id} className="border-b border-amber-50">
-                    <td className="p-3 text-slate-800">
-                      {i.nome}
-                      {baixo && <span className="ml-2 inline-block px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full">Baixo!</span>}
-                    </td>
-                    <td className="p-3 text-slate-600">{forn ? forn.nome_empresa : '-'}</td>
-                    <td className="p-3 text-slate-600">{formatMoney(i.preco_custo)} / {i.unidade_medida}</td>
-                    <td className={`p-3 font-bold ${baixo ? 'text-red-600' : 'text-slate-800'}`}>{i.quantidade_estoque.toFixed(2)} {i.unidade_medida}</td>
-                    <td className="p-3 space-x-2">
-                      <button onClick={() => handleCompraInsumo(i.id)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100" title="Registrar Compra">
-                        <ShoppingCart className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px] text-left">
+              <thead>
+                <tr className="bg-amber-50 text-amber-900">
+                  <th className="p-3 rounded-tl-lg">Insumo</th>
+                  <th className="p-3">Fornecedor</th>
+                  <th className="p-3">Custo / Unidade</th>
+                  <th className="p-3">Estoque Atual</th>
+                  <th className="p-3 rounded-tr-lg">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {insumos.map(i => {
+                  const forn = fornecedores.find(f => f.id === i.fornecedor_id);
+                  const baixo = i.quantidade_estoque <= i.estoque_minimo;
+                  return (
+                    <tr key={i.id} className="border-b border-amber-50">
+                      <td className="p-3 text-slate-800">
+                        {i.nome}
+                        {baixo && <span className="ml-2 inline-block px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full">Baixo!</span>}
+                      </td>
+                      <td className="p-3 text-slate-600">{forn ? forn.nome_empresa : '-'}</td>
+                      <td className="p-3 text-slate-600">{formatMoney(i.preco_custo)} / {i.unidade_medida}</td>
+                      <td className={`p-3 font-bold ${baixo ? 'text-red-600' : 'text-slate-800'}`}>{i.quantidade_estoque.toFixed(2)} {i.unidade_medida}</td>
+                      <td className="p-3 space-x-2">
+                        <button onClick={() => handleCompraInsumo(i.id)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100" title="Registrar Compra">
+                          <ShoppingCart className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       {activeTab === 'fornecedores' && (
-        <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-bold text-amber-900">Fornecedores</h3>
-            <button onClick={() => setModalFornecedorOpen(true)} className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
+        <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2 sm:gap-0">
+            <h3 className="text-lg sm:text-xl font-bold text-amber-900">Fornecedores</h3>
+            <button onClick={() => setModalFornecedorOpen(true)} className="w-full sm:w-auto justify-center bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
               <Plus className="w-5 h-5 mr-2" />
               Novo Fornecedor
             </button>
           </div>
           <ul className="space-y-4">
             {fornecedores.map(f => (
-              <li key={f.id} className="p-4 border rounded flex justify-between items-center">
+              <li key={f.id} className="p-4 border rounded flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
                 <div>
                   <h4 className="font-bold text-lg text-slate-800">{f.nome_empresa}</h4>
                   <p className="text-sm text-slate-600">{f.cidade} - CNPJ: {f.cnpj || 'Não info'}</p>
                 </div>
                 {f.contato_whatsapp && (
-                  <a href={`https://wa.me/${f.contato_whatsapp}`} target="_blank" rel="noreferrer" className="bg-green-100 text-green-700 px-3 py-1 rounded font-medium text-sm flex items-center hover:bg-green-200">
+                  <a href={`https://wa.me/${f.contato_whatsapp}`} target="_blank" rel="noreferrer" className="w-full sm:w-auto justify-center bg-green-100 text-green-700 px-3 py-1.5 rounded font-medium text-sm flex items-center hover:bg-green-200">
                     Whatsapp
                   </a>
                 )}
@@ -341,14 +343,14 @@ export const CmvDashboard: React.FC = () => {
       )}
 
       {activeTab === 'fichas' && (
-        <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-bold text-amber-900">Fichas Técnicas (BOM)</h3>
+        <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2 sm:gap-0">
+            <h3 className="text-lg sm:text-xl font-bold text-amber-900">Fichas Técnicas (BOM)</h3>
             <button onClick={() => {
               setNovaFichaProdutoId('');
               setNovaFichaIngredientes([{ insumo_id: '', quantidade_utilizada: 0 }]);
               setModalFichaOpen(true);
-            }} className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
+            }} className="w-full sm:w-auto justify-center bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
               <Plus className="w-5 h-5 mr-2" />
               Nova Receita
             </button>
@@ -356,14 +358,14 @@ export const CmvDashboard: React.FC = () => {
           {produtos.filter(p => fichas.some(f => f.produto_id === p.id)).map(p => (
             <div key={p.id} className="mb-6 p-4 border border-amber-200 rounded-lg bg-amber-50/30">
               <h4 className="font-bold text-lg text-amber-900 mb-2">{p.nome}</h4>
-              <ul className="space-y-2">
+              <ul className="space-y-3 sm:space-y-2">
                 {fichas.filter(f => f.produto_id === p.id).map(f => {
                   const ins = insumos.find(i => i.id === f.insumo_id);
                   if (!ins) return null;
                   return (
-                    <li key={f.id} className="flex justify-between items-center text-sm border-b pb-1">
-                      <span>{ins.nome}</span>
-                      <div className="flex items-center space-x-3">
+                    <li key={f.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center text-sm border-b pb-2 sm:pb-1 space-y-1 sm:space-y-0">
+                      <span className="font-medium sm:font-normal">{ins.nome}</span>
+                      <div className="flex items-center justify-between w-full sm:w-auto space-x-3">
                         <span className="font-medium text-slate-700">{f.quantidade_utilizada} {ins.unidade_medida} <span className="text-slate-400 ml-2">({formatMoney(f.quantidade_utilizada * ins.preco_custo)})</span></span>
                         <div className="flex items-center space-x-1">
                           <button onClick={() => { setNovaFichaProdutoId(f.produto_id); setNovaFichaIngredientes([f]); setModalFichaOpen(true); }} className="p-1 text-slate-400 hover:text-blue-600 rounded" title="Editar Quantidade">
@@ -378,7 +380,7 @@ export const CmvDashboard: React.FC = () => {
                   )
                 })}
               </ul>
-              <div className="mt-2 text-right font-bold text-amber-800">
+              <div className="mt-4 text-right font-bold text-amber-800">
                 Custo Total: {formatMoney(getCustoProduto(p.id))}
               </div>
             </div>
