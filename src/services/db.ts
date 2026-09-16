@@ -434,7 +434,7 @@ export async function saveFornecedor(f: any): Promise<any> {
   const list = await fetchFornecedores();
   const id = f.id || 'forn-' + Date.now();
   const newF = { ...f, id };
-  const updated = f.id ? list.map(x => x.id === f.id ? newF : x) : [...list, newF];
+  const exists = list.some(x => x.id === f.id); const updated = exists ? list.map(x => x.id === f.id ? newF : x) : [...list, newF];
   localStorage.setItem('panificadora_fornecedores', JSON.stringify(updated));
   return newF;
 }
@@ -450,7 +450,7 @@ export async function saveInsumo(i: any): Promise<any> {
   const list = await fetchInsumos();
   const id = i.id || 'insumo-' + Date.now();
   const newI = { ...i, id };
-  const updated = i.id ? list.map(x => x.id === i.id ? newI : x) : [...list, newI];
+  const exists = list.some(x => x.id === newI.id); const updated = exists ? list.map(x => x.id === newI.id ? newI : x) : [...list, newI];
   localStorage.setItem('panificadora_insumos', JSON.stringify(updated));
   return newI;
 }
@@ -466,7 +466,7 @@ export async function saveFichaTecnica(f: any): Promise<any> {
   const list = await fetchFichasTecnicas();
   const id = f.id || 'ficha-' + Date.now();
   const newF = { ...f, id };
-  const updated = f.id ? list.map(x => x.id === f.id ? newF : x) : [...list, newF];
+  const exists = list.some(x => x.id === newF.id); const updated = exists ? list.map(x => x.id === newF.id ? newF : x) : [...list, newF];
   localStorage.setItem('panificadora_fichas_tecnicas', JSON.stringify(updated));
   return newF;
 }
