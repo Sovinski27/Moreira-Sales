@@ -319,45 +319,6 @@ export const AdminDashboard: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => setActiveSubTab('catalogo')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
-            activeSubTab === 'catalogo'
-              ? 'bg-amber-600 text-white shadow-sm'
-              : 'text-stone-600 hover:bg-stone-100'
-          }`}
-        >
-          <Package className="w-4 h-4" />
-          <span>Cat�logo & Produtos</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('cmv')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
-            activeSubTab === 'cmv'
-              ? 'bg-amber-600 text-white shadow-sm'
-              : 'text-stone-600 hover:bg-stone-100'
-          }`}
-        >
-          <Calculator className="w-4 h-4" />
-          <span>Precifica��o & CMV</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('bi')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
-            activeSubTab === 'bi'
-              ? 'bg-amber-600 text-white shadow-sm'
-              : 'text-stone-600 hover:bg-stone-100'
-          }`}
-        >
-          <BarChart2 className="w-4 h-4" />
-          <span>Relat�rios BI</span>
-        </button>
-
-        <button
-          type="button"
           onClick={() => setActiveSubTab('config')}
           className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
             activeSubTab === 'config'
