@@ -3,7 +3,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend 
 } from 'recharts';
-import { Calendar, TrendingUp, Package, Users, Activity, BarChart2, Download, DollarSign, PieChart as PieChartIcon, ChevronDown } from 'lucide-react';
+import { Calendar, TrendingUp, Package, Users, Activity, BarChart2, Download, DollarSign, PieChart as PieChartIcon, ChevronDown, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { useLoyalty } from '../context/LoyaltyContext';
 import { Compra } from '../types';
 import { 
@@ -12,9 +12,10 @@ import {
   calcFormasPagamento
 } from '../services/bi';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
-import { getLocal, STORAGE_KEYS, fetchCustosFixos, saveCustosFixos } from '../services/db';
+import { getLocal, STORAGE_KEYS, fetchCustosFixos, saveCustosFixos, fetchProdutos, fetchInsumos, fetchFichasTecnicas, fetchFornecedores } from '../services/db';
 import { AlertModal } from './AlertModal';
 import { CustosFixosConfig } from '../types';
+import { exportarRelatorioExcelProfissional, exportarRelatorioCSVFormatado } from '../services/excelReport';
 
 const COLORS = ['#d97706', '#9ca3af', '#059669', '#3b82f6'];
 
@@ -41,45 +42,50 @@ export const BiReports: React.FC = () => {
     customAlert('Configurações de Custos Fixos salvas com sucesso!');
   };
 
-  const downloadCSV = () => {
-    const lines = ['Data,Faturamento Bruto,Custo Variavel (CMV),Custo Fixo Rateado,Lucro Liquido Real'];
-    let diasNoFiltro = 30;
-    if (filter === 'hoje') diasNoFiltro = 1;
-    if (filter === '7d') diasNoFiltro = 7;
-    
-    // Calcula o custo fixo rateado base
-    let totalCustoFixoAbater = 0;
-    if (custosConfig.tipo === 'mensal') {
-      totalCustoFixoAbater = (custosConfig.valor / 30) * diasNoFiltro;
-    }
-    
-    const countVendas = filtered.length;
-    const custoFixoPorVenda = countVendas > 0 ? (totalCustoFixoAbater / countVendas) : 0;
+  const [gerandoExcel, setGerandoExcel] = useState(false);
 
-    filtered.forEach(c => {
-      const custoVar = c.custo_total || 0;
-      const faturamento = c.valor || 0;
-      
-      let custoFixoDaVenda = 0;
-      if (custosConfig.tipo === 'mensal') {
-        custoFixoDaVenda = custoFixoPorVenda;
-      } else {
-        custoFixoDaVenda = faturamento * (custosConfig.valor / 100);
-      }
-      
-      const lucroLiquido = faturamento - custoVar - custoFixoDaVenda;
-      
-      lines.push(`${c.data_compra},${faturamento.toFixed(2)},${custoVar.toFixed(2)},${custoFixoDaVenda.toFixed(2)},${lucroLiquido.toFixed(2)}`);
-    });
-    
-    const csvContent = "data:text/csv;charset=utf-8," + lines.join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "relatorio_dre.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportExcel = async () => {
+    try {
+      setGerandoExcel(true);
+      const [produtos, insumos, fichas, fornecedores] = await Promise.all([
+        fetchProdutos(),
+        fetchInsumos(),
+        fetchFichasTecnicas(),
+        fetchFornecedores()
+      ]);
+
+      const filtroLabelMap: Record<DateFilter, string> = {
+        'hoje': 'Hoje',
+        '7d': '7 Dias',
+        '30d': '30 Dias',
+        'tudo': 'Tudo'
+      };
+
+      await exportarRelatorioExcelProfissional({
+        vendas: filtered,
+        produtos,
+        insumos,
+        fichas,
+        fornecedores,
+        custosConfig,
+        filtroNome: filtroLabelMap[filter] || 'Personalizado'
+      });
+    } catch (err) {
+      console.error('Erro ao gerar relatório Excel:', err);
+      customAlert('Houve um erro ao gerar a planilha Excel. Tente novamente.');
+    } finally {
+      setGerandoExcel(false);
+    }
+  };
+
+  const handleExportCSV = () => {
+    const filtroLabelMap: Record<DateFilter, string> = {
+      'hoje': 'Hoje',
+      '7d': '7 Dias',
+      '30d': '30 Dias',
+      'tudo': 'Tudo'
+    };
+    exportarRelatorioCSVFormatado(filtered, custosConfig, filtroLabelMap[filter] || 'Personalizado');
   };
 
 
@@ -352,12 +358,33 @@ export const BiReports: React.FC = () => {
               )}
             </div>
             
-            <div className="w-full md:w-auto text-right">
+            <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
                <button 
-                  onClick={downloadCSV}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-stone-900 hover:bg-black text-white font-bold py-3 px-6 rounded-xl transition-colors shadow-sm"
+                  onClick={handleExportExcel}
+                  disabled={gerandoExcel}
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold py-3 px-5 rounded-xl transition-all shadow-md disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                  title="Gera planilha .xlsx completa com formatação executiva, gráficos visuais e abas analíticas"
                 >
-                  <Download className="w-5 h-5" /> Exportar CSV
+                  {gerandoExcel ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Gerando Excel & Gráficos...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="w-5 h-5" />
+                      <span>Exportar Excel Executivo (.xlsx)</span>
+                    </>
+                  )}
+                </button>
+
+                <button 
+                  onClick={handleExportCSV}
+                  className="flex items-center justify-center gap-1.5 text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 font-semibold py-3 px-4 rounded-xl text-xs transition-colors"
+                  title="Exporta arquivo .CSV formatado para Excel Brasil (separador ponto e vírgula)"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>CSV (Brasil)</span>
                 </button>
             </div>
           </div>

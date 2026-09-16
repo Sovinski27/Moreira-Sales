@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Fornecedor, Insumo, FichaTecnica, Produto } from '../types';
-import { fetchFornecedores, fetchInsumos, fetchFichasTecnicas, fetchProdutos, saveFornecedor, saveInsumo, saveFichaTecnica, deleteFornecedor, deleteInsumo, deleteFichaTecnica, registrarCompraInsumo, saveProduto } from '../services/db';
-import { Package, Truck, FileText, AlertTriangle, Calculator, Plus, Trash2, Edit3, ShoppingCart, X, ChevronDown } from 'lucide-react';
+import { fetchFornecedores, fetchInsumos, fetchFichasTecnicas, fetchProdutos, saveFornecedor, saveInsumo, saveFichaTecnica, deleteFornecedor, deleteInsumo, deleteFichaTecnica, registrarCompraInsumo, saveProduto, fetchCompras, fetchCustosFixos } from '../services/db';
+import { Package, Truck, FileText, AlertTriangle, Calculator, Plus, Trash2, Edit3, ShoppingCart, X, ChevronDown, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { exportarRelatorioExcelProfissional } from '../services/excelReport';
 import { AlertModal } from './AlertModal';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -28,6 +29,31 @@ export const CmvDashboard: React.FC = () => {
   const [novaFichaIngredientes, setNovaFichaIngredientes] = useState<Array<Partial<FichaTecnica>>>([{ insumo_id: '', quantidade_utilizada: 0 }]);
   const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: 'Aviso', message: '' });
   const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: 'Confirmação', message: '', onConfirm: () => {} });
+  const [exportando, setExportando] = useState(false);
+
+  const handleExportarExcel = async () => {
+    try {
+      setExportando(true);
+      const [compras, custos] = await Promise.all([
+        fetchCompras(),
+        fetchCustosFixos()
+      ]);
+      await exportarRelatorioExcelProfissional({
+        vendas: compras,
+        produtos,
+        insumos,
+        fichas,
+        fornecedores,
+        custosConfig: custos,
+        filtroNome: 'Consolidado Geral'
+      });
+    } catch (e) {
+      console.error(e);
+      setAlertConfig({ isOpen: true, title: 'Erro', message: 'Falha ao exportar relatório Excel.' });
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const loadData = async () => {
     setFornecedores(await fetchFornecedores());
@@ -178,7 +204,30 @@ export const CmvDashboard: React.FC = () => {
 
       {activeTab === 'cmv' && (
         <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-4 sm:p-6">
-          <h3 className="text-lg sm:text-xl font-bold text-amber-900 mb-4">Análise de Custos e Margem (CMV)</h3>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6">
+            <div>
+              <h3 className="text-lg sm:text-xl font-bold text-amber-900">Análise de Custos e Margem (CMV)</h3>
+              <p className="text-xs text-stone-500 mt-0.5">Custos calculados dinamicamente com base nas receitas e insumos</p>
+            </div>
+            <button
+              onClick={handleExportarExcel}
+              disabled={exportando}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold py-2.5 px-4 rounded-xl shadow-sm text-sm transition-all cursor-pointer disabled:opacity-60"
+              title="Exporta planilha Excel formatada com todas as abas e gráficos"
+            >
+              {exportando ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Gerando Planilha...</span>
+                </>
+              ) : (
+                <>
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Exportar Excel Executivo (.xlsx)</span>
+                </>
+              )}
+            </button>
+          </div>
           {/* Mobile View */}
           <div className="block sm:hidden space-y-4">
             {produtos.map(p => {
