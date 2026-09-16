@@ -166,7 +166,7 @@ export const AdminDashboard: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-xl sm:text-2xl font-black text-stone-900 tracking-tight truncate whitespace-normal">
+            <h2 className="text-xl sm:text-2xl font-black text-stone-900 tracking-tight">
               Painel de Gestão & Retenção
             </h2>
             <span className="bg-amber-100 text-amber-800 text-xs px-2.5 py-0.5 rounded-full font-bold shrink-0">
@@ -382,7 +382,7 @@ export const AdminDashboard: React.FC = () => {
               </p>
             </div>
             
-            <div className="flex items-center gap-3 text-xs font-semibold text-stone-600">
+            <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-stone-600 mt-2 sm:mt-0">
               <span className="flex items-center gap-1">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
                 Ouro (&gt;12 compras)
@@ -424,11 +424,11 @@ export const AdminDashboard: React.FC = () => {
 
                     {/* Cabeçalho do Card */}
                     <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h4 className="font-black text-stone-900 text-lg leading-tight truncate pr-2">
+                      <div className="min-w-0 flex-1 pr-4">
+                        <h4 className="font-black text-stone-900 text-lg leading-tight truncate">
                           {r.cliente.nome}
                         </h4>
-                        <p className="text-xs text-stone-500 font-mono mt-0.5">
+                        <p className="text-xs text-stone-500 font-mono mt-0.5 truncate">
                           {formatPhoneDisplay(r.cliente.whatsapp)}
                         </p>
                       </div>
@@ -673,11 +673,11 @@ export const AdminDashboard: React.FC = () => {
                     className="text-left bg-white p-4 rounded-2xl border border-stone-200 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-100/50 hover:-translate-y-1 transition-all duration-200 group"
                   >
                     <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h4 className="font-bold text-stone-900 group-hover:text-amber-700 transition-colors truncate pr-2">
+                      <div className="min-w-0 flex-1 pr-4">
+                        <h4 className="font-bold text-stone-900 group-hover:text-amber-700 transition-colors truncate">
                           {r.cliente.nome}
                         </h4>
-                        <p className="text-xs font-mono text-stone-500 mt-0.5">
+                        <p className="text-xs font-mono text-stone-500 mt-0.5 truncate">
                           {formatPhoneDisplay(r.cliente.whatsapp)}
                         </p>
                       </div>
@@ -698,8 +698,8 @@ export const AdminDashboard: React.FC = () => {
                     </div>
 
                     <div className="flex items-center justify-between mt-2 pt-3 border-t border-stone-100">
-                      <div className="text-[10px] text-stone-400 truncate pr-2">
-                        <span className="font-semibold uppercase block">Última Visita</span>
+                      <div className="text-[10px] text-stone-400 truncate pr-2 min-w-0 flex-1">
+                        <span className="font-semibold uppercase block truncate">Última Visita</span>
                         {r.ultima_compra_data || 'Nenhuma'}
                       </div>
                       

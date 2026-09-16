@@ -24,11 +24,11 @@ export const Layout: React.FC<LayoutProps> = ({
             
             {/* Logotipo e Identidade da Panificadora */}
             <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl overflow-hidden shadow-md shrink-0 bg-white flex items-center justify-center">
-                <img src="/logo.png" alt="Moreira Sales Logo" className="w-full h-full object-cover" />
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl overflow-hidden shadow-md shrink-0 bg-stone-50 border border-stone-100 flex items-center justify-center">
+                <Store className="w-6 h-6 sm:w-7 sm:h-7 text-amber-600" />
               </div>
               <div className="min-w-0">
-                <div className="flex items-center gap-1.5 sm:gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                   <h1 className="text-lg sm:text-2xl font-black tracking-tight text-stone-900 leading-none truncate">
                     Moreira Sales
                   </h1>
@@ -42,7 +42,7 @@ export const Layout: React.FC<LayoutProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
               {/* Navegação entre Caixa e Admin */}
               <nav className="flex items-center bg-stone-100 p-1 sm:p-1.5 rounded-2xl border border-stone-200 shrink-0">
                 <button
