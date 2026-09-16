@@ -1,63 +1,63 @@
-# ?? Panificadora Moreira Sales ó Ecossistema Integrado & CRM de Balc„o
+#  Panificadora Moreira Sales ‚Äî Ecossistema Integrado & CRM de Balc√£o
 
-> **Sistema de Gest„o Omnichannel, FidelizaÁ„o sem Filas, Autoatendimento nas Mesas e Gest„o Financeira/Insumos para Panificadoras e Confeitarias.**
-
----
-
-## ?? Vis„o Geral
-
-O projeto È um ecossistema digital completo sob medida desenvolvido em **React 18** e **Supabase (PostgreSQL)**. Ele resolve o problema do "cliente anÙnimo" no balc„o, automatiza o autoatendimento por QR Code nas mesas, integra um atendente virtual de InteligÍncia Artificial no WhatsApp e oferece controle financeiro rigoroso com ficha tÈcnica e gest„o de insumos.
+> **Sistema de Gest√£o Omnichannel, Fideliza√ß√£o sem Filas, Autoatendimento nas Mesas e Gest√£o Financeira/Insumos para Panificadoras e Confeitarias.**
 
 ---
 
-## ?? Principais Funcionalidades
+## ?? Vis√£o Geral
 
-### ?? 1. Frente de Caixa Ultrarr·pida (/caixa)
-* **IdentificaÁ„o em < 3 segundos**: Busca pelo n˙mero do WhatsApp (DD) 9XXXX-XXXX sem causar filas.
-* **Cadastro Rel‚mpago**: Modal de 1 campo (*Nome*) para novos clientes.
-* **Gatilho Verde de Fidelidade**: Tela pisca em verde com animaÁ„o ao atingir a meta mensal de compras (ex: 10™ compra) para entrega do brinde na hora.
+O projeto √© um ecossistema digital completo sob medida desenvolvido em **React 18** e **Supabase (PostgreSQL)**. Ele resolve o problema do "cliente an√¥nimo" no balc√£o, automatiza o autoatendimento por QR Code nas mesas, integra um atendente virtual de Intelig√™ncia Artificial no WhatsApp e oferece controle financeiro rigoroso com ficha t√©cnica e gest√£o de insumos.
 
-### ?? 2. Autoatendimento nas Mesas (QR Code & PWA)
-* **Card·pio Digital PWA**: NavegaÁ„o interativa organizada em 5 categorias (*P„es/Di·rios, Salgados/Lanches, Confeitaria/Doces, Bebidas/Cafeteria e Frios/LaticÌnios*).
+---
+
+##  Principais Funcionalidades
+
+###  1. Frente de Caixa Ultrarr√°pida (/caixa)
+* **Identifica√ß√£o em < 3 segundos**: Busca pelo n√∫mero do WhatsApp (DD) 9XXXX-XXXX sem causar filas.
+* **Cadastro Rel√¢mpago**: Modal de 1 campo (*Nome*) para novos clientes.
+* **Gatilho Verde de Fidelidade**: Tela pisca em verde com anima√ß√£o ao atingir a meta mensal de compras (ex: 10¬™ compra) para entrega do brinde na hora.
+
+###  2. Autoatendimento nas Mesas (QR Code & PWA)
+* **Card√°pio Digital PWA**: Navega√ß√£o interativa organizada em 5 categorias (*P√£es/Di√°rios, Salgados/Lanches, Confeitaria/Doces, Bebidas/Cafeteria e Frios/Latic√≠nios*).
 * **Autocadastro Passivo**: Registro de Nome e WhatsApp no envio do pedido diretamente da mesa.
 
-### ?? 3. Atendente Virtual com IA no WhatsApp (Gemini API)
-* Atendimento 24/7 para esclarecer d˙vidas sobre produtos, hor·rios de funcionamento e recebimento de pedidos para Delivery ou Retirada.
+### 3. Atendente Virtual com IA no WhatsApp (Gemini API)
+* Atendimento 24/7 para esclarecer d√∫vidas sobre produtos, hor√°rios de funcionamento e recebimento de pedidos para Delivery ou Retirada.
 
-### ?? 4. Central de AdministraÁ„o & CRM (/admin)
-* **Ranking Mensal de Clientes FiÈis**: ClassificaÁ„o din‚mica nos nÌveis **Bronze, Prata e Ouro** com apuraÁ„o do dia 1∫ ao fim de cada mÍs.
-* **MÛdulo Anti-Churn**: IdentificaÁ„o autom·tica de clientes ausentes h· **mais de 15 dias** com disparo de cupom via WhatsApp em 1 clique.
-* **Controle de Acessos & Audit Log**: Permissıes por funÁ„o (Admin, Gerente, Operador) e trilha de auditoria de alteraÁıes no sistema.
+### 4. Central de Administra√ß√£o & CRM (/admin)
+* **Ranking Mensal de Clientes Fi√©is**: Classifica√ß√£o din√¢mica nos n√≠veis **Bronze, Prata e Ouro** com apura√ß√£o do dia 1¬∫ ao fim de cada m√™s.
+* **M√≥dulo Anti-Churn**: Identifica√ß√£o autom√°tica de clientes ausentes h√° **mais de 15 dias** com disparo de cupom via WhatsApp em 1 clique.
+* **Controle de Acessos & Audit Log**: Permiss√µes por fun√ß√£o (Admin, Gerente, Operador) e trilha de auditoria de altera√ß√µes no sistema.
 
-### ?? 5. Gest„o de Insumos, Ficha TÈcnica & CMV
-* **Cadastro de Insumos e Fornecedores**: Controle de estoque de matÈrias-primas por quilo, grama, litro ou unidade.
-* **Ficha TÈcnica (BOM)**: C·lculo autom·tico do custo real de produÁ„o de cada item do card·pio.
-* **PrecificaÁ„o & Margem Bruta**: Indicador em tempo real do lucro lÌquido por produto e baixa autom·tica de insumos a cada venda.
+###  5. Gest√£o de Insumos, Ficha T√©cnica & CMV
+* **Cadastro de Insumos e Fornecedores**: Controle de estoque de mat√©rias-primas por quilo, grama, litro ou unidade.
+* **Ficha T√©cnica (BOM)**: C√°lculo autom√°tico do custo real de produ√ß√£o de cada item do card√°pio.
+* **Precifica√ß√£o & Margem Bruta**: Indicador em tempo real do lucro l√≠quido por produto e baixa autom√°tica de insumos a cada venda.
 
 ---
 
-## ??? Stack TecnolÛgica
+##  Stack Tecnol√≥gica
 
 * **Frontend**: React 18+, TypeScript, Vite, Tailwind CSS, Lucide Icons, Shadcn/ui.
 * **Backend & Database**: Supabase (PostgreSQL), Row Level Security (RLS), Edge Functions.
-* **IntegraÁıes**: API do Google Gemini (IA), Gateway WhatsApp (Z-API / Evolution API via Webhook).
+* **Integra√ß√µes**: API do Google Gemini (IA), Gateway WhatsApp (Z-API / Evolution API via Webhook).
 
 ---
 
-## ?? Arquitetura do Sistema
+##  Arquitetura do Sistema
 
 `	ext
-[ Cliente (Mesa / WhatsApp / Balc„o) ]
-                  ¶
+[ Cliente (Mesa / WhatsApp / Balc√£o) ]
+                  ¬¶
                   ?
    [ Frontend React 18 (PWA / Caixa / Admin) ]
-                  ¶
+                  ¬¶
                   ?
    [ Supabase Nuvem (PostgreSQL + RLS) ] ?--? [ API Gemini (IA) ]
-                  ¶
+                  ¬¶
                   ?
   [ Gateway WhatsApp (Evolution / Z-API) ]
 `
 
-## ?? LicenÁa & Propriedade
-Desenvolvido por Sovinski Ltda (CNPJ: 64.062.783/0001-10) ó Direitos reservados.
+##  Licen√ßa & Propriedade
+Desenvolvido por Sovinski Ltda (CNPJ: 64.062.783/0001-10) ‚Äî Direitos reservados.
