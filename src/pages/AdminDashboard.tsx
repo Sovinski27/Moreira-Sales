@@ -954,12 +954,12 @@ export const AdminDashboard: React.FC = () => {
       <ProdutoModal
         isOpen={produtoModalConfig.isOpen}
         produto={produtoModalConfig.produto}
+        categorias={categorias}
         onClose={() => setProdutoModalConfig({ isOpen: false })}
         onSave={(dados) => {
-          const catId = categorias.length > 0 ? categorias[0].id : '';
           const novoProduto = produtoModalConfig.produto 
             ? { ...produtoModalConfig.produto, ...dados }
-            : { ...dados, categoria_id: catId, ativo: true };
+            : { ...dados, ativo: true };
             
           saveProduto(novoProduto as any).then(() => {
             fetchProdutos().then(setProdutos);
