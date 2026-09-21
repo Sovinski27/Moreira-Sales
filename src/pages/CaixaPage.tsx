@@ -385,6 +385,13 @@ export const CaixaPage: React.FC = () => {
     if (mesaAtual) {
       setMesaSelecionada(mesaAtual);
       setCarrinho(mesaAtual.carrinho);
+      
+      // Se a mesa já possui um cliente associado (via QRCode), autopreencher no Caixa
+      if (mesaAtual.cliente_whatsapp) {
+        setTelefoneInput(mesaAtual.cliente_whatsapp);
+      } else {
+        setTelefoneInput('');
+      }
     } else {
       setMesaSelecionada({
         id: `mesa-${Date.now()}`,
@@ -395,6 +402,7 @@ export const CaixaPage: React.FC = () => {
         total: 0
       });
       setCarrinho([]);
+      setTelefoneInput('');
     }
   };
 
@@ -1055,6 +1063,13 @@ export const CaixaPage: React.FC = () => {
                     type="submit"
                     onClick={async (e) => {
                       e.preventDefault();
+                      if (mesaSelecionada) {
+                        await saveMesaAberta({
+                          ...mesaSelecionada,
+                          carrinho,
+                          total: totalCarrinho,
+                        });
+                      }
                       const success = await handleConfirmarCompra(e);
                       if (success && mesaSelecionada) {
                         await deleteMesaAberta(mesaSelecionada.id);
@@ -1078,6 +1093,13 @@ export const CaixaPage: React.FC = () => {
                     type="button"
                     onClick={async (e) => {
                       e.preventDefault();
+                      if (mesaSelecionada) {
+                        await saveMesaAberta({
+                          ...mesaSelecionada,
+                          carrinho,
+                          total: totalCarrinho,
+                        });
+                      }
                       const success = await handleConfirmarCompra(undefined, true);
                       if (success && mesaSelecionada) {
                         await deleteMesaAberta(mesaSelecionada.id);

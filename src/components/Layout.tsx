@@ -1,19 +1,29 @@
 import React from 'react';
 import { useLoyalty } from '../context/LoyaltyContext';
-import { Store, BarChart3, RotateCcw, Database, Sparkles } from 'lucide-react';
+import { Store, BarChart3, RotateCcw, Database, Sparkles, ChefHat, Smartphone } from 'lucide-react';
+import { Link, useLocation, Outlet } from 'react-router-dom';
 
-interface LayoutProps {
-  currentTab: 'caixa' | 'admin';
-  setCurrentTab: (tab: 'caixa' | 'admin') => void;
-  children: React.ReactNode;
-}
-
-export const Layout: React.FC<LayoutProps> = ({
-  currentTab,
-  setCurrentTab,
-  children
-}) => {
+export const Layout: React.FC = () => {
   const { isSupabaseOnline, reiniciarDadosDemo, metricas } = useLoyalty();
+  const location = useLocation();
+
+  const getLinkClasses = (path: string) => {
+    const isActive = location.pathname.startsWith(path) || (path === '/' && location.pathname === '/');
+    return `flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all relative ${
+      isActive
+        ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
+        : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
+    }`;
+  };
+
+  const getAdminLinkClasses = () => {
+    const isActive = location.pathname.startsWith('/admin');
+    return `flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all relative ${
+      isActive
+        ? 'bg-stone-900 text-white shadow-md shadow-stone-900/20'
+        : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
+    }`;
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FDFBF7] text-stone-900 selection:bg-amber-200">
@@ -42,41 +52,33 @@ export const Layout: React.FC<LayoutProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
-              {/* Navegação entre Caixa e Admin */}
-              <nav className="flex items-center bg-stone-100 p-1 sm:p-1.5 rounded-2xl border border-stone-200 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('caixa')}
-                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all ${
-                    currentTab === 'caixa'
-                      ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
-                  }`}
-                >
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full xl:w-auto justify-between xl:justify-end">
+              {/* Navegação Principal */}
+              <nav className="flex items-center bg-stone-100 p-1 sm:p-1.5 rounded-2xl border border-stone-200 shrink-0 overflow-x-auto hide-scrollbar max-w-full">
+                <Link to="/caixa" className={getLinkClasses('/caixa')}>
                   <Store className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">Frente de Caixa</span>
-                  <span className="sm:hidden">Caixa</span>
-                </button>
+                  <span className="hidden sm:inline">Caixa</span>
+                </Link>
 
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('admin')}
-                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all relative ${
-                    currentTab === 'admin'
-                      ? 'bg-stone-900 text-white shadow-md shadow-stone-900/20'
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
-                  }`}
-                >
+                <Link to="/cozinha" className={getLinkClasses('/cozinha')}>
+                  <ChefHat className="w-4 h-4 shrink-0" />
+                  <span className="hidden sm:inline">Cozinha</span>
+                </Link>
+
+                <Link to="/cardapio" className={getLinkClasses('/cardapio')}>
+                  <Smartphone className="w-4 h-4 shrink-0" />
+                  <span className="hidden sm:inline">Cardápio</span>
+                </Link>
+
+                <Link to="/admin" className={getAdminLinkClasses()}>
                   <BarChart3 className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">Painel do Dono</span>
-                  <span className="sm:hidden">Painel</span>
+                  <span className="hidden sm:inline">Painel</span>
                   {metricas.clientesEmRisco > 0 && (
-                    <span className="ml-1 px-1.5 py-0.2 text-[10px] sm:text-[11px] font-extrabold bg-rose-500 text-white rounded-full animate-pulse">
+                    <span className="ml-1 px-1.5 py-0.5 text-[10px] sm:text-[11px] font-extrabold bg-rose-500 text-white rounded-full animate-pulse flex items-center justify-center min-w-[20px] h-[20px]">
                       {metricas.clientesEmRisco}
                     </span>
                   )}
-                </button>
+                </Link>
               </nav>
 
               {/* Status e Ações Auxiliares */}
@@ -89,7 +91,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 ) : (
                   <div className="hidden md:flex items-center gap-1.5 text-xs font-medium text-amber-800 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200" title="Dados salvos no navegador (LocalStorage)">
                     <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Modo Demonstração</span>
+                    <span>Modo Demo</span>
                   </div>
                 )}
 
@@ -101,7 +103,6 @@ export const Layout: React.FC<LayoutProps> = ({
                   aria-label="Restaurar dados de demonstração"
                 >
                   <RotateCcw className="w-4 h-4 text-stone-600" />
-                  <span className="hidden lg:inline ml-1.5">Restaurar Demo</span>
                 </button>
               </div>
             </div>
@@ -112,7 +113,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
       {/* Conteúdo Principal */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {children}
+        <Outlet />
       </main>
 
       {/* Rodapé institucional */}

@@ -127,3 +127,43 @@ CREATE POLICY "Permitir inserção pública produtos" ON produtos FOR INSERT WIT
 CREATE POLICY "Permitir atualização pública produtos" ON produtos FOR UPDATE USING (true);
 CREATE POLICY "Permitir deleção pública produtos" ON produtos FOR DELETE USING (true);
 
+-- 6. Tabela de Pedidos
+CREATE TABLE IF NOT EXISTS pedidos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente_id UUID REFERENCES clientes(id) ON DELETE SET NULL,
+    origem VARCHAR(50) DEFAULT 'Balcão',
+    identificador_origem VARCHAR(50),
+    status VARCHAR(50) DEFAULT 'Pendente',
+    valor_total NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+    observacoes TEXT,
+    cliente_nome VARCHAR(150),
+    cliente_whatsapp VARCHAR(20),
+    criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    atualizado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 7. Tabela de Itens do Pedido
+CREATE TABLE IF NOT EXISTS itens_pedido (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pedido_id UUID REFERENCES pedidos(id) ON DELETE CASCADE,
+    produto_id UUID REFERENCES produtos(id) ON DELETE RESTRICT,
+    quantidade INT NOT NULL DEFAULT 1,
+    preco_unitario NUMERIC(10, 2) NOT NULL,
+    subtotal NUMERIC(10, 2) NOT NULL
+);
+
+ALTER TABLE pedidos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE itens_pedido ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Permitir leitura pública pedidos" ON pedidos FOR SELECT USING (true);
+CREATE POLICY "Permitir inserção pública pedidos" ON pedidos FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir atualização pública pedidos" ON pedidos FOR UPDATE USING (true);
+CREATE POLICY "Permitir deleção pública pedidos" ON pedidos FOR DELETE USING (true);
+
+CREATE POLICY "Permitir leitura pública itens_pedido" ON itens_pedido FOR SELECT USING (true);
+CREATE POLICY "Permitir inserção pública itens_pedido" ON itens_pedido FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir atualização pública itens_pedido" ON itens_pedido FOR UPDATE USING (true);
+CREATE POLICY "Permitir deleção pública itens_pedido" ON itens_pedido FOR DELETE USING (true);
+
+-- Habilitar Supabase Realtime para a tabela pedidos
+ALTER PUBLICATION supabase_realtime ADD TABLE pedidos;

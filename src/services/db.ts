@@ -18,11 +18,11 @@ export const STORAGE_KEYS = {
 
 // --- MOCK / LOCAL STORAGE ENGINE ---
 // Auxiliares LocalStorage
-export const getLocal = <T>(key: string, defaultValue: T): T => {
+export function getLocal<T>(key: string, defaultValue: T): T {
+  if (isSupabaseConfigured) return defaultValue; // Ignora o cache local para evitar fantasmas
   try {
-    const item = localStorage.getItem(key);
+    const item = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
     if (!item) {
-      localStorage.setItem(key, JSON.stringify(defaultValue));
       return defaultValue;
     }
     return JSON.parse(item) as T;
@@ -33,10 +33,13 @@ export const getLocal = <T>(key: string, defaultValue: T): T => {
 }
 
 function setLocal<T>(key: string, value: T): void {
+  if (isSupabaseConfigured) return; // Não polui o cache local se estiver no Supabase
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
   } catch (err) {
-    console.error(`Erro ao gravar localStorage [${key}]:`, err);
+    console.error(`Erro ao salvar localStorage [${key}]:`, err);
   }
 }
 
@@ -397,36 +400,141 @@ export async function deleteProduto(id: string): Promise<void> {
 }
 // --- MESAS ABERTAS ---
 export async function fetchMesasAbertas(): Promise<any[]> {
-  const STORAGE_KEYS = { MESAS_ABERTAS: 'panificadora_mesas_abertas' };
-  const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
-  return getLocal(STORAGE_KEYS.MESAS_ABERTAS, []);
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('pedidos')
+        .select(`
+          id,
+          identificador_origem,
+          valor_total,
+          criado_em,
+          cliente_id,
+          cliente_nome,
+          cliente_whatsapp,
+          itens_pedido (
+            id,
+            quantidade,
+            preco_unitario,
+            produto_id,
+            produtos (
+              id,
+              nome,
+              preco,
+              controlar_estoque,
+              estoque_atual
+            )
+          )
+        `)
+        .eq('origem', 'Mesa')
+        .neq('status', 'Pago');
+      
+      if (!error && data) {
+        const grouped: Record<string, any> = {};
+        for (const pedido of data) {
+          const numStr = pedido.identificador_origem || '0';
+          const num = parseInt(numStr);
+          if (isNaN(num)) continue;
+          
+          if (!grouped[num]) {
+            grouped[num] = {
+              id: `mesa-${num}`,
+              mesa_numero: num,
+              criado_em: pedido.criado_em,
+              carrinho: [],
+              total: 0,
+              cliente_id: pedido.cliente_id,
+              cliente_nome: pedido.cliente_nome,
+              cliente_whatsapp: pedido.cliente_whatsapp
+            };
+          } else {
+            // Se a mesa já existe, prioriza o pedido que tenha cliente_whatsapp
+            if (!grouped[num].cliente_whatsapp && pedido.cliente_whatsapp) {
+              grouped[num].cliente_id = pedido.cliente_id;
+              grouped[num].cliente_nome = pedido.cliente_nome;
+              grouped[num].cliente_whatsapp = pedido.cliente_whatsapp;
+            }
+          }
+          
+          grouped[num].total += Number(pedido.valor_total);
+          
+          if (pedido.itens_pedido) {
+            for (const item of pedido.itens_pedido) {
+              const p = Array.isArray(item.produtos) ? item.produtos[0] : (item.produtos || {});
+              grouped[num].carrinho.push({
+                id_temp: `item-${item.id}`,
+                produto: {
+                  id: item.produto_id,
+                  nome: p?.nome || 'Produto',
+                  preco: Number(item.preco_unitario),
+                  controlar_estoque: p?.controlar_estoque,
+                  estoque_atual: p?.estoque_atual
+                },
+                quantidade: item.quantidade,
+                subtotal: item.quantidade * Number(item.preco_unitario)
+              });
+            }
+          }
+        }
+        return Object.values(grouped);
+      }
+    } catch (e) {
+      console.warn('Falha ao buscar mesas do Supabase', e);
+    }
+  }
+  return [];
 }
 
 export async function saveMesaAberta(mesa: any): Promise<any> {
-  const STORAGE_KEYS = { MESAS_ABERTAS: 'panificadora_mesas_abertas' };
-  const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
-  const setLocal = (k: string, v: any) => localStorage.setItem(k, JSON.stringify(v));
-  
-  const newMesa = {
-    ...mesa,
-    id: mesa.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'mesa-' + Date.now())
-  };
-
-  const mesas = getLocal(STORAGE_KEYS.MESAS_ABERTAS, []);
-  const updatedList = mesa.id 
-    ? mesas.map((m: any) => m.id === mesa.id ? newMesa : m)
-    : [...mesas, newMesa];
-  setLocal(STORAGE_KEYS.MESAS_ABERTAS, updatedList);
-  return newMesa;
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const novosItens = mesa.carrinho.filter((i: any) => !i.id_temp.startsWith('item-'));
+      if (novosItens.length > 0) {
+        const valorTotalNovo = novosItens.reduce((acc: number, i: any) => acc + i.subtotal, 0);
+        const { data: novoPedido, error: erroPedido } = await supabase
+          .from('pedidos')
+          .insert({
+            origem: 'Mesa',
+            identificador_origem: mesa.mesa_numero.toString(),
+            status: 'Entregue',
+            valor_total: valorTotalNovo,
+            criado_em: new Date().toISOString()
+          })
+          .select()
+          .single();
+          
+        if (!erroPedido && novoPedido) {
+          const itensParaInserir = novosItens.map((i: any) => ({
+            pedido_id: novoPedido.id,
+            produto_id: (i.produto.id && i.produto.id.startsWith('avulso')) ? null : i.produto.id,
+            quantidade: i.quantidade,
+            preco_unitario: i.produto.preco,
+            subtotal: i.subtotal
+          }));
+          await supabase.from('itens_pedido').insert(itensParaInserir);
+        }
+      }
+    } catch (e) {
+      console.warn('Falha ao salvar mesa no Supabase', e);
+    }
+  }
+  return mesa;
 }
 
 export async function deleteMesaAberta(id: string): Promise<void> {
-  const STORAGE_KEYS = { MESAS_ABERTAS: 'panificadora_mesas_abertas' };
-  const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
-  const setLocal = (k: string, v: any) => localStorage.setItem(k, JSON.stringify(v));
-  
-  const mesas = getLocal(STORAGE_KEYS.MESAS_ABERTAS, []);
-  setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesas.filter((m: any) => m.id !== id));
+  if (id.startsWith('mesa-') && isSupabaseConfigured && supabase) {
+    const num = id.split('-')[1];
+    try {
+      await supabase
+        .from('pedidos')
+        .update({ status: 'Pago' })
+        .eq('origem', 'Mesa')
+        .eq('identificador_origem', num)
+        .neq('status', 'Pago');
+    } catch (e) {
+      console.warn('Falha ao fechar mesa no Supabase', e);
+    }
+  }
 }
 
 // --- CMV ---
