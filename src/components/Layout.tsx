@@ -1,29 +1,19 @@
 import React from 'react';
 import { useLoyalty } from '../context/LoyaltyContext';
-import { Store, BarChart3, RotateCcw, Database, Sparkles, ChefHat, Smartphone } from 'lucide-react';
-import { Link, useLocation, Outlet } from 'react-router-dom';
+import { Store, BarChart3, RotateCcw, Database, Sparkles } from 'lucide-react';
 
-export const Layout: React.FC = () => {
+interface LayoutProps {
+  currentTab: 'caixa' | 'admin';
+  setCurrentTab: (tab: 'caixa' | 'admin') => void;
+  children: React.ReactNode;
+}
+
+export const Layout: React.FC<LayoutProps> = ({
+  currentTab,
+  setCurrentTab,
+  children
+}) => {
   const { isSupabaseOnline, reiniciarDadosDemo, metricas } = useLoyalty();
-  const location = useLocation();
-
-  const getLinkClasses = (path: string) => {
-    const isActive = location.pathname.startsWith(path) || (path === '/' && location.pathname === '/');
-    return `flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all relative ${
-      isActive
-        ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
-        : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
-    }`;
-  };
-
-  const getAdminLinkClasses = () => {
-    const isActive = location.pathname.startsWith('/admin');
-    return `flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all relative ${
-      isActive
-        ? 'bg-stone-900 text-white shadow-md shadow-stone-900/20'
-        : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
-    }`;
-  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FDFBF7] text-stone-900 selection:bg-amber-200">
@@ -52,58 +42,56 @@ export const Layout: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full xl:w-auto justify-between xl:justify-end">
-              {/* Navegação Principal */}
-              <nav className="flex items-center bg-stone-100 p-1 sm:p-1.5 rounded-2xl border border-stone-200 shrink-0 overflow-x-auto hide-scrollbar max-w-full">
-                <Link to="/caixa" className={getLinkClasses('/caixa')}>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
+              {/* Navegação entre Caixa e Admin */}
+              <nav className="flex items-center bg-stone-100 p-1 sm:p-1.5 rounded-2xl border border-stone-200 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('caixa')}
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all ${
+                    currentTab === 'caixa'
+                      ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
+                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
+                  }`}
+                >
                   <Store className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">Caixa</span>
-                </Link>
+                  <span className="hidden sm:inline">Frente de Caixa</span>
+                  <span className="sm:hidden">Caixa</span>
+                </button>
 
-                <Link to="/cozinha" className={getLinkClasses('/cozinha')}>
-                  <ChefHat className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">Cozinha</span>
-                </Link>
-
-                <Link to="/cardapio" className={getLinkClasses('/cardapio')}>
-                  <Smartphone className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">Cardápio</span>
-                </Link>
-
-                <Link to="/admin" className={getAdminLinkClasses()}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('admin')}
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all relative ${
+                    currentTab === 'admin'
+                      ? 'bg-stone-900 text-white shadow-md shadow-stone-900/20'
+                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
+                  }`}
+                >
                   <BarChart3 className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">Painel</span>
+                  <span className="hidden sm:inline">Painel do Dono</span>
+                  <span className="sm:hidden">Painel</span>
                   {metricas.clientesEmRisco > 0 && (
-                    <span className="ml-1 px-1.5 py-0.5 text-[10px] sm:text-[11px] font-extrabold bg-rose-500 text-white rounded-full animate-pulse flex items-center justify-center min-w-[20px] h-[20px]">
+                    <span className="ml-1 px-1.5 py-0.2 text-[10px] sm:text-[11px] font-extrabold bg-rose-500 text-white rounded-full animate-pulse">
                       {metricas.clientesEmRisco}
                     </span>
                   )}
-                </Link>
+                </button>
               </nav>
 
               {/* Status e Ações Auxiliares */}
               <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
                 {isSupabaseOnline ? (
-                  <div className="hidden md:flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-200">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-200">
                     <Database className="w-3.5 h-3.5" />
-                    <span>Supabase Online</span>
+                    <span>Nuvem Conectada</span>
                   </div>
                 ) : (
-                  <div className="hidden md:flex items-center gap-1.5 text-xs font-medium text-amber-800 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200" title="Dados salvos no navegador (LocalStorage)">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200" title="Dados armazenados localmente com segurança">
                     <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Modo Demo</span>
+                    <span>Armazenamento Local</span>
                   </div>
                 )}
-
-                <button
-                  type="button"
-                  onClick={reiniciarDadosDemo}
-                  className="flex items-center justify-center text-stone-600 hover:text-stone-900 w-9 h-9 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-xl hover:bg-stone-100 border border-stone-200 sm:border-transparent sm:hover:border-stone-200 transition-colors text-xs font-semibold shrink-0"
-                  title="Restaurar dados de demonstração de Umuarama"
-                  aria-label="Restaurar dados de demonstração"
-                >
-                  <RotateCcw className="w-4 h-4 text-stone-600" />
-                </button>
               </div>
             </div>
 
@@ -113,7 +101,7 @@ export const Layout: React.FC = () => {
 
       {/* Conteúdo Principal */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Outlet />
+        {children}
       </main>
 
       {/* Rodapé institucional */}

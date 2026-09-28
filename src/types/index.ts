@@ -39,8 +39,6 @@ export interface Produto {
   controlar_estoque?: boolean;
   estoque_atual?: number;
   ativo: boolean;
-  foto_url?: string;
-  descricao?: string;
 }
 
 export interface ItemCarrinho {
@@ -48,7 +46,6 @@ export interface ItemCarrinho {
   produto: Produto;
   quantidade: number;
   subtotal: number;
-  observacao?: string;
 }
 
 export interface ConfiguracaoFidelidade {
@@ -134,9 +131,6 @@ export interface MesaAberta {
   criado_em: string;
   carrinho: ItemCarrinho[];
   total: number;
-  cliente_id?: string | null;
-  cliente_nome?: string | null;
-  cliente_whatsapp?: string | null;
 }
 
 export type TipoCustoFixo = 'mensal' | 'percentual';

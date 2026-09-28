@@ -1,22 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Box, DollarSign } from 'lucide-react';
-import { Produto, Categoria } from '../types';
+import { Produto } from '../types';
 
 interface ProdutoModalProps {
   produto?: Produto | null;
-  categorias: Categoria[];
   isOpen: boolean;
   onClose: () => void;
-  onSave: (produto: { nome: string; preco: number; custo?: number; controlar_estoque?: boolean; estoque_atual?: number; categoria_id: string }) => void;
+  onSave: (produto: { nome: string; preco: number; custo?: number; controlar_estoque?: boolean; estoque_atual?: number }) => void;
 }
 
-export const ProdutoModal: React.FC<ProdutoModalProps> = ({ produto, categorias, isOpen, onClose, onSave }) => {
+export const ProdutoModal: React.FC<ProdutoModalProps> = ({ produto, isOpen, onClose, onSave }) => {
   const [nome, setNome] = useState('');
   const [preco, setPreco] = useState('');
   const [custo, setCusto] = useState('');
   const [controlarEstoque, setControlarEstoque] = useState(false);
   const [estoqueAtual, setEstoqueAtual] = useState('');
-  const [categoriaId, setCategoriaId] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -26,17 +24,15 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({ produto, categorias,
         setCusto(produto.custo !== undefined ? produto.custo.toFixed(2) : '');
         setControlarEstoque(produto.controlar_estoque || false);
         setEstoqueAtual(produto.estoque_atual !== undefined ? String(produto.estoque_atual) : '');
-        setCategoriaId(produto.categoria_id || (categorias.length > 0 ? categorias[0].id : ''));
       } else {
         setNome('');
         setPreco('');
         setCusto('');
         setControlarEstoque(false);
         setEstoqueAtual('');
-        setCategoriaId(categorias.length > 0 ? categorias[0].id : '');
       }
     }
-  }, [isOpen, produto, categorias]);
+  }, [isOpen, produto]);
 
   if (!isOpen) return null;
 
@@ -46,7 +42,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({ produto, categorias,
     const custoNum = custo ? parseFloat(custo.replace(',', '.')) : undefined;
     const estoqueNum = estoqueAtual ? parseInt(estoqueAtual, 10) : undefined;
     
-    if (!nome.trim() || isNaN(precoNum) || !categoriaId) {
+    if (!nome.trim() || isNaN(precoNum)) {
       return;
     }
     
@@ -55,8 +51,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({ produto, categorias,
       preco: precoNum,
       custo: !isNaN(custoNum as any) ? custoNum : undefined,
       controlar_estoque: controlarEstoque,
-      estoque_atual: !isNaN(estoqueNum as any) ? estoqueNum : undefined,
-      categoria_id: categoriaId
+      estoque_atual: !isNaN(estoqueNum as any) ? estoqueNum : undefined
     });
   };
 
@@ -78,21 +73,6 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({ produto, categorias,
         
         <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
           <div>
-            <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1.5">
-              Categoria
-            </label>
-            <select
-              value={categoriaId}
-              onChange={e => setCategoriaId(e.target.value)}
-              className="w-full px-4 py-3 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:border-amber-600 outline-none font-medium mb-4"
-              required
-            >
-              {categorias.length === 0 && <option value="">Sem categorias (Adicione primeiro)</option>}
-              {categorias.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.nome}</option>
-              ))}
-            </select>
-
             <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1.5">
               Nome do Produto
             </label>

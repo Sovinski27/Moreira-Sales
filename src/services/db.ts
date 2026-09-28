@@ -1,4 +1,17 @@
-import { Cliente, Compra, ConfiguracaoFidelidade, Categoria, Produto, ItemCarrinho } from '../types';
+import {
+  Cliente,
+  Compra,
+  ConfiguracaoFidelidade,
+  Categoria,
+  Produto,
+  ItemCarrinho,
+  Fornecedor,
+  Insumo,
+  FichaTecnica,
+  HistoricoCompraInsumo,
+  CustosFixosConfig,
+  MesaAberta
+} from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { INITIAL_CLIENTES, INITIAL_COMPRAS, INITIAL_CONFIG, INITIAL_CATEGORIAS, INITIAL_PRODUTOS, INITIAL_FORNECEDORES, INITIAL_INSUMOS, INITIAL_FICHAS_TECNICAS } from './seedData';
 import { cleanPhone } from './whatsapp';
@@ -17,12 +30,43 @@ export const STORAGE_KEYS = {
 };
 
 // --- MOCK / LOCAL STORAGE ENGINE ---
-// Auxiliares LocalStorage
-export function getLocal<T>(key: string, defaultValue: T): T {
-  if (isSupabaseConfigured) return defaultValue; // Ignora o cache local para evitar fantasmas
+const CLEANUP_KEY = 'panificadora_cleaned_v3';
+
+function runInitialCleanupIfNeeded(): void {
+  if (typeof localStorage === 'undefined') return;
   try {
-    const item = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+    const isClean = localStorage.getItem(CLEANUP_KEY);
+    if (!isClean) {
+      const rawClientes = localStorage.getItem(STORAGE_KEYS.CLIENTES);
+      const rawCompras = localStorage.getItem(STORAGE_KEYS.COMPRAS);
+      const rawFornecedores = localStorage.getItem(STORAGE_KEYS.FORNECEDORES);
+      
+      const hasDemoClientes = rawClientes && (rawClientes.includes('cli-01') || rawClientes.includes('Marlene') || rawClientes.includes('Valdomiro'));
+      const hasDemoCompras = rawCompras && (rawCompras.includes('comp-marlene') || rawCompras.includes('comp-antonio') || rawCompras.includes('comp-valdomiro'));
+      const hasDemoFornecedores = rawFornecedores && (rawFornecedores.includes('forn-1') || rawFornecedores.includes('Moinho Real') || rawFornecedores.includes('Laticínios Fazenda'));
+      
+      if (hasDemoClientes || hasDemoCompras || hasDemoFornecedores || !rawClientes || !rawCompras) {
+        localStorage.setItem(STORAGE_KEYS.CLIENTES, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.COMPRAS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.HISTORICO_COMPRAS, JSON.stringify([]));
+      }
+      localStorage.setItem(CLEANUP_KEY, 'true');
+    }
+  } catch (e) {
+    console.warn('Erro ao verificar limpeza do localStorage:', e);
+  }
+}
+runInitialCleanupIfNeeded();
+
+// Auxiliares LocalStorage
+export const getLocal = <T>(key: string, defaultValue: T): T => {
+  try {
+    const item = localStorage.getItem(key);
     if (!item) {
+      localStorage.setItem(key, JSON.stringify(defaultValue));
       return defaultValue;
     }
     return JSON.parse(item) as T;
@@ -33,25 +77,25 @@ export function getLocal<T>(key: string, defaultValue: T): T {
 }
 
 function setLocal<T>(key: string, value: T): void {
-  if (isSupabaseConfigured) return; // Não polui o cache local se estiver no Supabase
   try {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(key, JSON.stringify(value));
-    }
+    localStorage.setItem(key, JSON.stringify(value));
   } catch (err) {
-    console.error(`Erro ao salvar localStorage [${key}]:`, err);
+    console.error(`Erro ao gravar localStorage [${key}]:`, err);
   }
 }
 
 export function resetToDemoData(): void {
-  localStorage.setItem(STORAGE_KEYS.CLIENTES, JSON.stringify(INITIAL_CLIENTES));
-  localStorage.setItem(STORAGE_KEYS.COMPRAS, JSON.stringify(INITIAL_COMPRAS));
+  localStorage.setItem(STORAGE_KEYS.CLIENTES, JSON.stringify([]));
+  localStorage.setItem(STORAGE_KEYS.COMPRAS, JSON.stringify([]));
   localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(INITIAL_CONFIG));
   localStorage.setItem(STORAGE_KEYS.CATEGORIAS, JSON.stringify(INITIAL_CATEGORIAS));
   localStorage.setItem(STORAGE_KEYS.PRODUTOS, JSON.stringify(INITIAL_PRODUTOS));
-  localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(INITIAL_FORNECEDORES));
-  localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(INITIAL_INSUMOS));
-  localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(INITIAL_FICHAS_TECNICAS));
+  localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify([]));
+  localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify([]));
+  localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify([]));
+  localStorage.setItem(STORAGE_KEYS.HISTORICO_COMPRAS, JSON.stringify([]));
+  localStorage.setItem('panificadora_mesas_abertas', JSON.stringify([]));
+  localStorage.setItem(CLEANUP_KEY, 'true');
 }
 
 // --- DATA ACCESS LAYER ---
@@ -400,204 +444,181 @@ export async function deleteProduto(id: string): Promise<void> {
 }
 // --- MESAS ABERTAS ---
 export async function fetchMesasAbertas(): Promise<any[]> {
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('pedidos')
-        .select(`
-          id,
-          identificador_origem,
-          valor_total,
-          criado_em,
-          cliente_id,
-          cliente_nome,
-          cliente_whatsapp,
-          itens_pedido (
-            id,
-            quantidade,
-            preco_unitario,
-            produto_id,
-            produtos (
-              id,
-              nome,
-              preco,
-              controlar_estoque,
-              estoque_atual
-            )
-          )
-        `)
-        .eq('origem', 'Mesa')
-        .neq('status', 'Pago');
-      
-      if (!error && data) {
-        const grouped: Record<string, any> = {};
-        for (const pedido of data) {
-          const numStr = pedido.identificador_origem || '0';
-          const num = parseInt(numStr);
-          if (isNaN(num)) continue;
-          
-          if (!grouped[num]) {
-            grouped[num] = {
-              id: `mesa-${num}`,
-              mesa_numero: num,
-              criado_em: pedido.criado_em,
-              carrinho: [],
-              total: 0,
-              cliente_id: pedido.cliente_id,
-              cliente_nome: pedido.cliente_nome,
-              cliente_whatsapp: pedido.cliente_whatsapp
-            };
-          } else {
-            // Se a mesa já existe, prioriza o pedido que tenha cliente_whatsapp
-            if (!grouped[num].cliente_whatsapp && pedido.cliente_whatsapp) {
-              grouped[num].cliente_id = pedido.cliente_id;
-              grouped[num].cliente_nome = pedido.cliente_nome;
-              grouped[num].cliente_whatsapp = pedido.cliente_whatsapp;
-            }
-          }
-          
-          grouped[num].total += Number(pedido.valor_total);
-          
-          if (pedido.itens_pedido) {
-            for (const item of pedido.itens_pedido) {
-              const p = Array.isArray(item.produtos) ? item.produtos[0] : (item.produtos || {});
-              grouped[num].carrinho.push({
-                id_temp: `item-${item.id}`,
-                produto: {
-                  id: item.produto_id,
-                  nome: p?.nome || 'Produto',
-                  preco: Number(item.preco_unitario),
-                  controlar_estoque: p?.controlar_estoque,
-                  estoque_atual: p?.estoque_atual
-                },
-                quantidade: item.quantidade,
-                subtotal: item.quantidade * Number(item.preco_unitario)
-              });
-            }
-          }
-        }
-        return Object.values(grouped);
-      }
-    } catch (e) {
-      console.warn('Falha ao buscar mesas do Supabase', e);
-    }
-  }
-  return [];
+  const STORAGE_KEYS = { MESAS_ABERTAS: 'panificadora_mesas_abertas' };
+  const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
+  return getLocal(STORAGE_KEYS.MESAS_ABERTAS, []);
 }
 
 export async function saveMesaAberta(mesa: any): Promise<any> {
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const novosItens = mesa.carrinho.filter((i: any) => !i.id_temp.startsWith('item-'));
-      if (novosItens.length > 0) {
-        const valorTotalNovo = novosItens.reduce((acc: number, i: any) => acc + i.subtotal, 0);
-        const { data: novoPedido, error: erroPedido } = await supabase
-          .from('pedidos')
-          .insert({
-            origem: 'Mesa',
-            identificador_origem: mesa.mesa_numero.toString(),
-            status: 'Entregue',
-            valor_total: valorTotalNovo,
-            criado_em: new Date().toISOString()
-          })
-          .select()
-          .single();
-          
-        if (!erroPedido && novoPedido) {
-          const itensParaInserir = novosItens.map((i: any) => ({
-            pedido_id: novoPedido.id,
-            produto_id: (i.produto.id && i.produto.id.startsWith('avulso')) ? null : i.produto.id,
-            quantidade: i.quantidade,
-            preco_unitario: i.produto.preco,
-            subtotal: i.subtotal
-          }));
-          await supabase.from('itens_pedido').insert(itensParaInserir);
-        }
-      }
-    } catch (e) {
-      console.warn('Falha ao salvar mesa no Supabase', e);
-    }
-  }
-  return mesa;
+  const STORAGE_KEYS = { MESAS_ABERTAS: 'panificadora_mesas_abertas' };
+  const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
+  const setLocal = (k: string, v: any) => localStorage.setItem(k, JSON.stringify(v));
+  
+  const newMesa = {
+    ...mesa,
+    id: mesa.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'mesa-' + Date.now())
+  };
+
+  const mesas = getLocal(STORAGE_KEYS.MESAS_ABERTAS, []);
+  const updatedList = mesa.id 
+    ? mesas.map((m: any) => m.id === mesa.id ? newMesa : m)
+    : [...mesas, newMesa];
+  setLocal(STORAGE_KEYS.MESAS_ABERTAS, updatedList);
+  return newMesa;
 }
 
 export async function deleteMesaAberta(id: string): Promise<void> {
-  if (id.startsWith('mesa-') && isSupabaseConfigured && supabase) {
-    const num = id.split('-')[1];
-    try {
-      await supabase
-        .from('pedidos')
-        .update({ status: 'Pago' })
-        .eq('origem', 'Mesa')
-        .eq('identificador_origem', num)
-        .neq('status', 'Pago');
-    } catch (e) {
-      console.warn('Falha ao fechar mesa no Supabase', e);
-    }
-  }
+  const STORAGE_KEYS = { MESAS_ABERTAS: 'panificadora_mesas_abertas' };
+  const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
+  const setLocal = (k: string, v: any) => localStorage.setItem(k, JSON.stringify(v));
+  
+  const mesas = getLocal(STORAGE_KEYS.MESAS_ABERTAS, []);
+  setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesas.filter((m: any) => m.id !== id));
 }
 
 // --- CMV ---
-export async function fetchFornecedores(): Promise<any[]> {
-  const v = localStorage.getItem(STORAGE_KEYS.FORNECEDORES);
-  const list = v ? JSON.parse(v) : [];
-  if (!list || list.length === 0) {
-    localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(INITIAL_FORNECEDORES));
-    return INITIAL_FORNECEDORES;
+export async function fetchFornecedores(): Promise<Fornecedor[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('fornecedores')
+        .select('*')
+        .order('nome_empresa');
+      if (!error && data) return data as Fornecedor[];
+    } catch (e) {
+      console.warn('Falha ao buscar fornecedores no Supabase, usando local:', e);
+    }
   }
-  return list;
+  const v = localStorage.getItem(STORAGE_KEYS.FORNECEDORES);
+  return v ? JSON.parse(v) : [];
 }
-export async function saveFornecedor(f: any): Promise<any> {
+
+export async function saveFornecedor(f: Fornecedor): Promise<Fornecedor> {
+  const id = f.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'forn-' + Date.now());
+  const newF: Fornecedor = { ...f, id };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('fornecedores').upsert({
+        id: newF.id,
+        nome_empresa: newF.nome_empresa,
+        contato_whatsapp: newF.contato_whatsapp,
+        cnpj: newF.cnpj || null,
+        cidade: newF.cidade || null,
+      });
+    } catch (e) {
+      console.warn('Falha ao salvar fornecedor no Supabase:', e);
+    }
+  }
+
   const list = await fetchFornecedores();
-  const id = f.id || 'forn-' + Date.now();
-  const newF = { ...f, id };
-  const exists = list.some(x => x.id === f.id); const updated = exists ? list.map(x => x.id === f.id ? newF : x) : [...list, newF];
+  const exists = list.some(x => x.id === newF.id);
+  const updated = exists ? list.map(x => x.id === newF.id ? newF : x) : [...list, newF];
   localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(updated));
   return newF;
 }
+
 export async function deleteFornecedor(id: string): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('fornecedores').delete().eq('id', id);
+    } catch (e) {
+      console.warn('Falha ao excluir fornecedor no Supabase:', e);
+    }
+  }
   const list = await fetchFornecedores();
   localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(list.filter(x => x.id !== id)));
 }
-export async function fetchInsumos(): Promise<any[]> {
-  const v = localStorage.getItem(STORAGE_KEYS.INSUMOS);
-  const list = v ? JSON.parse(v) : [];
-  if (!list || list.length === 0) {
-    localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(INITIAL_INSUMOS));
-    return INITIAL_INSUMOS;
+
+export async function fetchInsumos(): Promise<Insumo[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('insumos')
+        .select('*')
+        .order('nome');
+      if (!error && data) return data as Insumo[];
+    } catch (e) {
+      console.warn('Falha ao buscar insumos no Supabase, usando local:', e);
+    }
   }
-  return list;
+  const v = localStorage.getItem(STORAGE_KEYS.INSUMOS);
+  return v ? JSON.parse(v) : [];
 }
-export async function saveInsumo(i: any): Promise<any> {
+
+export async function saveInsumo(i: Insumo): Promise<Insumo> {
+  const id = i.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'insumo-' + Date.now());
+  const newI: Insumo = { ...i, id };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('insumos').upsert(newI);
+    } catch (e) {
+      console.warn('Falha ao salvar insumo no Supabase:', e);
+    }
+  }
+
   const list = await fetchInsumos();
-  const id = i.id || 'insumo-' + Date.now();
-  const newI = { ...i, id };
-  const exists = list.some(x => x.id === newI.id); const updated = exists ? list.map(x => x.id === newI.id ? newI : x) : [...list, newI];
+  const exists = list.some(x => x.id === newI.id);
+  const updated = exists ? list.map(x => x.id === newI.id ? newI : x) : [...list, newI];
   localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(updated));
   return newI;
 }
+
 export async function deleteInsumo(id: string): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('insumos').delete().eq('id', id);
+    } catch (e) {
+      console.warn('Falha ao excluir insumo no Supabase:', e);
+    }
+  }
   const list = await fetchInsumos();
   localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(list.filter(x => x.id !== id)));
 }
-export async function fetchFichasTecnicas(): Promise<any[]> {
-  const v = localStorage.getItem(STORAGE_KEYS.FICHAS_TECNICAS);
-  const list = v ? JSON.parse(v) : [];
-  if (!list || list.length === 0) {
-    localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(INITIAL_FICHAS_TECNICAS));
-    return INITIAL_FICHAS_TECNICAS;
+
+export async function fetchFichasTecnicas(): Promise<FichaTecnica[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('fichas_tecnicas')
+        .select('*');
+      if (!error && data) return data as FichaTecnica[];
+    } catch (e) {
+      console.warn('Falha ao buscar fichas no Supabase, usando local:', e);
+    }
   }
-  return list;
+  const v = localStorage.getItem(STORAGE_KEYS.FICHAS_TECNICAS);
+  return v ? JSON.parse(v) : [];
 }
-export async function saveFichaTecnica(f: any): Promise<any> {
+
+export async function saveFichaTecnica(f: FichaTecnica): Promise<FichaTecnica> {
+  const id = f.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'ficha-' + Date.now());
+  const newF: FichaTecnica = { ...f, id };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('fichas_tecnicas').upsert(newF);
+    } catch (e) {
+      console.warn('Falha ao salvar ficha no Supabase:', e);
+    }
+  }
+
   const list = await fetchFichasTecnicas();
-  const id = f.id || 'ficha-' + Date.now();
-  const newF = { ...f, id };
-  const exists = list.some(x => x.id === newF.id); const updated = exists ? list.map(x => x.id === newF.id ? newF : x) : [...list, newF];
+  const exists = list.some(x => x.id === newF.id);
+  const updated = exists ? list.map(x => x.id === newF.id ? newF : x) : [...list, newF];
   localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(updated));
   return newF;
 }
+
 export async function deleteFichaTecnica(id: string): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('fichas_tecnicas').delete().eq('id', id);
+    } catch (e) {
+      console.warn('Falha ao excluir ficha no Supabase:', e);
+    }
+  }
   const list = await fetchFichasTecnicas();
   localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(list.filter(x => x.id !== id)));
 }

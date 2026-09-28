@@ -53,7 +53,6 @@ const LoyaltyContext = createContext<LoyaltyContextType | undefined>(undefined);
 
 export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [clientes, setClientes] = useState<Cliente[]>(() => {
-    if (isSupabaseConfigured) return [];
     try {
       const item = typeof localStorage !== 'undefined' ? localStorage.getItem('panificadora_clientes') : null;
       return item ? JSON.parse(item) : [];
@@ -62,7 +61,6 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   });
   const [compras, setCompras] = useState<Compra[]>(() => {
-    if (isSupabaseConfigured) return [];
     try {
       const item = typeof localStorage !== 'undefined' ? localStorage.getItem('panificadora_compras') : null;
       return item ? JSON.parse(item) : [];
@@ -71,7 +69,6 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   });
   const [config, setConfig] = useState<ConfiguracaoFidelidade>(() => {
-    if (isSupabaseConfigured) return INITIAL_CONFIG;
     try {
       const item = typeof localStorage !== 'undefined' ? localStorage.getItem('panificadora_config') : null;
       return item ? JSON.parse(item) : INITIAL_CONFIG;

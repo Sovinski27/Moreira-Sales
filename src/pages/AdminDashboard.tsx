@@ -400,6 +400,15 @@ export const AdminDashboard: React.FC = () => {
           </div>
 
           <div className="p-4 sm:p-6 bg-stone-50/50">
+            {rankingClientes.length === 0 ? (
+              <div className="text-center py-16 px-4 bg-white rounded-2xl border border-dashed border-stone-300">
+                <Trophy className="w-12 h-12 text-amber-300 mx-auto mb-3" />
+                <h4 className="text-base font-bold text-stone-800">Nenhum cliente pontuou no mês corrente ainda</h4>
+                <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1 mb-4">
+                  Assim que as vendas forem registradas no Caixa com identificação do cliente, o ranking VIP será atualizado automaticamente em tempo real.
+                </p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {rankingClientes.map((r, index) => {
                 const isTop3 = index < 3;
@@ -480,6 +489,7 @@ export const AdminDashboard: React.FC = () => {
                 );
               })}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -659,66 +669,78 @@ export const AdminDashboard: React.FC = () => {
           </div>
 
           <div className="p-4 sm:p-6 bg-stone-50/50">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {clientesFiltrados.map((r) => {
-                const whatsUrl = getWhatsAppUrl(
-                  r.cliente.whatsapp,
-                  `Olá ${r.cliente.nome}! Passando para desejar um ótimo dia aqui da Panificadora Moreira Sales! 🥖☕`
-                );
+            {clientesFiltrados.length === 0 ? (
+              <div className="bg-white p-12 text-center rounded-2xl border border-dashed border-stone-200">
+                <Users className="w-12 h-12 text-stone-300 mx-auto mb-2" />
+                <h4 className="text-base font-bold text-stone-800">
+                  {filtroTexto ? 'Nenhum cliente encontrado com este filtro' : 'Nenhum cliente cadastrado ainda'}
+                </h4>
+                <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1">
+                  {filtroTexto ? 'Tente buscar por outro nome ou número de WhatsApp.' : 'Cadastre clientes no Frente de Caixa informando o WhatsApp e nome durante a compra.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {clientesFiltrados.map((r) => {
+                  const whatsUrl = getWhatsAppUrl(
+                    r.cliente.whatsapp,
+                    `Olá ${r.cliente.nome}! Passando para desejar um ótimo dia aqui da Panificadora Moreira Sales! 🥖☕`
+                  );
 
-                return (
-                  <button
-                    key={r.cliente.id}
-                    type="button"
-                    onClick={() => setPerfilCliente(r.cliente)}
-                    className="text-left bg-white p-4 rounded-2xl border border-stone-200 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-100/50 hover:-translate-y-1 transition-all duration-200 group"
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="min-w-0 flex-1 pr-4">
-                        <h4 className="font-bold text-stone-900 group-hover:text-amber-700 transition-colors truncate">
-                          {r.cliente.nome}
-                        </h4>
-                        <p className="text-xs font-mono text-stone-500 mt-0.5 truncate">
-                          {formatPhoneDisplay(r.cliente.whatsapp)}
-                        </p>
+                  return (
+                    <button
+                      key={r.cliente.id}
+                      type="button"
+                      onClick={() => setPerfilCliente(r.cliente)}
+                      className="text-left bg-white p-4 rounded-2xl border border-stone-200 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-100/50 hover:-translate-y-1 transition-all duration-200 group"
+                    >
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="min-w-0 flex-1 pr-4">
+                          <h4 className="font-bold text-stone-900 group-hover:text-amber-700 transition-colors truncate">
+                            {r.cliente.nome}
+                          </h4>
+                          <p className="text-xs font-mono text-stone-500 mt-0.5 truncate">
+                            {formatPhoneDisplay(r.cliente.whatsapp)}
+                          </p>
+                        </div>
+                        <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center shrink-0 border border-stone-200">
+                          <User className="w-4 h-4 text-stone-400" />
+                        </div>
                       </div>
-                      <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center shrink-0 border border-stone-200">
-                        <User className="w-4 h-4 text-stone-400" />
-                      </div>
-                    </div>
 
-                    <div className="grid grid-cols-2 gap-2 mb-4">
-                      <div className="bg-stone-50 p-2 rounded-xl border border-stone-100">
-                        <span className="block text-[10px] uppercase font-bold text-stone-400">Compras Mês</span>
-                        <span className="font-black text-amber-700">{r.compras_validas_fidelidade}</span>
+                      <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div className="bg-stone-50 p-2 rounded-xl border border-stone-100">
+                          <span className="block text-[10px] uppercase font-bold text-stone-400">Compras Mês</span>
+                          <span className="font-black text-amber-700">{r.compras_validas_fidelidade}</span>
+                        </div>
+                        <div className="bg-stone-50 p-2 rounded-xl border border-stone-100">
+                          <span className="block text-[10px] uppercase font-bold text-stone-400">Total Vida</span>
+                          <span className="font-black text-stone-700">{r.cliente.total_compras_historico}</span>
+                        </div>
                       </div>
-                      <div className="bg-stone-50 p-2 rounded-xl border border-stone-100">
-                        <span className="block text-[10px] uppercase font-bold text-stone-400">Total Vida</span>
-                        <span className="font-black text-stone-700">{r.cliente.total_compras_historico}</span>
-                      </div>
-                    </div>
 
-                    <div className="flex items-center justify-between mt-2 pt-3 border-t border-stone-100">
-                      <div className="text-[10px] text-stone-400 truncate pr-2 min-w-0 flex-1">
-                        <span className="font-semibold uppercase block truncate">Última Visita</span>
-                        {r.ultima_compra_data || 'Nenhuma'}
+                      <div className="flex items-center justify-between mt-2 pt-3 border-t border-stone-100">
+                        <div className="text-[10px] text-stone-400 truncate pr-2 min-w-0 flex-1">
+                          <span className="font-semibold uppercase block truncate">Última Visita</span>
+                          {r.ultima_compra_data || 'Nenhuma'}
+                        </div>
+                        
+                        <a
+                          href={whatsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-colors"
+                          title="Enviar Mensagem"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </a>
                       </div>
-                      
-                      <a
-                        href={whatsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-colors"
-                        title="Enviar Mensagem"
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                      </a>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -954,12 +976,12 @@ export const AdminDashboard: React.FC = () => {
       <ProdutoModal
         isOpen={produtoModalConfig.isOpen}
         produto={produtoModalConfig.produto}
-        categorias={categorias}
         onClose={() => setProdutoModalConfig({ isOpen: false })}
         onSave={(dados) => {
+          const catId = categorias.length > 0 ? categorias[0].id : '';
           const novoProduto = produtoModalConfig.produto 
             ? { ...produtoModalConfig.produto, ...dados }
-            : { ...dados, ativo: true };
+            : { ...dados, categoria_id: catId, ativo: true };
             
           saveProduto(novoProduto as any).then(() => {
             fetchProdutos().then(setProdutos);

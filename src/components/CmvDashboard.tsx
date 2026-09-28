@@ -31,6 +31,19 @@ export const CmvDashboard: React.FC = () => {
   const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: 'Aviso', message: '' });
   const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: 'Confirmação', message: '', onConfirm: () => {} });
   const [exportando, setExportando] = useState(false);
+  const [compraInsumoModal, setCompraInsumoModal] = useState<{
+    isOpen: boolean;
+    insumo: Insumo | null;
+    quantidade: string;
+    valorTotal: string;
+    isSubmitting: boolean;
+  }>({
+    isOpen: false,
+    insumo: null,
+    quantidade: '',
+    valorTotal: '',
+    isSubmitting: false
+  });
 
   const handleExportarExcel = async () => {
     try {
@@ -83,38 +96,49 @@ export const CmvDashboard: React.FC = () => {
     return custo;
   };
 
-  const handleCompraInsumo = async (insumoId: string) => {
-    const qtdStr = prompt('Quantidade comprada (ex: se pacote de 5kg e usou kg, digite 5):');
-    if (qtdStr === null) return; // User cancelled
-    
-    const valorStr = prompt('Valor total pago nesta quantidade (R$):');
-    if (valorStr === null) return; // User cancelled
-    
-    if (qtdStr.trim() === '' || valorStr.trim() === '') {
-      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Atenção: A quantidade e o valor devem ser preenchidos.' });
-      return;
-    }
+  const handleAbrirCompraInsumo = (insumo: Insumo) => {
+    setCompraInsumoModal({
+      isOpen: true,
+      insumo,
+      quantidade: '',
+      valorTotal: '',
+      isSubmitting: false
+    });
+  };
 
-    const qtd = parseFloat(qtdStr.replace(',', '.'));
-    const val = parseFloat(valorStr.replace(',', '.'));
-    
+  const handleSalvarCompraInsumo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!compraInsumoModal.insumo) return;
+
+    const qtd = parseFloat(compraInsumoModal.quantidade.replace(',', '.'));
+    const val = parseFloat(compraInsumoModal.valorTotal.replace(',', '.'));
+
     if (isNaN(qtd) || qtd <= 0) {
       setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Erro: Quantidade inválida. Digite um número maior que zero.' });
       return;
     }
-    
+
     if (isNaN(val) || val < 0) {
       setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Erro: Valor inválido. Digite um número positivo.' });
       return;
     }
 
     try {
-      await registrarCompraInsumo(insumoId, qtd, val);
-      loadData();
-      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Compra registrada e estoque atualizado com sucesso!' });
+      setCompraInsumoModal(prev => ({ ...prev, isSubmitting: true }));
+      await registrarCompraInsumo(compraInsumoModal.insumo.id, qtd, val);
+      await loadData();
+      setCompraInsumoModal({
+        isOpen: false,
+        insumo: null,
+        quantidade: '',
+        valorTotal: '',
+        isSubmitting: false
+      });
+      setAlertConfig({ isOpen: true, title: 'Sucesso', message: 'Compra registrada e estoque atualizado com sucesso!' });
     } catch (err) {
       console.error(err);
-      setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Erro ao registrar a compra. Tente novamente.' });
+      setCompraInsumoModal(prev => ({ ...prev, isSubmitting: false }));
+      setAlertConfig({ isOpen: true, title: 'Erro', message: 'Erro ao registrar a compra de insumo. Tente novamente.' });
     }
   };
 
@@ -184,12 +208,13 @@ export const CmvDashboard: React.FC = () => {
   };
 
   const handleSaveInsumo = async () => {
-    if (!novoInsumo.nome?.trim() || !novoInsumo.fornecedor_id || novoInsumo.preco_custo === undefined || isNaN(novoInsumo.preco_custo) || novoInsumo.preco_custo < 0) {
-      setAlertConfig({ isOpen: true, title: "Aviso", message: "Preencha nome, fornecedor e preço de custo (maior ou igual a zero)." });
+    if (!novoInsumo.nome?.trim() || novoInsumo.preco_custo === undefined || isNaN(novoInsumo.preco_custo) || novoInsumo.preco_custo < 0) {
+      setAlertConfig({ isOpen: true, title: "Aviso", message: "Preencha o nome do insumo e o preço de custo (maior ou igual a zero)." });
       return;
     }
     await saveInsumo({
       ...novoInsumo,
+      fornecedor_id: novoInsumo.fornecedor_id || '',
       quantidade_estoque: novoInsumo.quantidade_estoque && !isNaN(novoInsumo.quantidade_estoque) && novoInsumo.quantidade_estoque >= 0 ? novoInsumo.quantidade_estoque : 0,
       estoque_minimo: novoInsumo.estoque_minimo && !isNaN(novoInsumo.estoque_minimo) && novoInsumo.estoque_minimo >= 0 ? novoInsumo.estoque_minimo : 0,
     } as Insumo);
@@ -610,81 +635,183 @@ export const CmvDashboard: React.FC = () => {
       {activeTab === 'insumos' && (
         <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-4 sm:p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2 sm:gap-0">
-            <h3 className="text-lg sm:text-xl font-bold text-amber-900">Estoque de Insumos</h3>
-            <button onClick={() => setModalInsumoOpen(true)} className="w-full sm:w-auto justify-center bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
+            <div>
+              <h3 className="text-lg sm:text-xl font-bold text-amber-900">Estoque de Insumos</h3>
+              <p className="text-xs text-stone-500">Insumos e matérias-primas utilizados na produção.</p>
+            </div>
+            <button onClick={() => {
+              setNovoInsumo({ unidade_medida: 'kg', quantidade_estoque: 0, estoque_minimo: 0, preco_custo: 0 });
+              setModalInsumoOpen(true);
+            }} className="w-full sm:w-auto justify-center bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
               <Plus className="w-5 h-5 mr-2" />
               Novo Insumo
             </button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] text-left">
-              <thead>
-                <tr className="bg-amber-50 text-amber-900">
-                  <th className="p-3 rounded-tl-lg">Insumo</th>
-                  <th className="p-3">Fornecedor</th>
-                  <th className="p-3">Custo / Unidade</th>
-                  <th className="p-3">Estoque Atual</th>
-                  <th className="p-3 rounded-tr-lg">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {insumos.map(i => {
-                  const forn = fornecedores.find(f => f.id === i.fornecedor_id);
-                  const baixo = i.quantidade_estoque <= i.estoque_minimo;
-                  return (
-                    <tr key={i.id} className="border-b border-amber-50">
-                      <td className="p-3 text-slate-800">
-                        {i.nome}
-                        {baixo && <span className="ml-2 inline-block px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full">Baixo!</span>}
-                      </td>
-                      <td className="p-3 text-slate-600">{forn ? forn.nome_empresa : '-'}</td>
-                      <td className="p-3 text-slate-600">{formatMoney(i.preco_custo)} / {i.unidade_medida}</td>
-                      <td className={`p-3 font-bold ${baixo ? 'text-red-600' : 'text-slate-800'}`}>{i.quantidade_estoque.toFixed(2)} {i.unidade_medida}</td>
-                      <td className="p-3 space-x-2">
-                        <button onClick={() => handleCompraInsumo(i.id)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100" title="Registrar Compra">
-                          <ShoppingCart className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          {insumos.length === 0 ? (
+            <div className="text-center py-10 px-4 border-2 border-dashed border-amber-200 rounded-xl bg-amber-50/20 my-4">
+              <Package className="w-10 h-10 text-amber-300 mx-auto mb-2" />
+              <h4 className="text-sm font-bold text-stone-700">Nenhum insumo cadastrado</h4>
+              <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1 mb-3">
+                Cadastre os insumos da panificadora (ex: farinha, café, leite) para calcular CMV e controlar estoque.
+              </p>
+              <button
+                onClick={() => {
+                  setNovoInsumo({ unidade_medida: 'kg', quantidade_estoque: 0, estoque_minimo: 0, preco_custo: 0 });
+                  setModalInsumoOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Cadastrar Insumo
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[600px] text-left">
+                <thead>
+                  <tr className="bg-amber-50 text-amber-900">
+                    <th className="p-3 rounded-tl-lg">Insumo</th>
+                    <th className="p-3">Fornecedor</th>
+                    <th className="p-3">Custo / Unidade</th>
+                    <th className="p-3">Estoque Atual</th>
+                    <th className="p-3 rounded-tr-lg">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {insumos.map(i => {
+                    const forn = fornecedores.find(f => f.id === i.fornecedor_id);
+                    const baixo = i.quantidade_estoque <= i.estoque_minimo;
+                    return (
+                      <tr key={i.id} className="border-b border-amber-50">
+                        <td className="p-3 text-slate-800">
+                          {i.nome}
+                          {baixo && <span className="ml-2 inline-block px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full">Baixo!</span>}
+                        </td>
+                        <td className="p-3 text-slate-600">{forn ? forn.nome_empresa : <span className="text-stone-400 italic">Não vinculado</span>}</td>
+                        <td className="p-3 text-slate-600">{formatMoney(i.preco_custo)} / {i.unidade_medida}</td>
+                        <td className={`p-3 font-bold ${baixo ? 'text-red-600' : 'text-slate-800'}`}>{i.quantidade_estoque.toFixed(2)} {i.unidade_medida}</td>
+                        <td className="p-3 space-x-2">
+                          <button onClick={() => handleAbrirCompraInsumo(i)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100" title="Registrar Compra">
+                            <ShoppingCart className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setConfirmConfig({
+                                isOpen: true,
+                                title: 'Excluir Insumo',
+                                message: `Tem certeza que deseja remover o insumo "${i.nome}"?`,
+                                onConfirm: async () => {
+                                  await deleteInsumo(i.id);
+                                  loadData();
+                                }
+                              });
+                            }}
+                            className="p-2 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                            title="Excluir Insumo"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
       {activeTab === 'fornecedores' && (
         <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-4 sm:p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2 sm:gap-0">
-            <h3 className="text-lg sm:text-xl font-bold text-amber-900">Fornecedores</h3>
-            <button onClick={() => setModalFornecedorOpen(true)} className="w-full sm:w-auto justify-center bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
+            <div>
+              <h3 className="text-lg sm:text-xl font-bold text-amber-900">Fornecedores</h3>
+              <p className="text-xs text-stone-500">Cadastre e gerencie os fornecedores vinculados aos insumos da empresa.</p>
+            </div>
+            <button onClick={() => {
+              setNovoFornecedor({});
+              setModalFornecedorOpen(true);
+            }} className="w-full sm:w-auto justify-center bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center">
               <Plus className="w-5 h-5 mr-2" />
               Novo Fornecedor
             </button>
           </div>
-          <ul className="space-y-4">
-            {fornecedores.map(f => (
-              <li key={f.id} className="p-4 border rounded flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
-                <div>
-                  <h4 className="font-bold text-lg text-slate-800">{f.nome_empresa}</h4>
-                  <p className="text-sm text-slate-600">{f.cidade} - CNPJ: {f.cnpj || 'Não info'}</p>
-                </div>
-                {f.contato_whatsapp && (
-                  <a href={`https://wa.me/${f.contato_whatsapp}`} target="_blank" rel="noreferrer" className="w-full sm:w-auto justify-center bg-green-100 text-green-700 px-3 py-1.5 rounded font-medium text-sm flex items-center hover:bg-green-200">
-                    Whatsapp
-                  </a>
-                )}
-              </li>
-            ))}
-          </ul>
+          {fornecedores.length === 0 ? (
+            <div className="text-center py-12 px-4 border-2 border-dashed border-amber-200 rounded-xl bg-amber-50/20 my-4">
+              <Truck className="w-12 h-12 text-amber-300 mx-auto mb-3" />
+              <h4 className="text-base font-bold text-stone-800">Nenhum fornecedor cadastrado</h4>
+              <p className="text-xs text-stone-500 max-w-md mx-auto mt-1 mb-4">
+                O sistema está limpo. Cadastre os fornecedores parceiros da panificadora diretamente no banco de dados para vincular aos insumos e calcular custos.
+              </p>
+              <button
+                onClick={() => {
+                  setNovoFornecedor({});
+                  setModalFornecedorOpen(true);
+                }}
+                className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Cadastrar Primeiro Fornecedor
+              </button>
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {fornecedores.map(f => (
+                <li key={f.id} className="p-4 border rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0 hover:border-amber-300 transition-colors bg-white">
+                  <div>
+                    <h4 className="font-bold text-lg text-slate-800">{f.nome_empresa}</h4>
+                    <p className="text-sm text-slate-600">{f.cidade ? `${f.cidade} - ` : ''}CNPJ: {f.cnpj || 'Não informado'}</p>
+                    <p className="text-xs text-stone-400 font-mono mt-0.5">{f.contato_whatsapp}</p>
+                  </div>
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    {f.contato_whatsapp && (
+                      <a href={`https://wa.me/${f.contato_whatsapp}`} target="_blank" rel="noreferrer" className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-medium text-sm flex items-center hover:bg-green-200 transition-colors">
+                        WhatsApp
+                      </a>
+                    )}
+                    <button
+                      onClick={() => {
+                        setNovoFornecedor(f);
+                        setModalFornecedorOpen(true);
+                      }}
+                      className="p-2 text-stone-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                      title="Editar Fornecedor"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setConfirmConfig({
+                          isOpen: true,
+                          title: 'Excluir Fornecedor',
+                          message: `Tem certeza que deseja remover o fornecedor "${f.nome_empresa}"?`,
+                          onConfirm: async () => {
+                            await deleteFornecedor(f.id);
+                            loadData();
+                          }
+                        });
+                      }}
+                      className="p-2 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Excluir Fornecedor"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
       {activeTab === 'fichas' && (
         <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-4 sm:p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2 sm:gap-0">
-            <h3 className="text-lg sm:text-xl font-bold text-amber-900">Fichas Técnicas (BOM)</h3>
+            <div>
+              <h3 className="text-lg sm:text-xl font-bold text-amber-900">Fichas Técnicas (BOM)</h3>
+              <p className="text-xs text-stone-500">Estruture as receitas vinculando insumos a cada produto.</p>
+            </div>
             <button onClick={() => {
               setNovaFichaProdutoId('');
               setNovaFichaIngredientes([{ insumo_id: '', quantidade_utilizada: 0 }]);
@@ -694,7 +821,27 @@ export const CmvDashboard: React.FC = () => {
               Nova Receita
             </button>
           </div>
-          {produtos.filter(p => fichas.some(f => f.produto_id === p.id)).map(p => (
+          {produtos.filter(p => fichas.some(f => f.produto_id === p.id)).length === 0 ? (
+            <div className="text-center py-10 px-4 border-2 border-dashed border-amber-200 rounded-xl bg-amber-50/20 my-4">
+              <FileText className="w-10 h-10 text-amber-300 mx-auto mb-2" />
+              <h4 className="text-sm font-bold text-stone-700">Nenhuma ficha técnica cadastrada</h4>
+              <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1 mb-3">
+                Crie receitas associando insumos aos produtos para calcular custos unitários e sugerir preços de venda com margem.
+              </p>
+              <button
+                onClick={() => {
+                  setNovaFichaProdutoId('');
+                  setNovaFichaIngredientes([{ insumo_id: '', quantidade_utilizada: 0 }]);
+                  setModalFichaOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Criar Primeira Receita
+              </button>
+            </div>
+          ) : (
+            produtos.filter(p => fichas.some(f => f.produto_id === p.id)).map(p => (
             <div key={p.id} className="mb-6 p-4 border border-amber-200 rounded-lg bg-amber-50/30">
               <h4 className="font-bold text-lg text-amber-900 mb-2">{p.nome}</h4>
               <ul className="space-y-3 sm:space-y-2">
@@ -723,7 +870,7 @@ export const CmvDashboard: React.FC = () => {
                 Custo Total: {formatMoney(getCustoProduto(p.id))}
               </div>
             </div>
-          ))}
+          )))}
         </div>
       )}
       {/* Modals */}
@@ -731,7 +878,7 @@ export const CmvDashboard: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
             <div className="flex justify-between items-center p-4 border-b border-slate-100">
-              <h3 className="text-xl font-bold text-slate-800">Novo Fornecedor</h3>
+              <h3 className="text-xl font-bold text-slate-800">{novoFornecedor.id ? 'Editar Fornecedor' : 'Novo Fornecedor'}</h3>
               <button onClick={() => setModalFornecedorOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-6 h-6" />
               </button>
@@ -739,22 +886,22 @@ export const CmvDashboard: React.FC = () => {
             <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Empresa</label>
-                <input type="text" value={novoFornecedor.nome_empresa || ''} onChange={e => setNovoFornecedor({...novoFornecedor, nome_empresa: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2" placeholder="Ex: Atacadão" />
+                <input type="text" value={novoFornecedor.nome_empresa || ''} onChange={e => setNovoFornecedor({...novoFornecedor, nome_empresa: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2" placeholder="Ex: Moinho ou Distribuidora" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">WhatsApp (Contato)</label>
-                <input type="text" value={novoFornecedor.contato_whatsapp || ''} onChange={e => setNovoFornecedor({...novoFornecedor, contato_whatsapp: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2" placeholder="Ex: 11999999999" />
+                <input type="text" value={novoFornecedor.contato_whatsapp || ''} onChange={e => setNovoFornecedor({...novoFornecedor, contato_whatsapp: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2" placeholder="Ex: 44999999999" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">CNPJ (Opcional)</label>
-                <input type="text" value={novoFornecedor.cnpj || ''} onChange={e => setNovoFornecedor({...novoFornecedor, cnpj: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2" />
+                <input type="text" value={novoFornecedor.cnpj || ''} onChange={e => setNovoFornecedor({...novoFornecedor, cnpj: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2" placeholder="00.000.000/0001-00" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Cidade (Opcional)</label>
-                <input type="text" value={novoFornecedor.cidade || ''} onChange={e => setNovoFornecedor({...novoFornecedor, cidade: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2" />
+                <input type="text" value={novoFornecedor.cidade || ''} onChange={e => setNovoFornecedor({...novoFornecedor, cidade: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2" placeholder="Ex: Umuarama - PR" />
               </div>
-              <button onClick={handleSaveFornecedor} className="w-full bg-amber-600 text-white font-bold py-2 px-4 rounded hover:bg-amber-700">
-                Salvar Fornecedor
+              <button onClick={handleSaveFornecedor} className="w-full bg-amber-600 text-white font-bold py-2 px-4 rounded hover:bg-amber-700 transition-colors">
+                {novoFornecedor.id ? 'Salvar Alterações' : 'Cadastrar Fornecedor'}
               </button>
             </div>
           </div>
@@ -776,18 +923,23 @@ export const CmvDashboard: React.FC = () => {
                 <input type="text" value={novoInsumo.nome || ''} onChange={e => setNovoInsumo({...novoInsumo, nome: e.target.value})} className="w-full border border-slate-300 rounded px-3 py-2" placeholder="Ex: Farinha de Trigo" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Fornecedor Principal</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Fornecedor Principal (Opcional)</label>
                 <div className="relative">
                   <select value={novoInsumo.fornecedor_id || ''} onChange={e => setNovoInsumo({...novoInsumo, fornecedor_id: e.target.value})} className="appearance-none bg-white border border-stone-200 text-stone-700 py-2 px-3 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
-                  <option value="">Selecione...</option>
-                  {fornecedores.map(f => (
-                    <option key={f.id} value={f.id}>{f.nome_empresa}</option>
-                  ))}
-                </select>
+                    <option value="">{fornecedores.length === 0 ? '(Nenhum fornecedor cadastrado)' : 'Selecione um fornecedor (Opcional)'}</option>
+                    {fornecedores.map(f => (
+                      <option key={f.id} value={f.id}>{f.nome_empresa}{f.cidade ? ` - ${f.cidade}` : ''}</option>
+                    ))}
+                  </select>
                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-stone-500">
                     <ChevronDown className="w-4 h-4" />
                   </div>
                 </div>
+                {fornecedores.length === 0 && (
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    Você pode cadastrar seus fornecedores na aba "Fornecedores" e vinculá-los a qualquer momento.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Unidade de Medida</label>
@@ -904,14 +1056,91 @@ export const CmvDashboard: React.FC = () => {
           </div>
         </div>, document.body
       )}
+
+      {/* MODAL REGISTRAR COMPRA DE INSUMO */}
+      {compraInsumoModal.isOpen && compraInsumoModal.insumo && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="font-bold text-lg text-slate-800">Registrar Compra de Insumo</h3>
+                <p className="text-xs text-stone-500 font-medium">
+                  {compraInsumoModal.insumo.nome} ({compraInsumoModal.insumo.unidade_medida})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCompraInsumoModal(prev => ({ ...prev, isOpen: false, insumo: null }))}
+                className="text-stone-400 hover:text-stone-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSalvarCompraInsumo} className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-stone-700 mb-1">
+                  Quantidade Comprada ({compraInsumoModal.insumo.unidade_medida})
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ex: 5 ou 2.5"
+                  value={compraInsumoModal.quantidade}
+                  onChange={e => setCompraInsumoModal(prev => ({ ...prev, quantidade: e.target.value }))}
+                  className="w-full px-3 py-2 border border-stone-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none text-stone-800 font-medium"
+                  required
+                  autoFocus
+                />
+                <span className="text-[11px] text-stone-400 mt-1 block">
+                  Estoque atual: {compraInsumoModal.insumo.quantidade_estoque.toFixed(2)} {compraInsumoModal.insumo.unidade_medida}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-stone-700 mb-1">
+                  Valor Total Pago (R$)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ex: 35.50"
+                  value={compraInsumoModal.valorTotal}
+                  onChange={e => setCompraInsumoModal(prev => ({ ...prev, valorTotal: e.target.value }))}
+                  className="w-full px-3 py-2 border border-stone-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none text-stone-800 font-medium"
+                  required
+                />
+                {Boolean(parseFloat(compraInsumoModal.quantidade.replace(',', '.')) > 0 && parseFloat(compraInsumoModal.valorTotal.replace(',', '.')) > 0) && (
+                  <span className="text-[11px] text-amber-700 font-semibold mt-1 block bg-amber-50 p-2 rounded-lg border border-amber-200">
+                    Novo custo unitário: R$ {(parseFloat(compraInsumoModal.valorTotal.replace(',', '.')) / parseFloat(compraInsumoModal.quantidade.replace(',', '.'))).toFixed(2)} / {compraInsumoModal.insumo.unidade_medida}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCompraInsumoModal(prev => ({ ...prev, isOpen: false, insumo: null }))}
+                  className="flex-1 px-4 py-2.5 border border-stone-200 text-stone-600 rounded-xl font-bold hover:bg-stone-50 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={compraInsumoModal.isSubmitting}
+                  className="flex-1 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold transition shadow-md disabled:opacity-50"
+                >
+                  {compraInsumoModal.isSubmitting ? 'Salvando...' : 'Confirmar Compra'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
       <AlertModal isOpen={alertConfig.isOpen} title={alertConfig.title} message={alertConfig.message} onClose={() => setAlertConfig({ ...alertConfig, isOpen: false })} />
       <ConfirmModal isOpen={confirmConfig.isOpen} title={confirmConfig.title} message={confirmConfig.message} onConfirm={confirmConfig.onConfirm} onClose={() => setConfirmConfig({ ...confirmConfig, isOpen: false })} />
-      <AlertModal
-        isOpen={alertConfig.isOpen}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        onClose={() => setAlertConfig(prev => ({ ...prev, isOpen: false }))}
-      />
     </div>
   );
 };

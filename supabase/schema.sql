@@ -111,11 +111,47 @@ CREATE TABLE IF NOT EXISTS produtos (
     categoria_id UUID REFERENCES categorias(id) ON DELETE CASCADE,
     nome VARCHAR(150) NOT NULL,
     preco NUMERIC(10, 2) NOT NULL,
+    custo NUMERIC(10, 2) DEFAULT 0.00,
+    controlar_estoque BOOLEAN DEFAULT false,
+    estoque_atual NUMERIC(10, 2) DEFAULT 0,
     ativo BOOLEAN DEFAULT true
+);
+
+-- 6. Tabela de Fornecedores
+CREATE TABLE IF NOT EXISTS fornecedores (
+    id VARCHAR(100) PRIMARY KEY,
+    nome_empresa VARCHAR(150) NOT NULL,
+    contato_whatsapp VARCHAR(50) NOT NULL,
+    cnpj VARCHAR(30),
+    cidade VARCHAR(100),
+    criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 7. Tabela de Insumos
+CREATE TABLE IF NOT EXISTS insumos (
+    id VARCHAR(100) PRIMARY KEY,
+    nome VARCHAR(150) NOT NULL,
+    unidade_medida VARCHAR(20) NOT NULL DEFAULT 'kg',
+    preco_custo NUMERIC(10, 4) NOT NULL DEFAULT 0.00,
+    quantidade_estoque NUMERIC(10, 3) NOT NULL DEFAULT 0.00,
+    estoque_minimo NUMERIC(10, 3) NOT NULL DEFAULT 0.00,
+    fornecedor_id VARCHAR(100),
+    criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 8. Tabela de Fichas Técnicas (Receituário)
+CREATE TABLE IF NOT EXISTS fichas_tecnicas (
+    id VARCHAR(100) PRIMARY KEY,
+    produto_id VARCHAR(100) NOT NULL,
+    insumo_id VARCHAR(100) NOT NULL,
+    quantidade_utilizada NUMERIC(10, 4) NOT NULL DEFAULT 0.00
 );
 
 ALTER TABLE categorias ENABLE ROW LEVEL SECURITY;
 ALTER TABLE produtos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fornecedores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE insumos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fichas_tecnicas ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Permitir leitura pública categorias" ON categorias FOR SELECT USING (true);
 CREATE POLICY "Permitir inserção pública categorias" ON categorias FOR INSERT WITH CHECK (true);
@@ -127,43 +163,18 @@ CREATE POLICY "Permitir inserção pública produtos" ON produtos FOR INSERT WIT
 CREATE POLICY "Permitir atualização pública produtos" ON produtos FOR UPDATE USING (true);
 CREATE POLICY "Permitir deleção pública produtos" ON produtos FOR DELETE USING (true);
 
--- 6. Tabela de Pedidos
-CREATE TABLE IF NOT EXISTS pedidos (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cliente_id UUID REFERENCES clientes(id) ON DELETE SET NULL,
-    origem VARCHAR(50) DEFAULT 'Balcão',
-    identificador_origem VARCHAR(50),
-    status VARCHAR(50) DEFAULT 'Pendente',
-    valor_total NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
-    observacoes TEXT,
-    cliente_nome VARCHAR(150),
-    cliente_whatsapp VARCHAR(20),
-    criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
-    atualizado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
-);
+CREATE POLICY "Permitir leitura pública fornecedores" ON fornecedores FOR SELECT USING (true);
+CREATE POLICY "Permitir inserção pública fornecedores" ON fornecedores FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir atualização pública fornecedores" ON fornecedores FOR UPDATE USING (true);
+CREATE POLICY "Permitir deleção pública fornecedores" ON fornecedores FOR DELETE USING (true);
 
--- 7. Tabela de Itens do Pedido
-CREATE TABLE IF NOT EXISTS itens_pedido (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    pedido_id UUID REFERENCES pedidos(id) ON DELETE CASCADE,
-    produto_id UUID REFERENCES produtos(id) ON DELETE RESTRICT,
-    quantidade INT NOT NULL DEFAULT 1,
-    preco_unitario NUMERIC(10, 2) NOT NULL,
-    subtotal NUMERIC(10, 2) NOT NULL
-);
+CREATE POLICY "Permitir leitura pública insumos" ON insumos FOR SELECT USING (true);
+CREATE POLICY "Permitir inserção pública insumos" ON insumos FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir atualização pública insumos" ON insumos FOR UPDATE USING (true);
+CREATE POLICY "Permitir deleção pública insumos" ON insumos FOR DELETE USING (true);
 
-ALTER TABLE pedidos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE itens_pedido ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Permitir leitura pública fichas" ON fichas_tecnicas FOR SELECT USING (true);
+CREATE POLICY "Permitir inserção pública fichas" ON fichas_tecnicas FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir atualização pública fichas" ON fichas_tecnicas FOR UPDATE USING (true);
+CREATE POLICY "Permitir deleção pública fichas" ON fichas_tecnicas FOR DELETE USING (true);
 
-CREATE POLICY "Permitir leitura pública pedidos" ON pedidos FOR SELECT USING (true);
-CREATE POLICY "Permitir inserção pública pedidos" ON pedidos FOR INSERT WITH CHECK (true);
-CREATE POLICY "Permitir atualização pública pedidos" ON pedidos FOR UPDATE USING (true);
-CREATE POLICY "Permitir deleção pública pedidos" ON pedidos FOR DELETE USING (true);
-
-CREATE POLICY "Permitir leitura pública itens_pedido" ON itens_pedido FOR SELECT USING (true);
-CREATE POLICY "Permitir inserção pública itens_pedido" ON itens_pedido FOR INSERT WITH CHECK (true);
-CREATE POLICY "Permitir atualização pública itens_pedido" ON itens_pedido FOR UPDATE USING (true);
-CREATE POLICY "Permitir deleção pública itens_pedido" ON itens_pedido FOR DELETE USING (true);
-
--- Habilitar Supabase Realtime para a tabela pedidos
-ALTER PUBLICATION supabase_realtime ADD TABLE pedidos;
