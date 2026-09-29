@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, Box, Tag, Plus, Check, FolderTree } from 'lucide-react';
 import { Produto, Categoria } from '../types';
 import { fetchCategorias, saveCategoria } from '../services/db';
@@ -40,31 +40,19 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
   const [novaCategoriaNome, setNovaCategoriaNome] = useState('');
   const [salvandoCategoria, setSalvandoCategoria] = useState(false);
 
-  // Sincronizar categorias sempre que o modal estiver aberto
-  useEffect(() => {
-    if (!isOpen) return;
-    
-    // Sempre buscar as categorias mais atualizadas para garantir sincronização
-    fetchCategorias().then(cats => {
-      setListaCategorias(cats);
-      setCategoriaId(prev => {
-        if (produto?.categoria_id && cats.some(c => c.id === produto.categoria_id)) {
-          return produto.categoria_id;
-        }
-        if (prev && cats.some(c => c.id === prev)) {
-          return prev;
-        }
-        return cats.length > 0 ? cats[0].id : '';
-      });
-    });
-  }, [isOpen, categoriasProp, produto]);
+  // Referência para controlar o estado de abertura e impedir que re-renderizações externas apaguem a digitação do usuário
+  const prevIsOpenRef = useRef(false);
+  const prevProdutoIdRef = useRef<string | undefined>(undefined);
 
-  // Inicializar campos do formulário apenas ao abrir o modal ou mudar o produto
+  // Inicializar campos do formulário ESTRITAMENTE quando o modal acaba de abrir ou se o produto em edição mudar
   useEffect(() => {
-    if (isOpen) {
+    const acabouDeAbrir = isOpen && !prevIsOpenRef.current;
+    const mudouProduto = isOpen && produto?.id !== prevProdutoIdRef.current;
+
+    if (acabouDeAbrir || mudouProduto) {
       if (produto) {
-        setNome(produto.nome);
-        setPreco(produto.preco.toFixed(2));
+        setNome(produto.nome || '');
+        setPreco(produto.preco !== undefined ? produto.preco.toFixed(2) : '');
         setCusto(produto.custo !== undefined ? produto.custo.toFixed(2) : '');
         setControlarEstoque(produto.controlar_estoque || false);
         setEstoqueAtual(produto.estoque_atual !== undefined ? String(produto.estoque_atual) : '');
@@ -75,15 +63,27 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
         setCusto('');
         setControlarEstoque(false);
         setEstoqueAtual('');
-        setCategoriaId(prev => {
-          if (prev && listaCategorias.some(c => c.id === prev)) return prev;
-          return (categoriasProp && categoriasProp.length > 0) ? categoriasProp[0].id : (listaCategorias.length > 0 ? listaCategorias[0].id : '');
-        });
+        const initialCat = (categoriasProp && categoriasProp.length > 0) ? categoriasProp[0].id : (listaCategorias.length > 0 ? listaCategorias[0].id : '');
+        setCategoriaId(initialCat);
       }
       setMostrarCriarCategoria(false);
       setNovaCategoriaNome('');
     }
-  }, [isOpen, produto, categoriasProp]);
+
+    prevIsOpenRef.current = isOpen;
+    prevProdutoIdRef.current = produto?.id;
+  }, [isOpen, produto]);
+
+  // Atualizar lista de categorias sem interferir nos campos digitados pelo usuário
+  useEffect(() => {
+    if (categoriasProp && categoriasProp.length > 0) {
+      setListaCategorias(categoriasProp);
+      setCategoriaId(prev => {
+        if (prev) return prev; // Mantém a categoria que já está selecionada
+        return produto?.categoria_id || categoriasProp[0].id;
+      });
+    }
+  }, [categoriasProp, produto?.categoria_id]);
 
   if (!isOpen) return null;
 
