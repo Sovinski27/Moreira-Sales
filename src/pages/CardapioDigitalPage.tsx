@@ -266,6 +266,27 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     });
   };
 
+  // Decrementar item diretamente a partir do card do cardápio (otimização mobile)
+  const handleRemoverItemCard = (produtoId: string) => {
+    setCarrinho(prev => {
+      const idx = [...prev].reverse().findIndex(i => i.produto_id === produtoId);
+      if (idx === -1) return prev;
+      const realIdx = prev.length - 1 - idx;
+      const item = prev[realIdx];
+      if (item.quantidade > 1) {
+        const copy = [...prev];
+        copy[realIdx] = {
+          ...item,
+          quantidade: item.quantidade - 1,
+          subtotal: (item.quantidade - 1) * item.preco_unitario
+        };
+        return copy;
+      } else {
+        return prev.filter((_, i) => i !== realIdx);
+      }
+    });
+  };
+
   const totalCarrinho = carrinho.reduce((acc, item) => acc + item.subtotal, 0);
   const totalItensCarrinho = carrinho.reduce((acc, item) => acc + item.quantidade, 0);
 
@@ -568,28 +589,28 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
             type="text"
             value={busca}
             onChange={e => setBusca(e.target.value)}
-            placeholder="Buscar cafés, pães na chapa, salgados, doces..."
-            className="w-full pl-11 pr-10 py-3.5 bg-white border border-stone-200 rounded-2xl text-sm font-semibold focus:border-amber-600 outline-none shadow-xs"
+            placeholder="Buscar cafés, pães, salgados, doces..."
+            className="w-full pl-11 pr-10 py-3.5 bg-white border border-stone-200 rounded-2xl text-base sm:text-sm font-medium focus:border-amber-600 outline-none shadow-xs touch-manipulation"
           />
           <Search className="w-5 h-5 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           {busca && (
             <button
               onClick={() => setBusca('')}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-600 active:scale-90 transition-transform cursor-pointer touch-manipulation"
             >
               <X className="w-4 h-4" />
             </button>
           )}
         </div>
 
-        {/* Categorias (Abas Horizontais) */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+        {/* Categorias (Abas Horizontais com Toque Otimizado) */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none touch-manipulation">
           <button
             type="button"
             onClick={() => setCategoriaAtiva('todos')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            className={`h-11 px-4 sm:px-5 py-2 rounded-2xl text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer touch-manipulation flex items-center gap-1.5 active:scale-95 select-none ${
               categoriaAtiva === 'todos'
-                ? 'bg-amber-800 text-white shadow-md'
+                ? 'bg-amber-800 text-white shadow-md shadow-amber-900/20'
                 : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
             }`}
           >
@@ -602,19 +623,20 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
                 key={cat.id}
                 type="button"
                 onClick={() => setCategoriaAtiva(cat.id)}
-                className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                className={`h-11 px-4 sm:px-5 py-2 rounded-2xl text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer touch-manipulation flex items-center gap-1.5 active:scale-95 select-none ${
                   categoriaAtiva === cat.id
-                    ? 'bg-amber-800 text-white shadow-md'
+                    ? 'bg-amber-800 text-white shadow-md shadow-amber-900/20'
                     : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
                 }`}
               >
-                {cat.nome} {count > 0 && `(${count})`}
+                <span>{cat.nome}</span>
+                {count > 0 && <span className="opacity-75 text-xs">({count})</span>}
               </button>
             );
           })}
         </div>
 
-        {/* Lista de Produtos do Cardápio */}
+        {/* Lista de Produtos do Cardápio - Otimizada para Mobile e Toque */}
         {produtosFiltrados.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-3xl border border-stone-200 p-6">
             <Coffee className="w-12 h-12 text-stone-300 mx-auto mb-3" />
@@ -631,50 +653,94 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
                 .filter(i => i.produto_id === produto.id)
                 .reduce((sum, i) => sum + i.quantidade, 0);
 
+              const estaNoCarrinho = qtdNoCarrinho > 0;
+
               return (
                 <div 
                   key={produto.id} 
-                  className="bg-white p-4 rounded-3xl border border-stone-200 shadow-xs flex flex-col justify-between hover:border-amber-300 transition-all group"
+                  className={`bg-white p-4 sm:p-5 rounded-3xl border shadow-xs flex flex-col justify-between transition-all touch-manipulation group ${
+                    estaNoCarrinho
+                      ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/15'
+                      : 'border-stone-200 hover:border-amber-300'
+                  }`}
                 >
                   <div>
                     <div className="flex items-start justify-between gap-2 mb-2">
-                      <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/60">
+                      <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200/60">
                         {categoria?.nome || 'Geral'}
                       </span>
-                      {qtdNoCarrinho > 0 && (
-                        <span className="text-[10px] font-black text-white bg-amber-600 px-2 py-0.5 rounded-full shadow-xs">
-                          {qtdNoCarrinho} no pedido
+                      {estaNoCarrinho && (
+                        <span className="text-[11px] font-black text-white bg-amber-600 px-2.5 py-0.5 rounded-full shadow-xs animate-fadeIn flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 stroke-[2.5]" />
+                          <span>{qtdNoCarrinho} no pedido</span>
                         </span>
                       )}
                     </div>
-                    <h3 className="font-bold text-base text-stone-900 leading-snug">
+                    <h3 className="font-bold text-base sm:text-lg text-stone-900 leading-snug">
                       {produto.nome}
                     </h3>
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between">
-                    <span className="text-lg font-black text-stone-900 font-mono">
+                  <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
+                    <span className="text-xl sm:text-2xl font-black text-stone-900 font-mono tracking-tight shrink-0">
                       R$ {produto.preco.toFixed(2)}
                     </span>
 
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setItemParaObservacao({ produto, observacao: '' })}
-                        className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                        title="Adicionar observação (ex: sem açúcar)"
-                      >
-                        Obs
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleAdicionarItem(produto)}
-                        className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Pedir</span>
-                      </button>
-                    </div>
+                    {/* Botões de Ação com Área de Toque Generosa (Mobile Touch Targets) */}
+                    {!estaNoCarrinho ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setItemParaObservacao({ produto, observacao: '' })}
+                          className="h-11 px-3 sm:px-3.5 bg-stone-100 hover:bg-stone-200 active:scale-95 text-stone-700 text-xs font-bold rounded-2xl transition-all cursor-pointer touch-manipulation flex items-center justify-center gap-1"
+                          title="Adicionar observação (ex: sem açúcar)"
+                        >
+                          <span>Obs</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAdicionarItem(produto)}
+                          className="h-11 px-4 sm:px-5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white text-xs sm:text-sm font-black rounded-2xl shadow-md shadow-amber-600/25 transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation"
+                        >
+                          <Plus className="w-4 h-4 stroke-[2.5]" />
+                          <span>Pedir</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setItemParaObservacao({ produto, observacao: '' })}
+                          className="h-11 px-2.5 sm:px-3 bg-amber-100/70 hover:bg-amber-200 active:scale-95 text-amber-900 text-xs font-bold rounded-2xl transition-all cursor-pointer touch-manipulation flex items-center justify-center gap-1"
+                          title="Adicionar ou alterar observação"
+                        >
+                          <span>Obs</span>
+                        </button>
+
+                        {/* Stepper de Toque Rápido no Próprio Card */}
+                        <div className="flex items-center bg-stone-100 p-1 rounded-2xl border border-stone-200 shadow-2xs touch-manipulation">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoverItemCard(produto.id)}
+                            className="w-9 h-9 rounded-xl bg-white hover:bg-rose-50 text-stone-700 hover:text-rose-600 active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation shadow-2xs"
+                            title="Remover 1 unidade"
+                          >
+                            <Minus className="w-4 h-4 stroke-[2.5]" />
+                          </button>
+                          <span className="w-7 sm:w-8 text-center font-black text-sm font-mono text-stone-900 select-none">
+                            {qtdNoCarrinho}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleAdicionarItem(produto)}
+                            className="w-9 h-9 rounded-xl bg-amber-600 hover:bg-amber-700 text-white active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation shadow-xs"
+                            title="Adicionar mais 1 unidade"
+                          >
+                            <Plus className="w-4 h-4 stroke-[2.5]" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -736,22 +802,22 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
           <button
             type="button"
             onClick={() => setModalCarrinhoAberto(true)}
-            className="w-full bg-stone-900 text-white p-4 rounded-3xl shadow-2xl flex items-center justify-between border-2 border-amber-500 hover:bg-black transition-all transform active:scale-98 cursor-pointer"
+            className="w-full bg-stone-900 hover:bg-black text-white p-4 sm:p-4.5 rounded-3xl shadow-2xl flex items-center justify-between border-2 border-amber-500 transition-all active:scale-[0.98] cursor-pointer touch-manipulation min-h-[64px]"
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-stone-900 font-black flex items-center justify-center text-sm shadow-md shrink-0">
+              <div className="w-11 h-11 rounded-2xl bg-amber-500 text-stone-900 font-black flex items-center justify-center text-sm shadow-md shrink-0">
                 {totalItensCarrinho}
               </div>
               <div className="text-left">
                 <p className="text-xs text-stone-300 font-medium">
                   Comanda • Mesa {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
                 </p>
-                <p className="text-sm font-bold">Ver Pedido / Enviar para a Cozinha</p>
+                <p className="text-sm sm:text-base font-bold">Ver Pedido / Enviar para a Cozinha</p>
               </div>
             </div>
 
             <div className="text-right">
-              <span className="text-lg font-black font-mono text-amber-400">
+              <span className="text-xl font-black font-mono text-amber-400">
                 R$ {totalCarrinho.toFixed(2)}
               </span>
             </div>
@@ -766,7 +832,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
             
             {/* Header do Carrinho */}
             <div className="p-4 sm:p-5 bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-3">
                 <ShoppingCart className="w-5 h-5 text-amber-400" />
                 <div>
                   <h3 className="text-base sm:text-lg font-black">
@@ -780,18 +846,18 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               <button
                 type="button"
                 onClick={() => setModalCarrinhoAberto(false)}
-                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors cursor-pointer"
+                className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Lista de Itens */}
             <div className="p-4 sm:p-5 overflow-y-auto space-y-3 flex-1">
               {carrinho.map(item => (
-                <div key={item.id_temp} className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl border border-stone-200">
+                <div key={item.id_temp} className="flex items-center justify-between p-3.5 bg-stone-50 rounded-2xl border border-stone-200">
                   <div className="min-w-0 pr-2">
-                    <p className="font-bold text-sm text-stone-900 leading-snug">{item.nome}</p>
+                    <p className="font-bold text-sm sm:text-base text-stone-900 leading-snug">{item.nome}</p>
                     {item.observacao && (
                       <p className="text-xs text-amber-700 font-semibold mt-0.5">
                         Obs: {item.observacao}
@@ -803,27 +869,27 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="flex items-center bg-white border border-stone-300 rounded-xl overflow-hidden shadow-xs">
+                    <div className="flex items-center bg-white border border-stone-300 rounded-2xl p-0.5 shadow-2xs">
                       <button
                         type="button"
                         onClick={() => handleAlterarQuantidade(item.id_temp, -1)}
-                        className="p-1.5 hover:bg-stone-100 text-stone-600 transition-colors cursor-pointer"
+                        className="w-9 h-9 rounded-xl hover:bg-stone-100 text-stone-700 active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation"
                       >
-                        <Minus className="w-3.5 h-3.5" />
+                        <Minus className="w-4 h-4 stroke-[2.5]" />
                       </button>
-                      <span className="w-7 text-center font-black text-xs">
+                      <span className="w-8 text-center font-black text-sm font-mono select-none">
                         {item.quantidade}
                       </span>
                       <button
                         type="button"
                         onClick={() => handleAlterarQuantidade(item.id_temp, 1)}
-                        className="p-1.5 hover:bg-stone-100 text-stone-600 transition-colors cursor-pointer"
+                        className="w-9 h-9 rounded-xl bg-amber-600 hover:bg-amber-700 text-white active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation shadow-xs"
                       >
-                        <Plus className="w-3.5 h-3.5" />
+                        <Plus className="w-4 h-4 stroke-[2.5]" />
                       </button>
                     </div>
 
-                    <span className="w-16 text-right font-black text-xs font-mono text-stone-900">
+                    <span className="w-18 text-right font-black text-sm font-mono text-stone-900">
                       R$ {item.subtotal.toFixed(2)}
                     </span>
                   </div>
@@ -840,12 +906,12 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
                   value={observacoesGerais}
                   onChange={e => setObservacoesGerais(e.target.value)}
                   placeholder="Ex: Trazer tudo junto, caprichar no gelo..."
-                  className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-300 rounded-xl text-xs font-medium focus:bg-white focus:border-amber-600 outline-none resize-none"
+                  className="w-full px-3.5 py-3 bg-stone-50 border border-stone-300 rounded-xl text-sm font-medium focus:bg-white focus:border-amber-600 outline-none resize-none touch-manipulation"
                 />
               </div>
 
               {/* Resumo da Identificação da Comanda */}
-              <div className="p-3 bg-stone-100 rounded-2xl border border-stone-200 text-xs space-y-1">
+              <div className="p-3.5 bg-stone-100 rounded-2xl border border-stone-200 text-xs space-y-1">
                 <div className="flex justify-between font-bold text-stone-800">
                   <span>Mesa: {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}</span>
                   <span>{telefoneInput ? formatPhoneDisplay(telefoneInput) : 'Sem WhatsApp'}</span>
@@ -862,7 +928,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
             </div>
 
             {/* Footer do Carrinho com CTA de Envio */}
-            <div className="p-4 sm:p-5 bg-stone-50 border-t border-stone-200 space-y-3 shrink-0">
+            <div className="p-4 sm:p-5 bg-stone-50 border-t border-stone-200 space-y-3 shrink-0 pb-safe">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-bold text-stone-600">Total do Pedido:</span>
                 <span className="text-2xl font-black font-mono text-stone-900">
@@ -874,9 +940,9 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
                 type="button"
                 disabled={enviandoPedido || carrinho.length === 0}
                 onClick={handleEnviarPedidoParaCozinha}
-                className="w-full py-4 bg-amber-600 hover:bg-amber-700 disabled:bg-stone-300 text-white font-black text-sm rounded-2xl shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                className="w-full h-14 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 disabled:bg-stone-300 text-white font-black text-base rounded-2xl shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98 touch-manipulation"
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-5 h-5" />
                 <span>
                   {enviandoPedido ? 'Enviando para a Cozinha...' : 'ENVIAR PEDIDO PARA A COZINHA'}
                 </span>
