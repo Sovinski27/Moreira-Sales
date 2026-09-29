@@ -21,10 +21,10 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
       const salvo = localStorage.getItem('moreira_sales_cardapio_domain');
       if (salvo && salvo.trim()) return salvo.trim();
 
-      const host = window.location.hostname;
-      // Se já estiver rodando diretamente na Vercel (*.vercel.app)
-      if (host.includes('vercel.app')) {
-        return window.location.origin;
+      const origin = window.location.origin;
+      // Se estiver em produção ou na Vercel, utiliza a URL atual exata
+      if (origin && !origin.includes('localhost')) {
+        return origin;
       }
     }
     // URL padrão oficial da Vercel (onde o sistema está online)

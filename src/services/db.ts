@@ -468,6 +468,20 @@ export async function registerCompra(
 
 // --- CATALOGO (PRODUTOS & CATEGORIAS) ---
 
+const isUuid = (str?: string): boolean => 
+  Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+
+const generateUuid = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 export async function fetchCategorias(): Promise<Categoria[]> {
   const localCats = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []);
 
@@ -478,22 +492,9 @@ export async function fetchCategorias(): Promise<Categoria[]> {
         .select('*')
         .order('ordem');
 
-      if (!error && data && data.length > 0) {
-        // Unir categorias da nuvem com quaisquer categorias locais
-        const cloudIds = new Set(data.map((c: any) => c.id));
-        const pendentes = localCats.filter(c => !cloudIds.has(c.id));
-        const unificadas = [...data, ...pendentes];
-        setLocal(STORAGE_KEYS.CATEGORIAS, unificadas);
-
-        // Se haviam categorias locais pendentes de envio para o Supabase, envia em background
-        if (pendentes.length > 0) {
-          supabase.from('categorias').upsert(pendentes).then(() => {});
-        }
-
-        return unificadas as Categoria[];
-      } else if (localCats.length > 0) {
-        // Se a nuvem não tem categorias mas temos localmente, tenta sincronizar para o Supabase
-        supabase.from('categorias').upsert(localCats).then(() => {});
+      if (!error && data) {
+        setLocal(STORAGE_KEYS.CATEGORIAS, data);
+        return data as Categoria[];
       }
     } catch (e) {
       console.warn('Falha ao buscar categorias no Supabase:', e);
@@ -504,16 +505,40 @@ export async function fetchCategorias(): Promise<Categoria[]> {
 }
 
 export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: string }): Promise<Categoria> {
+  const catId = (categoria.id && isUuid(categoria.id)) ? categoria.id : generateUuid();
   const newCategoria: Categoria = {
     nome: categoria.nome || '',
     icone: categoria.icone || 'Tag',
     ordem: typeof categoria.ordem === 'number' ? categoria.ordem : 0,
-    id: (categoria.id && categoria.id.trim() !== '') 
-      ? categoria.id 
-      : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cat-${Date.now()}`)
+    id: catId
   };
 
-  // Salvar imediatamente no localStorage para garantir que a UI responda na hora
+  // 1. Salvar no Supabase com colunas compatíveis com o banco
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('categorias')
+        .upsert({
+          id: newCategoria.id,
+          nome: newCategoria.nome,
+          icone: newCategoria.icone,
+          ordem: newCategoria.ordem
+        })
+        .select()
+        .single();
+      
+      if (!error && data) {
+        newCategoria.id = data.id;
+      }
+      if (error) {
+        console.warn('Erro ao salvar categoria no Supabase:', error.message);
+      }
+    } catch (e) {
+      console.warn('Falha ao salvar categoria no Supabase:', e);
+    }
+  }
+
+  // 2. Salvar imediatamente no localStorage
   const categorias = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []);
   const exists = categorias.some(c => c.id === newCategoria.id);
   const updatedList = exists 
@@ -526,28 +551,24 @@ export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: st
     window.dispatchEvent(new CustomEvent('categorias_atualizadas'));
   }
 
-  // Persistir na nuvem do Supabase
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { error } = await supabase
-        .from('categorias')
-        .upsert({ ...newCategoria });
-      if (error) {
-        console.warn('Erro ao salvar categoria no Supabase:', error.message);
-      }
-    } catch (e) {
-      console.warn('Falha ao salvar categoria no Supabase:', e);
-    }
-  }
-
   return newCategoria;
 }
 
 export async function deleteCategoria(id: string): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('categorias')
+        .delete()
+        .eq('id', id);
+    } catch (e) {
+      console.warn('Falha ao excluir categoria no Supabase:', e);
+    }
+  }
+
   const categorias = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []);
   setLocal(STORAGE_KEYS.CATEGORIAS, categorias.filter(c => c.id !== id));
 
-  // Remove ou desvincula produtos associados para manter consistência
   const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
   const updatedProdutos = produtos.filter(p => p.categoria_id !== id);
   if (produtos.length !== updatedProdutos.length) {
@@ -558,17 +579,6 @@ export async function deleteCategoria(id: string): Promise<void> {
     window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
     window.dispatchEvent(new CustomEvent('categorias_atualizadas'));
     window.dispatchEvent(new CustomEvent('produtos_atualizados'));
-  }
-
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase
-        .from('categorias')
-        .delete()
-        .eq('id', id);
-    } catch (e) {
-      console.warn('Falha ao excluir categoria no Supabase:', e);
-    }
   }
 }
 
@@ -582,20 +592,9 @@ export async function fetchProdutos(): Promise<Produto[]> {
         .select('*')
         .order('nome');
 
-      if (!error && data && data.length > 0) {
-        const cloudIds = new Set(data.map((p: any) => p.id));
-        const pendentes = localProds.filter(p => !cloudIds.has(p.id));
-        const unificados = [...data, ...pendentes];
-        setLocal(STORAGE_KEYS.PRODUTOS, unificados);
-
-        if (pendentes.length > 0) {
-          supabase.from('produtos').upsert(pendentes).then(() => {});
-        }
-
-        return unificados as Produto[];
-      } else if (localProds.length > 0) {
-        // Se a nuvem ainda não tem produtos mas o dono cadastrou localmente, envia para a nuvem
-        supabase.from('produtos').upsert(localProds).then(() => {});
+      if (!error && data) {
+        setLocal(STORAGE_KEYS.PRODUTOS, data);
+        return data as Produto[];
       }
     } catch (e) {
       console.warn('Falha ao buscar produtos no Supabase:', e);
@@ -606,15 +605,47 @@ export async function fetchProdutos(): Promise<Produto[]> {
 }
 
 export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }): Promise<Produto> {
+  const prodId = (produto.id && isUuid(produto.id)) ? produto.id : generateUuid();
+  const catId = (produto.categoria_id && isUuid(produto.categoria_id)) ? produto.categoria_id : null;
+
   const newProduto: Produto = {
     ...produto,
     ativo: produto.ativo !== false,
-    id: (produto.id && produto.id.trim() !== '')
-      ? produto.id
-      : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `prod-${Date.now()}`)
+    id: prodId,
+    categoria_id: catId || produto.categoria_id
   };
 
-  // Salvar imediatamente no localStorage para resposta instantânea
+  // 1. Salvar na nuvem do Supabase com colunas compatíveis com o banco (UUID e colunas existentes)
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const payload: any = {
+        id: prodId,
+        nome: newProduto.nome,
+        preco: Number(newProduto.preco) || 0,
+        ativo: newProduto.ativo !== false
+      };
+      if (catId) {
+        payload.categoria_id = catId;
+      }
+
+      const { data, error } = await supabase
+        .from('produtos')
+        .upsert(payload)
+        .select()
+        .single();
+      
+      if (!error && data) {
+        newProduto.id = data.id;
+      }
+      if (error) {
+        console.warn('Erro ao salvar produto no Supabase:', error.message);
+      }
+    } catch (e) {
+      console.warn('Falha ao salvar produto no Supabase:', e);
+    }
+  }
+
+  // 2. Salvar imediatamente no localStorage
   const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
   const exists = produtos.some(p => p.id === newProduto.id);
   const updatedList = exists 
@@ -625,20 +656,6 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
     window.dispatchEvent(new CustomEvent('produtos_atualizados'));
-  }
-
-  // Persistir na nuvem do Supabase
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { error } = await supabase
-        .from('produtos')
-        .upsert({ ...newProduto });
-      if (error) {
-        console.warn('Erro ao salvar produto no Supabase:', error.message);
-      }
-    } catch (e) {
-      console.warn('Falha ao salvar produto no Supabase:', e);
-    }
   }
 
   return newProduto;
