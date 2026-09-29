@@ -49,13 +49,14 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     return '1';
   };
 
-  // Estados da Tela Inicial de Recepção
+  // Estados da Tela Inicial de Identificação
   const [mesaInput, setMesaInput] = useState<string>(initialMesaFromUrl);
   const [nomeInput, setNomeInput] = useState<string>('');
   const [telefoneInput, setTelefoneInput] = useState<string>('');
+  const [salvandoCadastro, setSalvandoCadastro] = useState<boolean>(false);
 
-  // Ao acessar o cardápio, abre diretamente a vitrine de produtos e pedidos para o cliente!
-  const [acessouCardapio, setAcessouCardapio] = useState<boolean>(true);
+  // Cada novo acesso à página de cardápio exige a identificação do cliente e da mesa
+  const [acessouCardapio, setAcessouCardapio] = useState<boolean>(false);
 
   // Cliente reconhecido ou criado
   const [clienteAtivo, setClienteAtivo] = useState<Cliente | null>(null);
@@ -93,30 +94,46 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     window.addEventListener('catalogo_atualizado', recarregar);
     window.addEventListener('produtos_atualizados', recarregar);
     window.addEventListener('categorias_atualizadas', recarregar);
+    window.addEventListener('clientes_atualizados', recarregar);
     window.addEventListener('storage', recarregar);
-
-    // Se já havia uma sessão salva recentemente no navegador para essa mesa
-    try {
-      const salvo = localStorage.getItem('panificadora_sessao_mesa_atual');
-      if (salvo) {
-        const parsed = JSON.parse(salvo);
-        if (parsed.mesa && !mesaInput) setMesaInput(parsed.mesa.toString());
-        if (parsed.nome) setNomeInput(parsed.nome);
-        if (parsed.telefone) setTelefoneInput(formatPhoneDisplay(parsed.telefone));
-      }
-    } catch (e) {
-      console.warn('Erro ao carregar sessão anterior da mesa:', e);
-    }
 
     return () => {
       window.removeEventListener('catalogo_atualizado', recarregar);
       window.removeEventListener('produtos_atualizados', recarregar);
       window.removeEventListener('categorias_atualizadas', recarregar);
+      window.removeEventListener('clientes_atualizados', recarregar);
       window.removeEventListener('storage', recarregar);
     };
   }, []);
 
-  // Monitorar digitação do WhatsApp para busca em tempo real (opcional)
+  // Identificação em tempo real por telefone ou por nome
+  useEffect(() => {
+    const nome = nomeInput.trim().toLowerCase();
+    const tel = cleanPhone(telefoneInput);
+
+    if (tel && tel.length >= 8) {
+      const match = clientesList.find(c => {
+        const cTel = cleanPhone(c.whatsapp);
+        return cTel === tel || (tel.length >= 8 && (cTel.endsWith(tel) || tel.endsWith(cTel)));
+      });
+      if (match) {
+        setClienteEncontradoNoPreenchimento(match);
+        return;
+      }
+    }
+
+    if (nome.length >= 3) {
+      const match = clientesList.find(c => c.nome.trim().toLowerCase() === nome);
+      if (match) {
+        setClienteEncontradoNoPreenchimento(match);
+        return;
+      }
+    }
+
+    setClienteEncontradoNoPreenchimento(null);
+  }, [nomeInput, telefoneInput, clientesList]);
+
+  // Monitorar digitação do WhatsApp para formatação
   const handleTelefoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
     const digits = cleanPhone(raw);
@@ -126,62 +143,45 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
       formatted = formatPhoneDisplay(digits);
     }
     setTelefoneInput(formatted);
-
-    if (digits.length >= 8) {
-      const match = clientesList.find((c) => {
-        const cDigits = cleanPhone(c.whatsapp);
-        return cDigits === digits || (digits.length >= 8 && (cDigits.endsWith(digits) || digits.endsWith(cDigits)));
-      });
-
-      if (match) {
-        setClienteEncontradoNoPreenchimento(match);
-        if (!nomeInput.trim()) {
-          setNomeInput(match.nome);
-        }
-      } else {
-        setClienteEncontradoNoPreenchimento(null);
-      }
-    } else {
-      setClienteEncontradoNoPreenchimento(null);
-    }
   };
 
-  // Botão de liberação de acesso ao cardápio
-  // REGRA EXPLICITA DO USUÁRIO: "Depois que o nosso cliente colocar o número da mesa, vai liberar o botão de acessar cardápio... O nome, sobrenome e WhatsApp são opcionais"
-  const isBotaoAcessarLiberado = mesaInput.trim().length > 0 && !isNaN(parseInt(mesaInput, 10));
+  // Botão de liberação de acesso: Mesa informada e Nome preenchido (mínimo 2 caracteres)
+  const isBotaoAcessarLiberado = mesaInput.trim().length > 0 && !isNaN(parseInt(mesaInput, 10)) && nomeInput.trim().length >= 2;
 
   const handleAcessarCardapio = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!isBotaoAcessarLiberado) return;
+    if (!isBotaoAcessarLiberado || salvandoCadastro) return;
 
+    setSalvandoCadastro(true);
     const numMesa = parseInt(mesaInput.trim(), 10);
-    const nomeFinal = nomeInput.trim() || `Mesa ${numMesa}`;
+    const nomeFinal = nomeInput.trim();
     const telLimpo = cleanPhone(telefoneInput);
 
-    // Se forneceu telefone (WhatsApp), busca ou registra o cliente automaticamente
-    if (telLimpo && telLimpo.length >= 8) {
-      try {
-        const { cliente } = await identificarOuCadastrarCliente(
-          nomeFinal,
-          telLimpo
-        );
-        setClienteAtivo(cliente);
-      } catch (err) {
-        console.warn('Erro ao registrar cliente opcional:', err);
-      }
-    }
-
     try {
-      localStorage.setItem('panificadora_sessao_mesa_atual', JSON.stringify({
-        mesa: numMesa,
-        nome: nomeFinal,
-        telefone: telLimpo
-      }));
+      // 1. Busca cliente existente no Supabase ou cria automaticamente o novo cadastro
+      const { cliente, isNovo } = await identificarOuCadastrarCliente(
+        nomeFinal,
+        telLimpo
+      );
+      setClienteAtivo(cliente);
+      setAcessouCardapio(true);
     } catch (err) {
-      console.warn('Erro ao salvar sessão local:', err);
+      console.warn('Erro ao registrar/identificar cliente:', err);
+      // Mesmo com falha de rede temporária, permite acessar o cardápio da mesa
+      setAcessouCardapio(true);
+    } finally {
+      setSalvandoCadastro(false);
     }
+  };
 
-    setAcessouCardapio(true);
+  // Trocar de cliente / mesa (reseta os dados para que outra pessoa possa se identificar)
+  const handleTrocarCliente = () => {
+    setNomeInput('');
+    setTelefoneInput('');
+    setClienteAtivo(null);
+    setClienteEncontradoNoPreenchimento(null);
+    setCarrinho([]);
+    setAcessouCardapio(false);
   };
 
   // Monitorar pedidos da cozinha para esta mesa
@@ -378,7 +378,6 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               <input
                 type="text"
                 required
-                autoFocus
                 value={mesaInput}
                 onChange={e => setMesaInput(e.target.value.replace(/\D/g, ''))}
                 placeholder="Ex: 5"
@@ -386,15 +385,17 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               />
             </div>
 
-            {/* Campo 2: NOME E SOBRENOME (OPCIONAL) */}
+            {/* Campo 2: SEU NOME E SOBRENOME * */}
             <div>
               <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
-                NOME E SOBRENOME (OPCIONAL)
+                SEU NOME E SOBRENOME *
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
+                  required
+                  autoFocus={Boolean(mesaInput)}
                   value={nomeInput}
                   onChange={e => setNomeInput(e.target.value)}
                   placeholder="Ex: João da Silva"
@@ -415,30 +416,40 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
                 placeholder="(DD) 90000-0000"
                 className="w-full px-4 py-3.5 bg-[#F9F9FB] border border-stone-200 rounded-xl text-center text-sm font-medium text-stone-900 placeholder:text-stone-400 placeholder:font-normal focus:bg-white focus:border-amber-600 outline-none transition-all shadow-xs"
               />
-              <p className="text-[11px] text-stone-400 text-center leading-normal mt-2.5 px-2 font-normal">
-                Preencha seu número para acumular pontos de fidelidade no fechamento e receber brindes no futuro!
+              <p className="text-[11px] text-stone-400 text-center leading-normal mt-2 px-2 font-normal">
+                Informe seu WhatsApp para acumular visitas e pontos de fidelidade no Painel da Panificadora!
               </p>
             </div>
 
-            {/* Reconhecimento em Tempo Real (se já tiver cadastro no WhatsApp digitado) */}
-            {clienteEncontradoNoPreenchimento && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-xs text-emerald-800 text-center font-medium animate-fadeIn">
-                ✓ Cliente identificado: <b>{clienteEncontradoNoPreenchimento.nome}</b>
+            {/* Reconhecimento em Tempo Real (se já tiver cadastro pelo Nome ou WhatsApp) */}
+            {clienteEncontradoNoPreenchimento ? (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-xs text-emerald-800 animate-fadeIn flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-bold truncate">Cliente identificado: {clienteEncontradoNoPreenchimento.nome}</p>
+                  <p className="text-[11px] text-emerald-700">
+                    Histórico vinculado: {clienteEncontradoNoPreenchimento.total_compras_historico || 0} visitas já registradas no sistema.
+                  </p>
+                </div>
               </div>
-            )}
+            ) : nomeInput.trim().length >= 2 ? (
+              <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-2.5 text-[11px] text-amber-900 animate-fadeIn">
+                ✨ Novo cadastro: <b>{nomeInput.trim()}</b> será salvo no banco de dados e acumulará seu histórico na panificadora.
+              </div>
+            ) : null}
 
-            {/* Botão de Acesso - Liberado assim que colocar o número da mesa */}
+            {/* Botão de Acesso - Liberado quando colocar o número da mesa e o nome */}
             <div className="pt-2">
               <button
                 type="submit"
-                disabled={!isBotaoAcessarLiberado}
+                disabled={!isBotaoAcessarLiberado || salvandoCadastro}
                 className={`w-full py-4 rounded-2xl font-bold text-sm transition-all duration-200 flex items-center justify-center gap-1.5 ${
-                  isBotaoAcessarLiberado
+                  isBotaoAcessarLiberado && !salvandoCadastro
                     ? 'bg-gradient-to-r from-[#D49342] to-[#C88A3E] hover:from-[#C88A3E] hover:to-[#B67A32] text-white shadow-lg shadow-amber-500/25 active:scale-[0.99] cursor-pointer'
                     : 'bg-[#D6D3D1] text-white cursor-not-allowed'
                 }`}
               >
-                <span>Acessar Cardápio</span>
+                <span>{salvandoCadastro ? 'Identificando Cliente...' : 'Acessar Cardápio'}</span>
                 <ChevronRight className="w-4 h-4 ml-0.5" />
               </button>
             </div>
@@ -481,9 +492,9 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setAcessouCardapio(false)}
-              className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 px-3 py-1.5 rounded-2xl border border-white/15 transition-all text-xs font-bold text-amber-300 active:scale-95"
-              title="Clique para alterar mesa ou dados"
+              onClick={handleTrocarCliente}
+              className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 px-3 py-1.5 rounded-2xl border border-white/15 transition-all text-xs font-bold text-amber-300 active:scale-95 cursor-pointer"
+              title="Clique para trocar de cliente ou alterar mesa"
             >
               <span className="uppercase text-[10px] text-stone-300">Mesa</span>
               <span className="text-sm font-black text-white">
@@ -506,7 +517,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <p className="font-bold text-sm text-stone-900 truncate">
-                  {nomeInput.trim() || `Mesa ${mesaInput}`}
+                  {clienteAtivo?.nome || nomeInput.trim() || `Mesa ${mesaInput}`}
                 </p>
                 <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 shrink-0">
                   Mesa {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
@@ -514,17 +525,17 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               </div>
               <p className="text-xs text-stone-500 font-mono truncate">
                 {telefoneInput ? formatPhoneDisplay(telefoneInput) : 'Atendimento sem WhatsApp'}
-                {clienteAtivo && ` • ${clienteAtivo.total_compras_historico || 0} compras no histórico`}
+                {clienteAtivo && ` • ${clienteAtivo.total_compras_historico || 0} visitas no histórico`}
               </p>
             </div>
           </div>
 
           <button
             type="button"
-            onClick={() => setAcessouCardapio(false)}
+            onClick={handleTrocarCliente}
             className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl transition-colors shrink-0 cursor-pointer"
           >
-            Trocar Mesa
+            Trocar Cliente
           </button>
         </div>
 

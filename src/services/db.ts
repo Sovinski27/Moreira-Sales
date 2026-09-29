@@ -692,28 +692,52 @@ export async function silenciarTodosAlertas(): Promise<void> {
 
 export async function identificarOuCadastrarCliente(
   nomeSobrenome: string,
-  whatsapp: string
+  whatsapp?: string
 ): Promise<{ cliente: Cliente; isNovo: boolean }> {
-  const digits = cleanPhone(whatsapp);
+  const digits = whatsapp ? cleanPhone(whatsapp) : '';
+  const nomeLimpo = nomeSobrenome ? nomeSobrenome.trim() : '';
   const clientes = await fetchClientes();
 
-  // Buscar por telefone no cadastro existente
-  const match = clientes.find((c) => {
-    const cDigits = cleanPhone(c.whatsapp);
-    return cDigits === digits || (digits.length >= 8 && (cDigits.endsWith(digits) || digits.endsWith(cDigits)));
-  });
+  let match: Cliente | undefined;
+
+  // 1. Se informou telefone (WhatsApp), busca pelo telefone primeiro
+  if (digits && digits.length >= 8) {
+    match = clientes.find((c) => {
+      const cDigits = cleanPhone(c.whatsapp);
+      return cDigits === digits || (digits.length >= 8 && (cDigits.endsWith(digits) || digits.endsWith(cDigits)));
+    });
+  }
+
+  // 2. Se não encontrou por telefone ou não informou telefone, busca pelo nome exato (case-insensitive)
+  if (!match && nomeLimpo) {
+    match = clientes.find((c) => c.nome.trim().toLowerCase() === nomeLimpo.toLowerCase());
+  }
 
   if (match) {
-    // Se o cliente já existe e foi informado nome mais completo, atualiza o nome
-    if (nomeSobrenome && nomeSobrenome.trim() && nomeSobrenome.trim().length > match.nome.length) {
-      await updateCliente(match.id, { nome: nomeSobrenome.trim() });
-      match.nome = nomeSobrenome.trim();
+    // Se o cliente já existe, atualiza nome ou telefone caso tenha novas informações
+    const updates: Partial<Cliente> = {};
+    if (nomeLimpo && nomeLimpo.length > match.nome.length) {
+      updates.nome = nomeLimpo;
+      match.nome = nomeLimpo;
+    }
+    if (digits && (!match.whatsapp || match.whatsapp.length < 8)) {
+      updates.whatsapp = digits;
+      match.whatsapp = digits;
+    }
+    if (Object.keys(updates).length > 0) {
+      await updateCliente(match.id, updates);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('clientes_atualizados'));
+      }
     }
     return { cliente: match, isNovo: false };
   }
 
-  // Se não tem cadastro, cria automaticamente com o Nome e WhatsApp informados
-  const novoCliente = await createCliente(nomeSobrenome.trim(), digits);
+  // 3. Se não tem cadastro, cria automaticamente com Nome e WhatsApp informados
+  const novoCliente = await createCliente(nomeLimpo || 'Cliente da Mesa', digits || '');
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('clientes_atualizados'));
+  }
   return { cliente: novoCliente, isNovo: true };
 }
 
