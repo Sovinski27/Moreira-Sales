@@ -1,105 +1,53 @@
 -- ==============================================================================
--- SISTEMA DE CRM, FIDELIZAÇÃO E ATENDIMENTO PARA PANIFICADORA
--- Arquitetura de Banco de Dados PostgreSQL / Supabase
--- Umuarama - PR
+-- SCHEMA COMPLETO E RESILIENTE - PANIFICADORA MOREIRA SALES (SUPABASE POSTGRES)
 -- ==============================================================================
 
 -- 1. Tabela de Clientes
 CREATE TABLE IF NOT EXISTS clientes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY,
     nome VARCHAR(150) NOT NULL,
-    whatsapp VARCHAR(20) UNIQUE NOT NULL,
-    data_nascimento DATE,
-    email VARCHAR(150),
-    notas TEXT,
-    total_compras_historico INT DEFAULT 0,
-    ultimo_contato_resgate DATE,
-    ativo BOOLEAN DEFAULT true,
+    whatsapp VARCHAR(30) UNIQUE NOT NULL,
+    total_gasto NUMERIC(10, 2) DEFAULT 0.00,
+    visitas INT DEFAULT 1,
+    ultima_visita TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    primeira_visita TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    aniversario VARCHAR(10),
+    observacoes TEXT,
+    pontos_atual INT DEFAULT 0,
     criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
--- 2. Tabela de Compras / Visitas
+-- 2. Tabela de Compras
 CREATE TABLE IF NOT EXISTS compras (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cliente_id UUID REFERENCES clientes(id) ON DELETE CASCADE,
-    valor NUMERIC(10, 2) DEFAULT 0.00,
-    data_compra DATE DEFAULT CURRENT_DATE,
-    pontuou_fidelidade BOOLEAN DEFAULT true,
-    detalhes TEXT,
-    criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+    id TEXT PRIMARY KEY,
+    cliente_id TEXT,
+    valor NUMERIC(10, 2) NOT NULL,
+    data TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    tipo VARCHAR(20) DEFAULT 'compra',
+    forma_pagamento VARCHAR(30),
+    nota_fiscal_id TEXT,
+    nota_fiscal_chave VARCHAR(60),
+    nota_fiscal_numero INT,
+    danfe_url TEXT,
+    cpf_na_nota VARCHAR(20)
 );
 
--- 3. Configurações de Fidelidade
+-- 3. Tabela de Configurações de Fidelidade
 CREATE TABLE IF NOT EXISTS configuracoes_fidelidade (
     id INT PRIMARY KEY DEFAULT 1,
-    meta_compras_mes INT DEFAULT 10,
-    valor_minimo_pontuacao NUMERIC(10, 2) DEFAULT 5.00,
-    premio_descricao VARCHAR(255) DEFAULT '1 Café Especial com Pão na Chapa Crocante',
-    mensagem_whatsapp TEXT DEFAULT 'Parabéns {NOME}! 🎉 Você completou {COMPRAS} compras este mês na Panificadora! Venha retirar o seu brinde: {PREMIO} ☕🥖',
-    mensagem_resgate TEXT DEFAULT 'Olá {NOME}! 🥖 Notamos que faz alguns dias que você não passa para tomar aquele cafezinho fresco com a gente. Preparamos um pão na chapa quentinho de presente na sua próxima visita! Te esperamos! ☕',
+    meta_pontos INT DEFAULT 10,
+    recompensa_nome VARCHAR(100) DEFAULT 'Café com Pão de Queijo',
+    dias_inatividade INT DEFAULT 14,
+    mensagem_retencao TEXT,
+    mensagem_recompensa TEXT,
+    pontos_por_real INT DEFAULT 1,
     webhook_whatsapp_url TEXT,
     atualizado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
--- Inserir configuração padrão inicial caso não exista
-INSERT INTO configuracoes_fidelidade (id, meta_compras_mes, valor_minimo_pontuacao, premio_descricao, mensagem_whatsapp, mensagem_resgate)
-VALUES (
-    1, 
-    10,
-    5.00, 
-    '1 Café Especial com Pão na Chapa Crocante', 
-    'Parabéns {NOME}! 🎉 Você completou {COMPRAS} compras este mês na Panificadora! Venha retirar o seu brinde: {PREMIO} ☕🥖',
-    'Olá {NOME}! 🥖 Notamos que faz alguns dias que você não passa para tomar aquele cafezinho fresco com a gente. Preparamos um pão na chapa quentinho de presente na sua próxima visita! Te esperamos! ☕'
-)
-ON CONFLICT (id) DO NOTHING;
-
--- Índices de performance para busca em menos de 100ms no caixa
-CREATE INDEX IF NOT EXISTS idx_clientes_whatsapp ON clientes (whatsapp);
-CREATE INDEX IF NOT EXISTS idx_compras_cliente_id ON compras (cliente_id);
-CREATE INDEX IF NOT EXISTS idx_compras_data_compra ON compras (data_compra);
-
--- Trigger para incrementar total_compras_historico automaticamente
-CREATE OR REPLACE FUNCTION fn_atualiza_total_compras()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF (TG_OP = 'INSERT') THEN
-        UPDATE clientes 
-        SET total_compras_historico = total_compras_historico + 1
-        WHERE id = NEW.cliente_id;
-    ELSIF (TG_OP = 'DELETE') THEN
-        UPDATE clientes 
-        SET total_compras_historico = GREATEST(0, total_compras_historico - 1)
-        WHERE id = OLD.cliente_id;
-    END IF;
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_atualiza_total_compras ON compras;
-CREATE TRIGGER trg_atualiza_total_compras
-AFTER INSERT OR DELETE ON compras
-FOR EACH ROW
-EXECUTE FUNCTION fn_atualiza_total_compras();
-
--- Habilitar Row Level Security (RLS)
-ALTER TABLE clientes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE compras ENABLE ROW LEVEL SECURITY;
-ALTER TABLE configuracoes_fidelidade ENABLE ROW LEVEL SECURITY;
-
--- Políticas de acesso público para operação do Caixa & Admin (chave anon)
-CREATE POLICY "Permitir leitura pública clientes" ON clientes FOR SELECT USING (true);
-CREATE POLICY "Permitir inserção pública clientes" ON clientes FOR INSERT WITH CHECK (true);
-CREATE POLICY "Permitir atualização pública clientes" ON clientes FOR UPDATE USING (true);
-
-CREATE POLICY "Permitir leitura pública compras" ON compras FOR SELECT USING (true);
-CREATE POLICY "Permitir inserção pública compras" ON compras FOR INSERT WITH CHECK (true);
-
-CREATE POLICY "Permitir leitura pública configs" ON configuracoes_fidelidade FOR SELECT USING (true);
-CREATE POLICY "Permitir atualização pública configs" ON configuracoes_fidelidade FOR UPDATE USING (true);
-
 -- 4. Tabela de Categorias
 CREATE TABLE IF NOT EXISTS categorias (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY,
     nome VARCHAR(100) NOT NULL,
     icone VARCHAR(50),
     ordem INT DEFAULT 0
@@ -107,21 +55,28 @@ CREATE TABLE IF NOT EXISTS categorias (
 
 -- 5. Tabela de Produtos
 CREATE TABLE IF NOT EXISTS produtos (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    categoria_id UUID REFERENCES categorias(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY,
+    categoria_id TEXT,
     nome VARCHAR(150) NOT NULL,
     preco NUMERIC(10, 2) NOT NULL,
     custo NUMERIC(10, 2) DEFAULT 0.00,
-    controlar_estoque BOOLEAN DEFAULT false,
-    estoque_atual NUMERIC(10, 2) DEFAULT 0,
-    ativo BOOLEAN DEFAULT true
+    descricao TEXT,
+    imagem_url TEXT,
+    disponivel BOOLEAN DEFAULT true,
+    tempo_preparo_min INT DEFAULT 5,
+    destaque BOOLEAN DEFAULT false,
+    ordem INT DEFAULT 0
 );
 
 -- 6. Tabela de Fornecedores
 CREATE TABLE IF NOT EXISTS fornecedores (
-    id VARCHAR(100) PRIMARY KEY,
-    nome_empresa VARCHAR(150) NOT NULL,
-    contato_whatsapp VARCHAR(50) NOT NULL,
+    id TEXT PRIMARY KEY,
+    nome VARCHAR(150),
+    nome_empresa VARCHAR(150),
+    contato VARCHAR(100),
+    contato_whatsapp VARCHAR(50),
+    telefone VARCHAR(30),
+    email VARCHAR(100),
     cnpj VARCHAR(30),
     cidade VARCHAR(100),
     criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
@@ -129,52 +84,172 @@ CREATE TABLE IF NOT EXISTS fornecedores (
 
 -- 7. Tabela de Insumos
 CREATE TABLE IF NOT EXISTS insumos (
-    id VARCHAR(100) PRIMARY KEY,
+    id TEXT PRIMARY KEY,
     nome VARCHAR(150) NOT NULL,
     unidade_medida VARCHAR(20) NOT NULL DEFAULT 'kg',
-    preco_custo NUMERIC(10, 4) NOT NULL DEFAULT 0.00,
-    quantidade_estoque NUMERIC(10, 3) NOT NULL DEFAULT 0.00,
-    estoque_minimo NUMERIC(10, 3) NOT NULL DEFAULT 0.00,
-    fornecedor_id VARCHAR(100),
+    custo_unitario NUMERIC(10, 4) DEFAULT 0.00,
+    preco_custo NUMERIC(10, 4) DEFAULT 0.00,
+    fornecedor_id TEXT,
+    estoque_atual NUMERIC(10, 3) DEFAULT 0.000,
+    quantidade_estoque NUMERIC(10, 3) DEFAULT 0.000,
+    estoque_minimo NUMERIC(10, 3) DEFAULT 0.000,
+    perda_percentual NUMERIC(5, 2) DEFAULT 0.00,
     criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
--- 8. Tabela de Fichas Técnicas (Receituário)
+-- 8. Tabela de Fichas Técnicas (CMV / Precificação)
 CREATE TABLE IF NOT EXISTS fichas_tecnicas (
-    id VARCHAR(100) PRIMARY KEY,
-    produto_id VARCHAR(100) NOT NULL,
-    insumo_id VARCHAR(100) NOT NULL,
-    quantidade_utilizada NUMERIC(10, 4) NOT NULL DEFAULT 0.00
+    id TEXT PRIMARY KEY,
+    produto_id TEXT,
+    nome VARCHAR(150),
+    rendimento_unidades NUMERIC(10, 2) DEFAULT 1.00,
+    tempo_preparo_minutos INT DEFAULT 0,
+    custo_mao_obra NUMERIC(10, 2) DEFAULT 0.00,
+    margem_lucro_desejada NUMERIC(5, 2) DEFAULT 100.00,
+    insumos JSONB DEFAULT '[]'::jsonb
 );
 
+-- 9. Tabela de Mesas Abertas
+CREATE TABLE IF NOT EXISTS mesas_abertas (
+    id TEXT PRIMARY KEY,
+    mesa_id TEXT,
+    mesa_numero INT NOT NULL,
+    cliente_nome VARCHAR(150),
+    cliente_telefone VARCHAR(30),
+    carrinho JSONB DEFAULT '[]'::jsonb,
+    itens JSONB DEFAULT '[]'::jsonb,
+    total NUMERIC(10, 2) DEFAULT 0.00,
+    status VARCHAR(30) DEFAULT 'ocupada',
+    aberto_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 10. Tabela de Pedidos da Cozinha (KDS)
+CREATE TABLE IF NOT EXISTS pedidos_cozinha (
+    id TEXT PRIMARY KEY,
+    mesa_numero INT NOT NULL,
+    cliente_nome VARCHAR(150) NOT NULL,
+    cliente_telefone VARCHAR(30),
+    itens JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total NUMERIC(10, 2) DEFAULT 0.00,
+    status VARCHAR(30) DEFAULT 'pendente',
+    observacao TEXT,
+    observacoes TEXT,
+    alerta_silenciado BOOLEAN DEFAULT false,
+    criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    atualizado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 11. Tabela de Configuração Fiscal
+CREATE TABLE IF NOT EXISTS configuracao_fiscal (
+    id INT PRIMARY KEY DEFAULT 1,
+    provedor VARCHAR(50) DEFAULT 'focus_nfe',
+    ambiente VARCHAR(20) DEFAULT 'homologacao',
+    token_api TEXT,
+    cnpj VARCHAR(30) DEFAULT '12.345.678/0001-90',
+    cnpj_emitente VARCHAR(30) DEFAULT '12.345.678/0001-90',
+    inscricao_estadual VARCHAR(30) DEFAULT '90812345-67',
+    razao_social VARCHAR(200) DEFAULT 'Panificadora & Confeitaria Moreira Sales Ltda',
+    nome_fantasia VARCHAR(200) DEFAULT 'Panificadora Moreira Sales',
+    regime_tributario VARCHAR(50) DEFAULT 'simples_nacional',
+    serie_nfe INT DEFAULT 1,
+    ultimo_numero_nfe INT DEFAULT 100,
+    serie_nfce INT DEFAULT 1,
+    numero_atual_nfce INT DEFAULT 100,
+    csc_id VARCHAR(50) DEFAULT '000001',
+    csc_token TEXT,
+    certificado_ativo BOOLEAN DEFAULT true,
+    certificado_nome VARCHAR(150),
+    certificado_validade VARCHAR(50),
+    emissao_automatica_pdv BOOLEAN DEFAULT true,
+    enviar_whatsapp_automatico BOOLEAN DEFAULT true,
+    mensagem_whatsapp_nfe TEXT,
+    ncm_padrao VARCHAR(30) DEFAULT '1905.90.90',
+    cfop_padrao VARCHAR(10) DEFAULT '5.102',
+    endereco JSONB DEFAULT '{"logradouro": "Av. Brasil", "numero": "1500", "bairro": "Centro", "municipio": "Moreira Sales", "uf": "PR", "cep": "87370-000", "ibge_municipio": "4116304"}'::jsonb,
+    atualizado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 12. Tabela de Notas Fiscais Emitidas
+CREATE TABLE IF NOT EXISTS notas_fiscais (
+    id TEXT PRIMARY KEY,
+    compra_id TEXT,
+    numero INT NOT NULL,
+    serie INT NOT NULL,
+    tipo VARCHAR(20) DEFAULT 'nfce',
+    chave_acesso VARCHAR(60) NOT NULL,
+    protocolo_autorizacao VARCHAR(60),
+    status VARCHAR(30) DEFAULT 'autorizada',
+    motivo_status TEXT,
+    motivo_cancelamento TEXT,
+    protocolo_cancelamento VARCHAR(60),
+    ambiente VARCHAR(20) DEFAULT 'homologacao',
+    data_emissao TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    valor_total NUMERIC(10, 2) DEFAULT 0.00,
+    valor_produtos NUMERIC(10, 2) DEFAULT 0.00,
+    valor_desconto NUMERIC(10, 2) DEFAULT 0.00,
+    valor_tributos_estimados NUMERIC(10, 2) DEFAULT 0.00,
+    cliente_nome VARCHAR(150),
+    cliente_cpf VARCHAR(20),
+    cliente_cpf_cnpj VARCHAR(30),
+    cliente_telefone VARCHAR(30),
+    cliente_whatsapp VARCHAR(30),
+    forma_pagamento VARCHAR(50),
+    itens JSONB DEFAULT '[]'::jsonb,
+    qr_code_url TEXT,
+    danfe_url TEXT,
+    xml_url TEXT,
+    enviada_whatsapp BOOLEAN DEFAULT false,
+    criado_em TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- Habilitar Row Level Security (RLS)
+ALTER TABLE clientes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE compras ENABLE ROW LEVEL SECURITY;
+ALTER TABLE configuracoes_fidelidade ENABLE ROW LEVEL SECURITY;
 ALTER TABLE categorias ENABLE ROW LEVEL SECURITY;
 ALTER TABLE produtos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fornecedores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE insumos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fichas_tecnicas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE mesas_abertas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pedidos_cozinha ENABLE ROW LEVEL SECURITY;
+ALTER TABLE configuracao_fiscal ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notas_fiscais ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Permitir leitura pública categorias" ON categorias FOR SELECT USING (true);
-CREATE POLICY "Permitir inserção pública categorias" ON categorias FOR INSERT WITH CHECK (true);
-CREATE POLICY "Permitir atualização pública categorias" ON categorias FOR UPDATE USING (true);
-CREATE POLICY "Permitir deleção pública categorias" ON categorias FOR DELETE USING (true);
+-- Políticas de Acesso Total para Operação pelo App (Chave Anon)
+DROP POLICY IF EXISTS "Permitir tudo clientes" ON clientes;
+CREATE POLICY "Permitir tudo clientes" ON clientes FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "Permitir leitura pública produtos" ON produtos FOR SELECT USING (true);
-CREATE POLICY "Permitir inserção pública produtos" ON produtos FOR INSERT WITH CHECK (true);
-CREATE POLICY "Permitir atualização pública produtos" ON produtos FOR UPDATE USING (true);
-CREATE POLICY "Permitir deleção pública produtos" ON produtos FOR DELETE USING (true);
+DROP POLICY IF EXISTS "Permitir tudo compras" ON compras;
+CREATE POLICY "Permitir tudo compras" ON compras FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "Permitir leitura pública fornecedores" ON fornecedores FOR SELECT USING (true);
-CREATE POLICY "Permitir inserção pública fornecedores" ON fornecedores FOR INSERT WITH CHECK (true);
-CREATE POLICY "Permitir atualização pública fornecedores" ON fornecedores FOR UPDATE USING (true);
-CREATE POLICY "Permitir deleção pública fornecedores" ON fornecedores FOR DELETE USING (true);
+DROP POLICY IF EXISTS "Permitir tudo configuracoes_fidelidade" ON configuracoes_fidelidade;
+CREATE POLICY "Permitir tudo configuracoes_fidelidade" ON configuracoes_fidelidade FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "Permitir leitura pública insumos" ON insumos FOR SELECT USING (true);
-CREATE POLICY "Permitir inserção pública insumos" ON insumos FOR INSERT WITH CHECK (true);
-CREATE POLICY "Permitir atualização pública insumos" ON insumos FOR UPDATE USING (true);
-CREATE POLICY "Permitir deleção pública insumos" ON insumos FOR DELETE USING (true);
+DROP POLICY IF EXISTS "Permitir tudo categorias" ON categorias;
+CREATE POLICY "Permitir tudo categorias" ON categorias FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "Permitir leitura pública fichas" ON fichas_tecnicas FOR SELECT USING (true);
-CREATE POLICY "Permitir inserção pública fichas" ON fichas_tecnicas FOR INSERT WITH CHECK (true);
-CREATE POLICY "Permitir atualização pública fichas" ON fichas_tecnicas FOR UPDATE USING (true);
-CREATE POLICY "Permitir deleção pública fichas" ON fichas_tecnicas FOR DELETE USING (true);
+DROP POLICY IF EXISTS "Permitir tudo produtos" ON produtos;
+CREATE POLICY "Permitir tudo produtos" ON produtos FOR ALL USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Permitir tudo fornecedores" ON fornecedores;
+CREATE POLICY "Permitir tudo fornecedores" ON fornecedores FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir tudo insumos" ON insumos;
+CREATE POLICY "Permitir tudo insumos" ON insumos FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir tudo fichas_tecnicas" ON fichas_tecnicas;
+CREATE POLICY "Permitir tudo fichas_tecnicas" ON fichas_tecnicas FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir tudo mesas_abertas" ON mesas_abertas;
+CREATE POLICY "Permitir tudo mesas_abertas" ON mesas_abertas FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir tudo pedidos_cozinha" ON pedidos_cozinha;
+CREATE POLICY "Permitir tudo pedidos_cozinha" ON pedidos_cozinha FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir tudo configuracao_fiscal" ON configuracao_fiscal;
+CREATE POLICY "Permitir tudo configuracao_fiscal" ON configuracao_fiscal FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir tudo notas_fiscais" ON notas_fiscais;
+CREATE POLICY "Permitir tudo notas_fiscais" ON notas_fiscais FOR ALL USING (true) WITH CHECK (true);

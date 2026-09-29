@@ -12,8 +12,14 @@ export const AlertModal: React.FC<AlertModalProps> = ({ isOpen, title = 'Aviso',
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm animate-scaleUp overflow-hidden">
+    <div 
+      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 overflow-y-auto p-4 flex items-center justify-center animate-fadeIn"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-sm my-auto animate-scaleUp overflow-hidden border border-stone-100"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="bg-stone-50 p-6 text-center border-b border-stone-100">
           <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 bg-blue-50 text-blue-600">
             <Info className="w-6 h-6" />

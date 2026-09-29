@@ -7,7 +7,12 @@ export const isSupabaseConfigured = Boolean(
   supabaseUrl && 
   supabaseAnonKey && 
   !supabaseUrl.includes('placeholder') &&
-  supabaseUrl.startsWith('https://')
+  !supabaseUrl.includes('seu-projeto') &&
+  !supabaseUrl.includes('your-project') &&
+  !supabaseAnonKey.includes('sua-chave') &&
+  !supabaseAnonKey.includes('anon-key') &&
+  supabaseUrl.startsWith('https://') &&
+  supabaseAnonKey.startsWith('eyJ')
 );
 
 export const supabase = isSupabaseConfigured

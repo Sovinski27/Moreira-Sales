@@ -1,0 +1,899 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Coffee, 
+  ShoppingCart, 
+  Search, 
+  Plus, 
+  Minus, 
+  Send, 
+  CheckCircle2, 
+  AlertCircle, 
+  ChefHat, 
+  ArrowLeft, 
+  X, 
+  User, 
+  Sparkles, 
+  ChevronRight,
+  UtensilsCrossed,
+  RotateCcw
+} from 'lucide-react';
+import { Produto, Categoria, ItemPedidoCozinha, PedidoCozinha, Cliente } from '../types';
+import { 
+  fetchProdutos, 
+  fetchCategorias, 
+  criarPedidoCardapio, 
+  fetchPedidosCozinha, 
+  fetchClientes, 
+  identificarOuCadastrarCliente 
+} from '../services/db';
+import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
+
+interface CardapioDigitalPageProps {
+  mesaInicial?: number;
+  onVoltarParaSistema?: () => void;
+}
+
+export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({ 
+  mesaInicial,
+  onVoltarParaSistema
+}) => {
+  // Ler parâmetros da URL (?mesa=5)
+  const initialMesaFromUrl = () => {
+    if (mesaInicial) return mesaInicial.toString();
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const m = params.get('mesa');
+      if (m && !isNaN(parseInt(m, 10))) return m;
+    }
+    return '';
+  };
+
+  // Estados da Tela Inicial de Recepção (Conforme o print exato do usuário)
+  const [mesaInput, setMesaInput] = useState<string>(initialMesaFromUrl);
+  const [nomeInput, setNomeInput] = useState<string>('');
+  const [telefoneInput, setTelefoneInput] = useState<string>('');
+
+  // Controle de acesso ao cardápio (False = tela do print; True = cardápio completo de pedidos)
+  const [acessouCardapio, setAcessouCardapio] = useState<boolean>(false);
+
+  // Cliente reconhecido ou criado
+  const [clienteAtivo, setClienteAtivo] = useState<Cliente | null>(null);
+  const [clientesList, setClientesList] = useState<Cliente[]>([]);
+  const [clienteEncontradoNoPreenchimento, setClienteEncontradoNoPreenchimento] = useState<Cliente | null>(null);
+
+  // Produtos e categorias do cardápio
+  const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [categoriaAtiva, setCategoriaAtiva] = useState<string>('todos');
+  const [busca, setBusca] = useState('');
+
+  // Carrinho da mesa
+  const [carrinho, setCarrinho] = useState<ItemPedidoCozinha[]>([]);
+  const [modalCarrinhoAberto, setModalCarrinhoAberto] = useState(false);
+  const [observacoesGerais, setObservacoesGerais] = useState('');
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
+
+  // Observação para item específico
+  const [itemParaObservacao, setItemParaObservacao] = useState<{ produto: Produto; observacao: string } | null>(null);
+
+  // Pedidos enviados desta mesa para a cozinha
+  const [pedidosAtivosMesa, setPedidosAtivosMesa] = useState<PedidoCozinha[]>([]);
+  const [ultimoPedidoEnviado, setUltimoPedidoEnviado] = useState<PedidoCozinha | null>(null);
+
+  // Carregar produtos, categorias e clientes existentes
+  useEffect(() => {
+    const recarregar = () => {
+      fetchProdutos().then(setProdutos);
+      fetchCategorias().then(setCategorias);
+      fetchClientes().then(setClientesList);
+    };
+    recarregar();
+
+    window.addEventListener('catalogo_atualizado', recarregar);
+    window.addEventListener('produtos_atualizados', recarregar);
+    window.addEventListener('categorias_atualizadas', recarregar);
+    window.addEventListener('storage', recarregar);
+
+    // Se já havia uma sessão salva recentemente no navegador para essa mesa
+    try {
+      const salvo = localStorage.getItem('panificadora_sessao_mesa_atual');
+      if (salvo) {
+        const parsed = JSON.parse(salvo);
+        if (parsed.mesa && !mesaInput) setMesaInput(parsed.mesa.toString());
+        if (parsed.nome) setNomeInput(parsed.nome);
+        if (parsed.telefone) setTelefoneInput(formatPhoneDisplay(parsed.telefone));
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar sessão anterior da mesa:', e);
+    }
+
+    return () => {
+      window.removeEventListener('catalogo_atualizado', recarregar);
+      window.removeEventListener('produtos_atualizados', recarregar);
+      window.removeEventListener('categorias_atualizadas', recarregar);
+      window.removeEventListener('storage', recarregar);
+    };
+  }, []);
+
+  // Monitorar digitação do WhatsApp para busca em tempo real (opcional)
+  const handleTelefoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    const digits = cleanPhone(raw);
+    
+    let formatted = raw;
+    if (digits.length <= 11) {
+      formatted = formatPhoneDisplay(digits);
+    }
+    setTelefoneInput(formatted);
+
+    if (digits.length >= 8) {
+      const match = clientesList.find((c) => {
+        const cDigits = cleanPhone(c.whatsapp);
+        return cDigits === digits || (digits.length >= 8 && (cDigits.endsWith(digits) || digits.endsWith(cDigits)));
+      });
+
+      if (match) {
+        setClienteEncontradoNoPreenchimento(match);
+        if (!nomeInput.trim()) {
+          setNomeInput(match.nome);
+        }
+      } else {
+        setClienteEncontradoNoPreenchimento(null);
+      }
+    } else {
+      setClienteEncontradoNoPreenchimento(null);
+    }
+  };
+
+  // Botão de liberação de acesso ao cardápio
+  // REGRA EXPLICITA DO USUÁRIO: "Depois que o nosso cliente colocar o número da mesa, vai liberar o botão de acessar cardápio... O nome, sobrenome e WhatsApp são opcionais"
+  const isBotaoAcessarLiberado = mesaInput.trim().length > 0 && !isNaN(parseInt(mesaInput, 10));
+
+  const handleAcessarCardapio = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!isBotaoAcessarLiberado) return;
+
+    const numMesa = parseInt(mesaInput.trim(), 10);
+    const nomeFinal = nomeInput.trim() || `Mesa ${numMesa}`;
+    const telLimpo = cleanPhone(telefoneInput);
+
+    // Se forneceu telefone (WhatsApp), busca ou registra o cliente automaticamente
+    if (telLimpo && telLimpo.length >= 8) {
+      try {
+        const { cliente } = await identificarOuCadastrarCliente(
+          nomeFinal,
+          telLimpo
+        );
+        setClienteAtivo(cliente);
+      } catch (err) {
+        console.warn('Erro ao registrar cliente opcional:', err);
+      }
+    }
+
+    try {
+      localStorage.setItem('panificadora_sessao_mesa_atual', JSON.stringify({
+        mesa: numMesa,
+        nome: nomeFinal,
+        telefone: telLimpo
+      }));
+    } catch (err) {
+      console.warn('Erro ao salvar sessão local:', err);
+    }
+
+    setAcessouCardapio(true);
+  };
+
+  // Monitorar pedidos da cozinha para esta mesa
+  const mesaNumeroAtual = parseInt(mesaInput, 10) || 1;
+
+  const atualizarPedidosMesa = async () => {
+    try {
+      const todos = await fetchPedidosCozinha();
+      const daMesa = todos.filter(p => p.mesa_numero === mesaNumeroAtual && p.status !== 'cancelado');
+      setPedidosAtivosMesa(daMesa);
+
+      if (ultimoPedidoEnviado) {
+        const atualizado = daMesa.find(p => p.id === ultimoPedidoEnviado.id);
+        if (atualizado) setUltimoPedidoEnviado(atualizado);
+      }
+    } catch (e) {
+      console.warn('Erro ao verificar pedidos da mesa:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (acessouCardapio) {
+      atualizarPedidosMesa();
+      const interval = setInterval(atualizarPedidosMesa, 3000);
+
+      const handleUpdate = () => atualizarPedidosMesa();
+      window.addEventListener('pedidos_cozinha_atualizados', handleUpdate);
+      window.addEventListener('novo_pedido_cozinha', handleUpdate);
+      window.addEventListener('storage', handleUpdate);
+
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('pedidos_cozinha_atualizados', handleUpdate);
+        window.removeEventListener('novo_pedido_cozinha', handleUpdate);
+        window.removeEventListener('storage', handleUpdate);
+      };
+    }
+  }, [acessouCardapio, mesaNumeroAtual, ultimoPedidoEnviado?.id]);
+
+  // Adicionar produto ao carrinho
+  const handleAdicionarItem = (produto: Produto, observacao?: string) => {
+    setCarrinho(prev => {
+      const idxExistente = prev.findIndex(item => item.produto_id === produto.id && item.observacao === (observacao || ''));
+      if (idxExistente >= 0) {
+        const novo = [...prev];
+        novo[idxExistente].quantidade += 1;
+        novo[idxExistente].subtotal = novo[idxExistente].quantidade * produto.preco;
+        return novo;
+      } else {
+        return [
+          ...prev,
+          {
+            id_temp: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            produto_id: produto.id,
+            nome: produto.nome,
+            quantidade: 1,
+            preco_unitario: produto.preco,
+            subtotal: produto.preco,
+            observacao: observacao || undefined
+          }
+        ];
+      }
+    });
+    setItemParaObservacao(null);
+  };
+
+  // Alterar quantidade no carrinho
+  const handleAlterarQuantidade = (idTemp: string, delta: number) => {
+    setCarrinho(prev => {
+      return prev.map(item => {
+        if (item.id_temp === idTemp) {
+          const novaQtd = item.quantidade + delta;
+          if (novaQtd <= 0) return null;
+          return {
+            ...item,
+            quantidade: novaQtd,
+            subtotal: novaQtd * item.preco_unitario
+          };
+        }
+        return item;
+      }).filter(Boolean) as ItemPedidoCozinha[];
+    });
+  };
+
+  const totalCarrinho = carrinho.reduce((acc, item) => acc + item.subtotal, 0);
+  const totalItensCarrinho = carrinho.reduce((acc, item) => acc + item.quantidade, 0);
+
+  // Enviar pedido da mesa direto para a cozinha (KDS)
+  const handleEnviarPedidoParaCozinha = async () => {
+    if (carrinho.length === 0) return;
+
+    setEnviandoPedido(true);
+    try {
+      const numMesa = parseInt(mesaInput.trim(), 10) || 1;
+      const nomeFinal = nomeInput.trim() || `Mesa ${numMesa}`;
+      const telLimpo = cleanPhone(telefoneInput);
+
+      // Se informou telefone e ainda não tinha vinculado cliente, vincula ou cria cadastro
+      let cliId = clienteAtivo?.id;
+      if (!cliId && telLimpo && telLimpo.length >= 8) {
+        try {
+          const { cliente } = await identificarOuCadastrarCliente(nomeFinal, telLimpo);
+          setClienteAtivo(cliente);
+          cliId = cliente.id;
+        } catch (e) {
+          console.warn('Erro ao cadastrar cliente no envio:', e);
+        }
+      }
+
+      // Envia direto para a Cozinha e para a Mesa Aberta no Caixa
+      const novoPedido = await criarPedidoCardapio({
+        mesaNumero: numMesa,
+        clienteId: cliId,
+        clienteNome: nomeFinal,
+        clienteTelefone: telLimpo || undefined,
+        itens: carrinho,
+        observacoes: observacoesGerais.trim() || undefined
+      });
+
+      setUltimoPedidoEnviado(novoPedido);
+      setCarrinho([]);
+      setObservacoesGerais('');
+      setModalCarrinhoAberto(false);
+      await atualizarPedidosMesa();
+    } catch (err) {
+      console.error('Erro ao enviar pedido para a cozinha:', err);
+      alert('Não foi possível enviar o pedido para a cozinha. Tente novamente.');
+    } finally {
+      setEnviandoPedido(false);
+    }
+  };
+
+  // Filtragem de produtos por busca e categoria
+  const produtosFiltrados = useMemo(() => {
+    return produtos.filter(p => {
+      if (p.ativo === false) return false;
+      const bateBusca = !busca.trim() || p.nome.toLowerCase().includes(busca.toLowerCase());
+      const bateCategoria = categoriaAtiva === 'todos' || p.categoria_id === categoriaAtiva;
+      return bateBusca && bateCategoria;
+    });
+  }, [produtos, busca, categoriaAtiva]);
+
+  // =========================================================================
+  // 1. TELA QUE ANTECEDE AO CARDÁPIO (EXATO LAYOUT DO PRINT ENVIADO PELO CLIENTE)
+  // =========================================================================
+  if (!acessouCardapio) {
+    return (
+      <div className="min-h-screen bg-[#F4F4F6] flex items-center justify-center p-4 selection:bg-amber-200">
+        
+        {/* Card Central - Cópia Fiel do Layout do Print */}
+        <div className="w-full max-w-[430px] bg-white rounded-[32px] shadow-xl shadow-stone-200/60 p-7 sm:p-9 border border-stone-100 animate-scaleUp">
+          
+          {/* Ícone Circular Superior com Talheres Cruzados */}
+          <div className="w-16 h-16 rounded-full bg-[#FEF4E6] flex items-center justify-center mx-auto mb-4.5 text-[#C88A3E] shadow-xs">
+            <UtensilsCrossed className="w-7 h-7 text-[#C88A3E]" strokeWidth={2.2} />
+          </div>
+
+          {/* Título e Subtítulo */}
+          <h1 className="text-2xl font-bold text-stone-900 text-center tracking-tight mb-2">
+            Bem-vindo(a)!
+          </h1>
+          <p className="text-xs text-stone-500 text-center leading-relaxed mb-7 max-w-[280px] mx-auto font-normal">
+            Preencha os dados abaixo para iniciar seu atendimento na mesa.
+          </p>
+
+          <form onSubmit={handleAcessarCardapio} className="space-y-4">
+            
+            {/* Campo 1: NÚMERO DA MESA * */}
+            <div>
+              <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
+                NÚMERO DA MESA *
+              </label>
+              <input
+                type="text"
+                required
+                autoFocus
+                value={mesaInput}
+                onChange={e => setMesaInput(e.target.value.replace(/\D/g, ''))}
+                placeholder="Ex: 5"
+                className="w-full px-4 py-3.5 bg-[#F9F9FB] border border-stone-200 rounded-xl text-center text-sm font-bold text-stone-900 placeholder:text-stone-400 placeholder:font-normal focus:bg-white focus:border-amber-600 outline-none transition-all shadow-xs"
+              />
+            </div>
+
+            {/* Campo 2: NOME E SOBRENOME (OPCIONAL) */}
+            <div>
+              <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
+                NOME E SOBRENOME (OPCIONAL)
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={nomeInput}
+                  onChange={e => setNomeInput(e.target.value)}
+                  placeholder="Ex: João da Silva"
+                  className="w-full pl-10 pr-4 py-3.5 bg-[#F9F9FB] border border-stone-200 rounded-xl text-sm font-medium text-stone-900 placeholder:text-stone-400 placeholder:font-normal focus:bg-white focus:border-amber-600 outline-none transition-all shadow-xs"
+                />
+              </div>
+            </div>
+
+            {/* Campo 3: WHATSAPP (OPCIONAL) */}
+            <div>
+              <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
+                WHATSAPP (OPCIONAL)
+              </label>
+              <input
+                type="tel"
+                value={telefoneInput}
+                onChange={handleTelefoneChange}
+                placeholder="(DD) 90000-0000"
+                className="w-full px-4 py-3.5 bg-[#F9F9FB] border border-stone-200 rounded-xl text-center text-sm font-medium text-stone-900 placeholder:text-stone-400 placeholder:font-normal focus:bg-white focus:border-amber-600 outline-none transition-all shadow-xs"
+              />
+              <p className="text-[11px] text-stone-400 text-center leading-normal mt-2.5 px-2 font-normal">
+                Preencha seu número para acumular pontos de fidelidade no fechamento e receber brindes no futuro!
+              </p>
+            </div>
+
+            {/* Reconhecimento em Tempo Real (se já tiver cadastro no WhatsApp digitado) */}
+            {clienteEncontradoNoPreenchimento && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-xs text-emerald-800 text-center font-medium animate-fadeIn">
+                ✓ Cliente identificado: <b>{clienteEncontradoNoPreenchimento.nome}</b>
+              </div>
+            )}
+
+            {/* Botão de Acesso - Liberado assim que colocar o número da mesa */}
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={!isBotaoAcessarLiberado}
+                className={`w-full py-4 rounded-2xl font-bold text-sm transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                  isBotaoAcessarLiberado
+                    ? 'bg-gradient-to-r from-[#D49342] to-[#C88A3E] hover:from-[#C88A3E] hover:to-[#B67A32] text-white shadow-lg shadow-amber-500/25 active:scale-[0.99] cursor-pointer'
+                    : 'bg-[#D6D3D1] text-white cursor-not-allowed'
+                }`}
+              >
+                <span>Acessar Cardápio</span>
+                <ChevronRight className="w-4 h-4 ml-0.5" />
+              </button>
+            </div>
+          </form>
+
+          {/* Botão Voltar ao Sistema Geral (para uso interno caso esteja no balcão) */}
+          {onVoltarParaSistema && (
+            <div className="text-center mt-5">
+              <button
+                type="button"
+                onClick={onVoltarParaSistema}
+                className="text-xs font-semibold text-stone-400 hover:text-stone-600 transition-colors"
+              >
+                ← Voltar ao Sistema Principal
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // 2. TELA DO CARDÁPIO DIGITAL (APÓS PREENCHER E ACESSAR)
+  // =========================================================================
+  return (
+    <div className="min-h-screen bg-[#FBF9F5] text-stone-900 pb-32 selection:bg-amber-200">
+      
+      {/* Header Fixo Superior do Cardápio */}
+      <header className="bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white sticky top-0 z-30 shadow-md">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setAcessouCardapio(false)}
+              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              title="Trocar mesa ou alterar dados"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center font-black text-amber-300 text-sm shadow-inner shrink-0">
+              MS
+            </div>
+            <div>
+              <h1 className="text-base sm:text-lg font-black tracking-tight leading-none text-white">
+                Moreira Sales
+              </h1>
+              <p className="text-[11px] text-amber-200 font-medium">Cardápio Digital</p>
+            </div>
+          </div>
+
+          {/* Badge da Mesa e Cliente */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAcessouCardapio(false)}
+              className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 px-3 py-1.5 rounded-2xl border border-white/15 transition-all text-xs font-bold text-amber-300 active:scale-95"
+              title="Clique para alterar mesa ou dados"
+            >
+              <span className="uppercase text-[10px] text-stone-300">Mesa</span>
+              <span className="text-sm font-black text-white">
+                {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
+              </span>
+              <RotateCcw className="w-3 h-3 text-amber-400 ml-0.5" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-3xl mx-auto px-4 pt-4 space-y-4">
+        
+        {/* Identificação Resumida do Atendimento da Mesa */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-3xl border border-stone-200 shadow-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-800 font-bold shrink-0">
+              <User className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-sm text-stone-900 truncate">
+                  {nomeInput.trim() || `Mesa ${mesaInput}`}
+                </p>
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 shrink-0">
+                  Mesa {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
+                </span>
+              </div>
+              <p className="text-xs text-stone-500 font-mono truncate">
+                {telefoneInput ? formatPhoneDisplay(telefoneInput) : 'Atendimento sem WhatsApp'}
+                {clienteAtivo && ` • ${clienteAtivo.total_compras_historico || 0} compras no histórico`}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setAcessouCardapio(false)}
+            className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl transition-colors shrink-0 cursor-pointer"
+          >
+            Trocar Mesa
+          </button>
+        </div>
+
+        {/* STATUS DO ÚLTIMO PEDIDO ENVIADO PARA A COZINHA */}
+        {ultimoPedidoEnviado && (
+          <div className="bg-white rounded-3xl p-4 sm:p-5 border-2 border-amber-500 shadow-lg animate-fadeIn">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs sm:text-sm font-bold text-amber-950 flex items-center gap-1.5 uppercase">
+                <ChefHat className="w-4 h-4 text-amber-600" /> Acompanhe seu Pedido na Cozinha
+              </span>
+              <span className="text-xs font-mono font-bold text-stone-400">
+                #{ultimoPedidoEnviado.id.slice(-5)}
+              </span>
+            </div>
+
+            {/* Linha do tempo de status */}
+            <div className="grid grid-cols-3 gap-2 text-center py-1">
+              <div className={`p-2.5 rounded-2xl flex flex-col items-center justify-center transition-all ${
+                ultimoPedidoEnviado.status === 'pendente' 
+                  ? 'bg-rose-500 text-white font-black shadow-md animate-pulse' 
+                  : 'bg-stone-100 text-stone-400'
+              }`}>
+                <AlertCircle className="w-5 h-5 mb-1" />
+                <span className="text-xs leading-tight">Recebido na Cozinha</span>
+              </div>
+
+              <div className={`p-2.5 rounded-2xl flex flex-col items-center justify-center transition-all ${
+                ultimoPedidoEnviado.status === 'preparando' 
+                  ? 'bg-amber-500 text-white font-black shadow-md animate-pulse' 
+                  : ultimoPedidoEnviado.status === 'pronto' || ultimoPedidoEnviado.status === 'entregue'
+                  ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
+                  : 'bg-stone-100 text-stone-400'
+              }`}>
+                <ChefHat className="w-5 h-5 mb-1" />
+                <span className="text-xs leading-tight">Em Preparo</span>
+              </div>
+
+              <div className={`p-2.5 rounded-2xl flex flex-col items-center justify-center transition-all ${
+                ultimoPedidoEnviado.status === 'pronto' || ultimoPedidoEnviado.status === 'entregue'
+                  ? 'bg-emerald-600 text-white font-black shadow-md' 
+                  : 'bg-stone-100 text-stone-400'
+              }`}>
+                <CheckCircle2 className="w-5 h-5 mb-1" />
+                <span className="text-xs leading-tight">
+                  {ultimoPedidoEnviado.status === 'entregue' ? 'Entregue!' : 'Pronto p/ Servir!'}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-600 text-center mt-3 font-medium">
+              {ultimoPedidoEnviado.status === 'pendente' && 'A cozinha foi notificada com alerta sonoro e logo começará a preparar seu pedido.'}
+              {ultimoPedidoEnviado.status === 'preparando' && 'Seus itens estão na chapa e no balcão de preparo com todo carinho!'}
+              {ultimoPedidoEnviado.status === 'pronto' && 'Seu pedido está pronto! O garçom está levando até a sua mesa.'}
+              {ultimoPedidoEnviado.status === 'entregue' && 'Bom apetite! Se desejar algo mais, basta pedir novamente aqui.'}
+            </p>
+          </div>
+        )}
+
+        {/* Campo de Busca de Produtos */}
+        <div className="relative">
+          <input
+            type="text"
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar cafés, pães na chapa, salgados, doces..."
+            className="w-full pl-11 pr-10 py-3.5 bg-white border border-stone-200 rounded-2xl text-sm font-semibold focus:border-amber-600 outline-none shadow-xs"
+          />
+          <Search className="w-5 h-5 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          {busca && (
+            <button
+              onClick={() => setBusca('')}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Categorias (Abas Horizontais) */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <button
+            type="button"
+            onClick={() => setCategoriaAtiva('todos')}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+              categoriaAtiva === 'todos'
+                ? 'bg-amber-800 text-white shadow-md'
+                : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
+            }`}
+          >
+            Todos ({produtos.filter(p => p.ativo !== false).length})
+          </button>
+          {categorias.map(cat => {
+            const count = produtos.filter(p => p.ativo !== false && p.categoria_id === cat.id).length;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setCategoriaAtiva(cat.id)}
+                className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                  categoriaAtiva === cat.id
+                    ? 'bg-amber-800 text-white shadow-md'
+                    : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
+                }`}
+              >
+                {cat.nome} {count > 0 && `(${count})`}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Lista de Produtos do Cardápio */}
+        {produtosFiltrados.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-3xl border border-stone-200 p-6">
+            <Coffee className="w-12 h-12 text-stone-300 mx-auto mb-3" />
+            <p className="text-sm font-bold text-stone-700">Nenhum item encontrado</p>
+            <p className="text-xs text-stone-500 mt-1">
+              Tente buscar por outro nome ou escolha outra categoria.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            {produtosFiltrados.map(produto => {
+              const categoria = categorias.find(c => c.id === produto.categoria_id);
+              const qtdNoCarrinho = carrinho
+                .filter(i => i.produto_id === produto.id)
+                .reduce((sum, i) => sum + i.quantidade, 0);
+
+              return (
+                <div 
+                  key={produto.id} 
+                  className="bg-white p-4 rounded-3xl border border-stone-200 shadow-xs flex flex-col justify-between hover:border-amber-300 transition-all group"
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/60">
+                        {categoria?.nome || 'Geral'}
+                      </span>
+                      {qtdNoCarrinho > 0 && (
+                        <span className="text-[10px] font-black text-white bg-amber-600 px-2 py-0.5 rounded-full shadow-xs">
+                          {qtdNoCarrinho} no pedido
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="font-bold text-base text-stone-900 leading-snug">
+                      {produto.nome}
+                    </h3>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between">
+                    <span className="text-lg font-black text-stone-900 font-mono">
+                      R$ {produto.preco.toFixed(2)}
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setItemParaObservacao({ produto, observacao: '' })}
+                        className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                        title="Adicionar observação (ex: sem açúcar)"
+                      >
+                        Obs
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAdicionarItem(produto)}
+                        className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Pedir</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </main>
+
+      {/* Modal de Observação para o Item */}
+      {itemParaObservacao && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden p-5 animate-scaleUp">
+            <h3 className="text-base font-bold text-stone-900 mb-1">
+              Observação para: {itemParaObservacao.produto.nome}
+            </h3>
+            <p className="text-xs text-stone-500 mb-3">
+              Como você gostaria que a cozinha preparasse esse item?
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={itemParaObservacao.observacao}
+              onChange={e => setItemParaObservacao({ ...itemParaObservacao, observacao: e.target.value })}
+              placeholder="Ex: Sem açúcar, pão bem passado, leite gelado..."
+              className="w-full px-4 py-3 bg-stone-50 border border-stone-300 rounded-xl text-sm font-medium focus:border-amber-600 outline-none mb-4"
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAdicionarItem(itemParaObservacao.produto, itemParaObservacao.observacao);
+                }
+              }}
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setItemParaObservacao(null)}
+                className="flex-1 py-2.5 bg-stone-100 text-stone-700 font-bold rounded-xl text-xs hover:bg-stone-200 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAdicionarItem(itemParaObservacao.produto, itemParaObservacao.observacao)}
+                className="flex-1 py-2.5 bg-amber-600 text-white font-bold rounded-xl text-xs hover:bg-amber-700 transition-colors"
+              >
+                Adicionar com Obs
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Barra Fixa Flutuante Inferior do Carrinho */}
+      {totalItensCarrinho > 0 && (
+        <div className="fixed bottom-4 inset-x-4 max-w-3xl mx-auto z-40 animate-slideUp">
+          <button
+            type="button"
+            onClick={() => setModalCarrinhoAberto(true)}
+            className="w-full bg-stone-900 text-white p-4 rounded-3xl shadow-2xl flex items-center justify-between border-2 border-amber-500 hover:bg-black transition-all transform active:scale-98 cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-stone-900 font-black flex items-center justify-center text-sm shadow-md shrink-0">
+                {totalItensCarrinho}
+              </div>
+              <div className="text-left">
+                <p className="text-xs text-stone-300 font-medium">
+                  Comanda • Mesa {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
+                </p>
+                <p className="text-sm font-bold">Ver Pedido / Enviar para a Cozinha</p>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <span className="text-lg font-black font-mono text-amber-400">
+                R$ {totalCarrinho.toFixed(2)}
+              </span>
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Drawer / Modal de Revisão do Pedido */}
+      {modalCarrinhoAberto && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden animate-slideUp">
+            
+            {/* Header do Carrinho */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <ShoppingCart className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="text-base sm:text-lg font-black">
+                    Comanda • Mesa {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
+                  </h3>
+                  <p className="text-xs text-amber-200">
+                    Cliente: {nomeInput.trim() || `Mesa ${mesaInput}`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalCarrinhoAberto(false)}
+                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Lista de Itens */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-3 flex-1">
+              {carrinho.map(item => (
+                <div key={item.id_temp} className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl border border-stone-200">
+                  <div className="min-w-0 pr-2">
+                    <p className="font-bold text-sm text-stone-900 leading-snug">{item.nome}</p>
+                    {item.observacao && (
+                      <p className="text-xs text-amber-700 font-semibold mt-0.5">
+                        Obs: {item.observacao}
+                      </p>
+                    )}
+                    <p className="text-xs text-stone-500 font-mono mt-0.5">
+                      R$ {item.preco_unitario.toFixed(2)} un
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center bg-white border border-stone-300 rounded-xl overflow-hidden shadow-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleAlterarQuantidade(item.id_temp, -1)}
+                        className="p-1.5 hover:bg-stone-100 text-stone-600 transition-colors cursor-pointer"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="w-7 text-center font-black text-xs">
+                        {item.quantidade}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleAlterarQuantidade(item.id_temp, 1)}
+                        className="p-1.5 hover:bg-stone-100 text-stone-600 transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <span className="w-16 text-right font-black text-xs font-mono text-stone-900">
+                      R$ {item.subtotal.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+
+              {/* Observações Gerais */}
+              <div className="pt-2">
+                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Observações para a Cozinha:
+                </label>
+                <textarea
+                  rows={2}
+                  value={observacoesGerais}
+                  onChange={e => setObservacoesGerais(e.target.value)}
+                  placeholder="Ex: Trazer tudo junto, caprichar no gelo..."
+                  className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-300 rounded-xl text-xs font-medium focus:bg-white focus:border-amber-600 outline-none resize-none"
+                />
+              </div>
+
+              {/* Resumo da Identificação da Comanda */}
+              <div className="p-3 bg-stone-100 rounded-2xl border border-stone-200 text-xs space-y-1">
+                <div className="flex justify-between font-bold text-stone-800">
+                  <span>Mesa: {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}</span>
+                  <span>{telefoneInput ? formatPhoneDisplay(telefoneInput) : 'Sem WhatsApp'}</span>
+                </div>
+                <p className="text-stone-600 truncate">
+                  Identificação: <b>{nomeInput.trim() || `Mesa ${mesaInput}`}</b>
+                </p>
+                {clienteAtivo && (
+                  <p className="text-emerald-700 font-semibold">
+                    ✓ Vinculado ao cadastro do cliente
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Footer do Carrinho com CTA de Envio */}
+            <div className="p-4 sm:p-5 bg-stone-50 border-t border-stone-200 space-y-3 shrink-0">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-stone-600">Total do Pedido:</span>
+                <span className="text-2xl font-black font-mono text-stone-900">
+                  R$ {totalCarrinho.toFixed(2)}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                disabled={enviandoPedido || carrinho.length === 0}
+                onClick={handleEnviarPedidoParaCozinha}
+                className="w-full py-4 bg-amber-600 hover:bg-amber-700 disabled:bg-stone-300 text-white font-black text-sm rounded-2xl shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+              >
+                <Send className="w-4 h-4" />
+                <span>
+                  {enviandoPedido ? 'Enviando para a Cozinha...' : 'ENVIAR PEDIDO PARA A COZINHA'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

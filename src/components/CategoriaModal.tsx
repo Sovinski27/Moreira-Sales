@@ -36,9 +36,12 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/80 backdrop-blur-sm animate-fadeIn">
+    <div 
+      className="fixed inset-0 z-50 overflow-y-auto p-3 sm:p-4 flex items-center justify-center bg-stone-900/80 backdrop-blur-xs animate-fadeIn"
+      onClick={onClose}
+    >
       <div 
-        className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-slideUp max-h-[90vh] flex flex-col"
+        className="bg-white rounded-3xl w-full max-w-md my-auto overflow-hidden shadow-2xl animate-scaleUp max-h-[calc(100vh-2.5rem)] sm:max-h-[88vh] flex flex-col border border-stone-100"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex justify-between items-center p-6 border-b border-stone-100 shrink-0">

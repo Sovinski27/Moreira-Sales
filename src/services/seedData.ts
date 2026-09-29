@@ -1,4 +1,4 @@
-import { Cliente, Compra, ConfiguracaoFidelidade, Categoria, Produto, Fornecedor, Insumo, FichaTecnica, HistoricoCompraInsumo } from '../types';
+import { Cliente, Compra, ConfiguracaoFidelidade, Categoria, Produto, Fornecedor, Insumo, FichaTecnica, HistoricoCompraInsumo, ConfiguracaoFiscal, NotaFiscal } from '../types';
 
 /**
  * Configuração padrão inicial do sistema de fidelidade.
@@ -14,6 +14,47 @@ export const INITIAL_CONFIG: ConfiguracaoFidelidade = {
 };
 
 /**
+ * Configuração Fiscal padrão para emissão de NF-e e NFC-e
+ */
+export const INITIAL_CONFIG_FISCAL: ConfiguracaoFiscal = {
+  cnpj: '12.345.678/0001-90',
+  cnpj_emitente: '12.345.678/0001-90',
+  razao_social: 'Panificadora & Confeitaria Moreira Sales Ltda',
+  nome_fantasia: 'Panificadora Moreira Sales',
+  inscricao_estadual: '90812345-67',
+  regime_tributario: 'simples_nacional',
+  ambiente: 'homologacao', // Inicia em homologação / testes seguro
+  serie_nfce: 1,
+  numero_atual_nfce: 100,
+  serie_nfe: 1,
+  numero_atual_nfe: 1,
+  ultimo_numero_nfe: 100,
+  csc_id: '000001',
+  csc_token: 'A8B9C0D1E2F3456789ABCDEF01234567',
+  provedor: 'simulador',
+  certificado_ativo: true,
+  certificado_nome: 'Certificado A1 - Moreira Sales (Ativo)',
+  certificado_validade: '2027-12-31',
+  emissao_automatica_pdv: true,
+  enviar_whatsapp_automatico: true,
+  mensagem_whatsapp_nfe: 'Olá, {NOME}! 🥖📄 Segue o comprovante fiscal da sua compra na Panificadora Moreira Sales. Você pode acessar o Cupom Fiscal / DANFE eletrônico diretamente pelo link abaixo:\n\n🔗 *DANFE Online:* {LINK_DANFE}\n🔑 *Chave de Acesso:* {CHAVE_NFE}\n\nMuito obrigado pela sua preferência e volte sempre!',
+  ncm_padrao: '1905.90.90',
+  cfop_padrao: '5.102',
+  endereco: {
+    logradouro: 'Av. Brasil',
+    numero: '1500',
+    complemento: 'Térreo - Centro Comercial',
+    bairro: 'Centro',
+    municipio: 'Moreira Sales',
+    uf: 'PR',
+    cep: '87370-000',
+    ibge_municipio: '4116304'
+  }
+};
+
+export const INITIAL_NOTAS_FISCAIS: NotaFiscal[] = [];
+
+/**
  * Clientes iniciam limpos (sem clientes falsos afetando KPIs).
  * O cliente do sistema cadastra os clientes reais no caixa ou admin.
  */
@@ -25,33 +66,16 @@ export const INITIAL_CLIENTES: Cliente[] = [];
 export const INITIAL_COMPRAS: Compra[] = [];
 
 /**
- * Categorias base de balcão para panificadora.
+ * Categorias iniciam limpas.
+ * Alimentadas exclusivamente pelo catálogo de produtos cadastrados no painel administrativo.
  */
-export const INITIAL_CATEGORIAS: Categoria[] = [
-  { id: 'cat-1', nome: 'Bebidas Quentes', icone: 'Coffee', ordem: 1 },
-  { id: 'cat-2', nome: 'Pães Frescos', icone: 'Croissant', ordem: 2 },
-  { id: 'cat-3', nome: 'Salgados', icone: 'Pizza', ordem: 3 },
-  { id: 'cat-4', nome: 'Doces & Bolos', icone: 'Cake', ordem: 4 },
-];
+export const INITIAL_CATEGORIAS: Categoria[] = [];
 
 /**
- * Produtos base para agilizar o lançamento inicial no caixa.
+ * Produtos iniciam limpos.
+ * O PDV é alimentado exclusivamente pelos produtos cadastrados e vinculados às categorias no painel administrativo.
  */
-export const INITIAL_PRODUTOS: Produto[] = [
-  { id: 'prod-1', categoria_id: 'cat-1', nome: 'Café Expresso', preco: 4.50, custo: 1.50, controlar_estoque: false, ativo: true },
-  { id: 'prod-2', categoria_id: 'cat-1', nome: 'Pingado Média', preco: 6.00, custo: 2.20, controlar_estoque: false, ativo: true },
-  { id: 'prod-3', categoria_id: 'cat-1', nome: 'Cappuccino', preco: 8.50, custo: 3.20, controlar_estoque: false, ativo: true },
-  
-  { id: 'prod-4', categoria_id: 'cat-2', nome: 'Pão Francês', preco: 0.80, custo: 0.25, controlar_estoque: false, ativo: true },
-  { id: 'prod-5', categoria_id: 'cat-2', nome: 'Pão de Queijo', preco: 3.50, custo: 1.30, controlar_estoque: true, estoque_atual: 0, ativo: true },
-  { id: 'prod-6', categoria_id: 'cat-2', nome: 'Pão na Chapa c/ Manteiga', preco: 5.00, custo: 1.80, controlar_estoque: false, ativo: true },
-  
-  { id: 'prod-7', categoria_id: 'cat-3', nome: 'Coxinha de Frango', preco: 7.00, custo: 2.80, controlar_estoque: true, estoque_atual: 0, ativo: true },
-  { id: 'prod-8', categoria_id: 'cat-3', nome: 'Esfiha de Carne', preco: 6.50, custo: 2.50, controlar_estoque: true, estoque_atual: 0, ativo: true },
-  
-  { id: 'prod-9', categoria_id: 'cat-4', nome: 'Fatia Bolo de Cenoura', preco: 8.00, custo: 3.00, controlar_estoque: true, estoque_atual: 0, ativo: true },
-  { id: 'prod-10', categoria_id: 'cat-4', nome: 'Sonho de Creme', preco: 6.00, custo: 2.40, controlar_estoque: true, estoque_atual: 0, ativo: true },
-];
+export const INITIAL_PRODUTOS: Produto[] = [];
 
 /**
  * Fornecedores não devem ser chumbados no código!

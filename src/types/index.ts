@@ -21,6 +21,11 @@ export interface Compra {
   detalhes?: string | null;
   pontuou_fidelidade?: boolean;
   forma_pagamento?: string; // 'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro'
+  cpf_na_nota?: string | null;
+  nota_fiscal_id?: string | null;
+  nota_fiscal_chave?: string | null;
+  nota_fiscal_numero?: number | null;
+  danfe_url?: string | null;
 }
 
 export interface Categoria {
@@ -131,10 +136,137 @@ export interface MesaAberta {
   criado_em: string;
   carrinho: ItemCarrinho[];
   total: number;
+  cliente_id?: string;
+  cliente_nome?: string;
+  cliente_telefone?: string;
+  pedidos_ids?: string[];
+}
+
+export type PedidoCozinhaStatus = 'pendente' | 'preparando' | 'pronto' | 'entregue' | 'cancelado';
+
+export interface ItemPedidoCozinha {
+  id_temp: string;
+  produto_id: string;
+  nome: string;
+  quantidade: number;
+  preco_unitario: number;
+  subtotal: number;
+  observacao?: string;
+}
+
+export interface PedidoCozinha {
+  id: string;
+  mesa_numero: number;
+  cliente_id?: string;
+  cliente_nome: string;
+  cliente_telefone?: string;
+  itens: ItemPedidoCozinha[];
+  total: number;
+  status: PedidoCozinhaStatus;
+  criado_em: string;
+  atualizado_em?: string;
+  observacoes?: string;
+  alerta_silenciado?: boolean;
 }
 
 export type TipoCustoFixo = 'mensal' | 'percentual';
 export interface CustosFixosConfig {
   tipo: TipoCustoFixo;
   valor: number;
+}
+
+// ==========================================
+// MÓDULO FISCAL (NF-e / NFC-e)
+// ==========================================
+
+export type ProvedorFiscal = 'focus_nfe' | 'nuvem_fiscal' | 'webmania' | 'custom_webhook' | 'simulador';
+export type AmbienteFiscal = 'homologacao' | 'producao';
+export type StatusNotaFiscal = 'autorizada' | 'processando' | 'cancelada' | 'erro';
+export type TipoNotaFiscal = 'nfce' | 'nfe';
+
+export interface EnderecoFiscal {
+  logradouro: string;
+  numero: string;
+  complemento?: string;
+  bairro: string;
+  municipio: string;
+  uf: string;
+  cep: string;
+  ibge_municipio?: string;
+}
+
+export interface ConfiguracaoFiscal {
+  id?: number;
+  provedor: ProvedorFiscal;
+  ambiente: AmbienteFiscal;
+  token_api?: string;
+  cnpj: string;
+  cnpj_emitente?: string;
+  inscricao_estadual?: string;
+  razao_social: string;
+  nome_fantasia: string;
+  regime_tributario?: 'simples_nacional' | 'lucro_presumido' | 'lucro_real' | 'mei';
+  serie_nfe: number;
+  ultimo_numero_nfe?: number;
+  numero_atual_nfe?: number;
+  serie_nfce?: number;
+  numero_atual_nfce?: number;
+  csc_id?: string; // Código de Segurança do Contribuinte (NFC-e)
+  csc_token?: string;
+  certificado_ativo?: boolean;
+  certificado_nome?: string;
+  certificado_validade?: string;
+  endereco: EnderecoFiscal;
+  emissao_automatica_pdv?: boolean;
+  enviar_whatsapp_automatico?: boolean;
+  mensagem_whatsapp_nfe?: string;
+  ncm_padrao?: string;
+  cfop_padrao?: string;
+  atualizado_em?: string;
+}
+
+export interface ItemNotaFiscal {
+  id?: string;
+  numero_item: number;
+  codigo_produto: string;
+  nome: string;
+  quantidade: number;
+  unidade?: string;
+  valor_unitario: number;
+  subtotal: number;
+  valor_total: number;
+  ncm: string;
+  cfop: string;
+}
+
+export interface NotaFiscal {
+  id: string;
+  compra_id: string;
+  numero: number;
+  serie: number;
+  tipo: TipoNotaFiscal;
+  chave_acesso: string; // 44 dígitos
+  protocolo_autorizacao: string;
+  status: StatusNotaFiscal;
+  motivo_status?: string;
+  motivo_cancelamento?: string;
+  protocolo_cancelamento?: string;
+  ambiente?: AmbienteFiscal;
+  data_emissao: string;
+  valor_total: number;
+  valor_produtos: number;
+  valor_desconto: number;
+  valor_tributos_estimados: number;
+  cliente_nome?: string;
+  cliente_cpf?: string;
+  cliente_cpf_cnpj?: string;
+  cliente_telefone?: string;
+  cliente_whatsapp?: string;
+  forma_pagamento: string;
+  itens: ItemNotaFiscal[];
+  qr_code_url?: string;
+  danfe_url?: string;
+  xml_url?: string;
+  enviada_whatsapp: boolean;
+  criado_em: string;
 }

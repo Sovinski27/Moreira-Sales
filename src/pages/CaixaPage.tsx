@@ -1,12 +1,15 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useLoyalty } from '../context/LoyaltyContext';
-import { Cliente, Produto, Categoria, ItemCarrinho, MesaAberta } from '../types';
+import { Cliente, Compra, Produto, Categoria, ItemCarrinho, MesaAberta, NotaFiscal, ConfiguracaoFiscal } from '../types';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
 import { buscarClientePorTelefone } from '../services/clientSearch';
-import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta } from '../services/db';
+import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta, INITIAL_CONFIG_FISCAL } from '../services/db';
 import { AwardModal } from '../components/AwardModal';
 import { ClienteProfileModal } from '../components/ClienteProfileModal';
 import { AlertModal } from '../components/AlertModal';
+import { QrCodeMesasModal } from '../components/QrCodeMesasModal';
+import { ModalEmissaoNfe } from '../components/ModalEmissaoNfe';
+import { fetchConfigFiscal, emitirNotaFiscal, formatarCpf } from '../services/nfeService';
 import { 
   UserCheck, 
   UserPlus, 
@@ -36,7 +39,10 @@ import {
   Monitor,
   LayoutGrid,
   Timer,
-  Save
+  Save,
+  Tag,
+  Zap,
+  Receipt
 } from 'lucide-react';
 
 export const CaixaPage: React.FC = () => {
@@ -52,6 +58,7 @@ export const CaixaPage: React.FC = () => {
   const [modoCaixa, setModoCaixa] = useState<'balcao' | 'mesas'>('balcao');
   const [mesasAbertas, setMesasAbertas] = useState<MesaAberta[]>([]);
   const [mesaSelecionada, setMesaSelecionada] = useState<MesaAberta | null>(null);
+  const [modalQrCodeAberto, setModalQrCodeAberto] = useState(false);
 
   // Estados do Catálogo e Carrinho
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -85,6 +92,12 @@ export const CaixaPage: React.FC = () => {
   const [notasNovoCliente, setNotasNovoCliente] = useState('');
   const [formaPagamento, setFormaPagamento] = useState<'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro'>('pix');
 
+  // Módulo Fiscal / NF-e
+  const [cpfNaNota, setCpfNaNota] = useState('');
+  const [emitirNfeCheck, setEmitirNfeCheck] = useState(true);
+  const [modalNfe, setModalNfe] = useState<{ aberto: boolean; nota: NotaFiscal | null }>({ aberto: false, nota: null });
+  const [configFiscal, setConfigFiscal] = useState<ConfiguracaoFiscal>(INITIAL_CONFIG_FISCAL);
+
   // Modal de prêmio
   const [modalPremio, setModalPremio] = useState<{
     aberto: boolean;
@@ -95,14 +108,57 @@ export const CaixaPage: React.FC = () => {
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const nomeInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  // Carregamento do catálogo sincronizado em tempo real com o Painel do Dono
+  const carregarCatalogo = useCallback(() => {
     fetchProdutos().then(setProdutos);
     fetchCategorias().then(cats => {
       setCategorias(cats);
-      if (cats.length > 0) setCategoriaAtiva(cats[0].id);
+      setCategoriaAtiva(prev => {
+        if (prev && prev !== 'todos' && cats.some(c => c.id === prev)) {
+          return prev;
+        }
+        return 'todos';
+      });
     });
-    fetchMesasAbertas().then(setMesasAbertas);
   }, []);
+
+  useEffect(() => {
+    carregarCatalogo();
+    const carregarMesas = () => fetchMesasAbertas().then(setMesasAbertas);
+    carregarMesas();
+
+    const carregarFiscal = () => {
+      fetchConfigFiscal().then((cfg: ConfiguracaoFiscal) => {
+        setConfigFiscal(cfg);
+        setEmitirNfeCheck(Boolean(cfg.emissao_automatica_pdv));
+      });
+    };
+    carregarFiscal();
+
+    const interval = setInterval(carregarMesas, 2500);
+    window.addEventListener('novo_pedido_cozinha', carregarMesas);
+    window.addEventListener('pedidos_cozinha_atualizados', carregarMesas);
+    window.addEventListener('catalogo_atualizado', carregarCatalogo);
+    window.addEventListener('produtos_atualizados', carregarCatalogo);
+    window.addEventListener('categorias_atualizadas', carregarCatalogo);
+    window.addEventListener('config_fiscal_atualizada', carregarFiscal);
+    window.addEventListener('storage', carregarMesas);
+    window.addEventListener('storage', carregarCatalogo);
+    window.addEventListener('storage', carregarFiscal);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('novo_pedido_cozinha', carregarMesas);
+      window.removeEventListener('pedidos_cozinha_atualizados', carregarMesas);
+      window.removeEventListener('catalogo_atualizado', carregarCatalogo);
+      window.removeEventListener('produtos_atualizados', carregarCatalogo);
+      window.removeEventListener('categorias_atualizadas', carregarCatalogo);
+      window.removeEventListener('config_fiscal_atualizada', carregarFiscal);
+      window.removeEventListener('storage', carregarMesas);
+      window.removeEventListener('storage', carregarCatalogo);
+      window.removeEventListener('storage', carregarFiscal);
+    };
+  }, [carregarCatalogo]);
 
   useEffect(() => {
     phoneInputRef.current?.focus();
@@ -152,6 +208,7 @@ export const CaixaPage: React.FC = () => {
     setClienteEncontrado(null);
     setIsNovoCliente(false);
     setNomeNovoCliente('');
+    setCpfNaNota('');
     setMostrarPerfilCompleto(false);
     setEmailNovoCliente('');
     setDataNascNovoCliente('');
@@ -169,11 +226,16 @@ export const CaixaPage: React.FC = () => {
         e.preventDefault();
         setModalPremio({ aberto: false, cliente: null, comprasMes: 0 });
         resetarFormulario();
+      } else if (e.key === 'F2') {
+        e.preventDefault();
+        if (carrinho.length > 0 && !isProcessandoRef.current) {
+          handleConfirmarCompra(undefined, true);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [resetarFormulario]);
+  }, [resetarFormulario, carrinho.length]);
 
   const isProcessandoRef = useRef(false);
 
@@ -191,9 +253,17 @@ export const CaixaPage: React.FC = () => {
       setIsProcessando(true);
       
       const detalhesCompra = carrinho.map(i => `${i.quantidade}x ${i.produto.nome}`).join(', ');
+      const carrinhoSnapshot = [...carrinho];
+      const clienteCpf = cpfNaNota ? cleanPhone(cpfNaNota) : undefined;
+      let clienteNome = 'Consumidor Final';
+      let clienteTelefone = '';
+      let compraRegistrada: Compra | null = null;
 
-      if (clienteEncontrado) {
-        const resultado = await registrarNovaCompra(clienteEncontrado.id, totalCarrinho, detalhesCompra, carrinho);
+      if (clienteEncontrado && !forceAnonimo) {
+        clienteNome = clienteEncontrado.nome;
+        clienteTelefone = clienteEncontrado.whatsapp;
+        const resultado = await registrarNovaCompra(clienteEncontrado.id, totalCarrinho, detalhesCompra, carrinho, formaPagamento);
+        compraRegistrada = resultado.compra;
         
         if (resultado.atingiuMetaAgora) {
           setModalPremio({
@@ -203,14 +273,13 @@ export const CaixaPage: React.FC = () => {
           });
         } else {
           setSucessoMensagem(
-            `Compra de R$ ${totalCarrinho.toFixed(2)} registrada para ${clienteEncontrado.nome}! ${
+            `Compra de R$ ${totalCarrinho.toFixed(2)} (${formaPagamento.toUpperCase()}) registrada para ${clienteEncontrado.nome}! ${
               resultado.pontuou ? `(${resultado.totalMes}ª visita válida no mês)` : '(abaixo do mínimo de pontuação)'
             }`
           );
           setTimeout(() => setSucessoMensagem(null), 3500);
-          resetarFormulario();
         }
-      } else if (isNovoCliente) {
+      } else if (isNovoCliente && !forceAnonimo) {
         let nomeDoCliente = nomeNovoCliente.trim();
         const apenasNumeros = cleanPhone(telefoneInput);
         
@@ -221,7 +290,11 @@ export const CaixaPage: React.FC = () => {
         if (!nomeDoCliente) {
           setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Por favor, informe ao menos o Nome do cliente para o cadastro relâmpago.' });
           nomeInputRef.current?.focus();
-          isProcessandoRef.current = false; setIsProcessando(false); return true; }
+          isProcessandoRef.current = false; setIsProcessando(false); return true; 
+        }
+
+        clienteNome = nomeDoCliente;
+        clienteTelefone = apenasNumeros !== '0' ? apenasNumeros : '';
 
         const resultado = await cadastrarERegistrarCompra(
           nomeDoCliente,
@@ -231,31 +304,83 @@ export const CaixaPage: React.FC = () => {
           dataNascNovoCliente || null,
           emailNovoCliente.trim() || null,
           notasNovoCliente.trim() || null,
-          carrinho
+          carrinho,
+          formaPagamento
         );
+        compraRegistrada = resultado.compra;
 
         setSucessoMensagem(apenasNumeros === '0' 
-          ? `Compra registrada como não identificada!` 
+          ? `Venda de R$ ${totalCarrinho.toFixed(2)} registrada no balcão!` 
           : `Cliente ${resultado.cliente.nome} cadastrado e 1ª compra registrada! 🎉`
         );
         setTimeout(() => setSucessoMensagem(null), 3500);
-        resetarFormulario();
       } else {
-        setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Digite o número de WhatsApp do cliente antes de confirmar ou prossiga sem identificação se aplicável (não implementado no MVP original, exige telefone).' });
-        phoneInputRef.current?.focus();
+        // VENDA RÁPIDA / BALCÃO / ANÔNIMO - Zero atrito na hora da pressa
+        const resultado = await cadastrarERegistrarCompra(
+          'Venda Balcão / Anônimo',
+          '0',
+          totalCarrinho,
+          detalhesCompra,
+          null,
+          null,
+          'Venda rápida balcão sem identificação',
+          carrinho,
+          formaPagamento
+        );
+        compraRegistrada = resultado.compra;
+
+        const labelPgto = formaPagamento === 'pix' ? 'PIX' : formaPagamento === 'dinheiro' ? 'DINHEIRO' : formaPagamento === 'cartao_credito' ? 'CRÉDITO' : 'DÉBITO';
+        setSucessoMensagem(
+          `Venda Rápida de R$ ${totalCarrinho.toFixed(2)} [${labelPgto}] confirmada com sucesso!`
+        );
+        setTimeout(() => setSucessoMensagem(null), 3500);
       }
+
+      // Emissão Fiscal Automática (NFC-e)
+      if (compraRegistrada && (emitirNfeCheck || cpfNaNota.trim() || configFiscal?.emissao_automatica_pdv)) {
+        try {
+          const notaFiscal = await emitirNotaFiscal(
+            compraRegistrada,
+            carrinhoSnapshot,
+            {
+              nome: clienteNome,
+              cpf: clienteCpf,
+              whatsapp: clienteTelefone
+            }
+          );
+          setModalNfe({ aberto: true, nota: notaFiscal });
+        } catch (fiscalErr) {
+          console.warn('Emissão fiscal automática no PDV ignorada ou pendente:', fiscalErr);
+        }
+      }
+
+      resetarFormulario();
+      return true;
     } catch (err) {
       console.error('Erro ao registrar compra no caixa:', err);
       setAlertConfig({ isOpen: true, title: 'Aviso', message: 'Houve um erro ao processar a compra. Tente novamente.' });
+      return false;
     } finally {
       isProcessandoRef.current = false;
       setIsProcessando(false);
     }
-    return true;
   };
-  const produtosFiltrados = termoBusca.trim() === '' 
-    ? [] 
-    : produtos.filter(p => p.ativo && p.nome.toLowerCase().includes(termoBusca.toLowerCase()));
+
+  const produtosFiltrados = useMemo(() => {
+    return termoBusca.trim() === '' 
+      ? [] 
+      : produtos.filter(p => p.ativo !== false && p.nome.toLowerCase().includes(termoBusca.toLowerCase()));
+  }, [termoBusca, produtos]);
+
+  const produtosFiltradosPorBuscaOuCategoria = useMemo(() => {
+    if (termoBusca.trim() !== '') {
+      return produtos.filter(p => p.ativo !== false && p.nome.toLowerCase().includes(termoBusca.toLowerCase()));
+    }
+    if (!categoriaAtiva || categoriaAtiva === 'todos') {
+      return produtos.filter(p => p.ativo !== false);
+    }
+    return produtos.filter(p => p.ativo !== false && p.categoria_id === categoriaAtiva);
+  }, [termoBusca, produtos, categoriaAtiva]);
 
   const handleBuscaProdutoSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -385,6 +510,11 @@ export const CaixaPage: React.FC = () => {
     if (mesaAtual) {
       setMesaSelecionada(mesaAtual);
       setCarrinho(mesaAtual.carrinho);
+      if (mesaAtual.cliente_telefone) {
+        setTelefoneInput(mesaAtual.cliente_telefone);
+      } else if (mesaAtual.cliente_nome) {
+        setNomeNovoCliente(mesaAtual.cliente_nome);
+      }
     } else {
       setMesaSelecionada({
         id: `mesa-${Date.now()}`,
@@ -419,15 +549,19 @@ export const CaixaPage: React.FC = () => {
 
   const iconesCat: Record<string, any> = {
     'Coffee': Coffee,
-    'Croissant': Package
+    'Croissant': Package,
+    'Package': Package,
+    'Tag': Tag,
+    'LayoutGrid': LayoutGrid,
+    'ShoppingCart': ShoppingCart
   };
 
   return (
     <div className="space-y-6">
       
       {/* HEADER / TOGGLE */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-3xl shadow-sm border border-stone-200 gap-4">
-        <h1 className="text-2xl font-black text-stone-800 flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-5 sm:p-6 rounded-3xl shadow-sm border border-stone-200 gap-4">
+        <h1 className="text-xl sm:text-2xl font-black text-stone-900 flex items-center gap-2">
           {modoCaixa === 'mesas' && mesaSelecionada ? (
             <>
               <button 
@@ -446,27 +580,41 @@ export const CaixaPage: React.FC = () => {
           )}
         </h1>
         {(!mesaSelecionada) && (
-          <div className="flex bg-stone-100 p-1.5 rounded-2xl w-full sm:w-auto">
-            <button
-              onClick={() => {
-                setModoCaixa('balcao');
-                setCarrinho([]);
-              }}
-              className={`flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${modoCaixa === 'balcao' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
-            >
-              <Monitor className="w-5 h-5" />
-              Balcão
-            </button>
-            <button
-              onClick={() => {
-                setModoCaixa('mesas');
-                setCarrinho([]);
-              }}
-              className={`flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${modoCaixa === 'mesas' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
-            >
-              <LayoutGrid className="w-5 h-5" />
-              Mesas
-            </button>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div className="flex bg-stone-100 p-1.5 rounded-2xl flex-1 sm:flex-initial">
+              <button
+                onClick={() => {
+                  setModoCaixa('balcao');
+                  setCarrinho([]);
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${modoCaixa === 'balcao' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
+              >
+                <Monitor className="w-5 h-5" />
+                Balcão
+              </button>
+              <button
+                onClick={() => {
+                  setModoCaixa('mesas');
+                  setCarrinho([]);
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${modoCaixa === 'mesas' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
+              >
+                <LayoutGrid className="w-5 h-5" />
+                Mesas
+              </button>
+            </div>
+
+            {modoCaixa === 'mesas' && (
+              <button
+                type="button"
+                onClick={() => setModalQrCodeAberto(true)}
+                className="px-3.5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl font-bold text-xs shadow-sm transition-colors flex items-center gap-1.5"
+                title="Gerar e imprimir QR Codes das mesas"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>QR Code Mesas</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -491,11 +639,16 @@ export const CaixaPage: React.FC = () => {
                     {num}
                   </span>
                   {isOcupada && mesa ? (
-                    <div className="flex flex-col items-center mt-2">
+                    <div className="flex flex-col items-center mt-1 w-full px-1">
+                      {mesa.cliente_nome && (
+                        <span className="text-[10px] text-amber-900 font-extrabold truncate max-w-full">
+                          {mesa.cliente_nome}
+                        </span>
+                      )}
                       <span className="text-rose-900 font-black font-mono text-sm">
                         R$ {mesa.total.toFixed(2)}
                       </span>
-                      <span className="text-rose-600 font-mono text-[10px] font-bold mt-1 flex items-center gap-1">
+                      <span className="text-rose-600 font-mono text-[10px] font-bold mt-0.5 flex items-center gap-1">
                         <Timer className="w-3 h-3" />
                         {formatTempoPerm(mesa.criado_em)}
                       </span>
@@ -604,69 +757,117 @@ export const CaixaPage: React.FC = () => {
         </div>
 
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-200">
-          {!termoBusca.trim() && (
-            <div className="flex gap-3 overflow-x-auto pb-4 border-b border-stone-100 mb-4 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-stone-50 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-200 hover:[&::-webkit-scrollbar-thumb]:bg-stone-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+          {categorias.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-3.5 border-b border-stone-100 mb-4 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-stone-50 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-200 hover:[&::-webkit-scrollbar-thumb]:bg-stone-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setCategoriaAtiva('todos');
+                  if (termoBusca) setTermoBusca('');
+                }}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                  categoriaAtiva === 'todos' || !categoriaAtiva
+                    ? 'bg-stone-900 text-white shadow-sm'
+                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>Todos ({produtos.filter(p => p.ativo !== false).length})</span>
+              </button>
+
               {categorias.map(cat => {
                 const Icone = iconesCat[cat.icone] || Package;
+                const qtd = produtos.filter(p => p.categoria_id === cat.id && p.ativo !== false).length;
+                const isSelected = categoriaAtiva === cat.id;
                 return (
                   <button
                     key={cat.id}
-                    onClick={() => setCategoriaAtiva(cat.id)}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm transition-all whitespace-nowrap ${
-                      categoriaAtiva === cat.id
-                        ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-                        : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                    type="button"
+                    onClick={() => {
+                      setCategoriaAtiva(isSelected ? 'todos' : cat.id);
+                      if (termoBusca) setTermoBusca('');
+                    }}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                      isSelected
+                        ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30 ring-2 ring-amber-600/20'
+                        : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
                     }`}
                   >
-                    <Icone className="w-4 h-4" />
-                    {cat.nome}
+                    <Icone className="w-3.5 h-3.5" />
+                    <span>{cat.nome}</span>
+                    <span className="text-xs opacity-80 font-mono">({qtd})</span>
                   </button>
                 );
               })}
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" role="list" aria-label="Lista de Produtos">
-            {(termoBusca.trim() ? produtosFiltrados : produtos.filter(p => p.categoria_id === categoriaAtiva && p.ativo)).map(produto => {
-              const qtdNoCarrinho = carrinho.find(item => item.produto.id === produto.id)?.quantidade || 0;
-              const semEstoque = produto.controlar_estoque && (produto.estoque_atual === undefined || produto.estoque_atual - qtdNoCarrinho <= 0);
-              
-              return (
-              <button
-                key={produto.id}
-                disabled={semEstoque}
-                onClick={() => !semEstoque && adicionarAoCarrinho(produto)}
-                aria-label={`Adicionar ${produto.nome} por R$ ${produto.preco.toFixed(2)}${semEstoque ? ' - Esgotado' : ''}`}
-                className={`relative overflow-hidden flex flex-col items-center justify-center text-center h-28 sm:h-32 p-4 rounded-2xl border transition-all outline-none ${
-                  semEstoque 
-                    ? 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed' 
-                    : 'bg-stone-50 border-stone-200 hover:border-amber-400 hover:shadow-lg hover:-translate-y-1 focus:ring-4 focus:ring-amber-500/20 focus:border-amber-500 active:scale-95'
-                }`}
-              >
-                {semEstoque && (
-                  <div className="absolute top-0 inset-x-0 bg-rose-500 text-white text-[10px] font-bold tracking-widest uppercase py-0.5 shadow-sm">
-                    Esgotado
-                  </div>
-                )}
-                <span className={`font-bold leading-tight mb-2 ${semEstoque ? 'text-stone-500' : 'text-stone-800 mt-2'}`}>
-                  {produto.nome}
-                </span>
-                <span className={`font-mono font-black text-lg ${semEstoque ? 'text-stone-400' : 'text-amber-700'}`}>
-                  R$ {produto.preco.toFixed(2)}
-                </span>
-                {produto.controlar_estoque && !semEstoque && produto.estoque_atual !== undefined && (
-                  <span className="text-[10px] text-stone-400 font-medium absolute bottom-2">
-                    {produto.estoque_atual - qtdNoCarrinho} em estoque
-                  </span>
-                )}
-              </button>
-            )})}
-            {termoBusca.trim() && produtosFiltrados.length === 0 && (
-              <div className="col-span-2 lg:col-span-3 text-center py-8 text-stone-500 text-sm" role="status">
-                Nenhum produto encontrado para "{termoBusca}".
+          {produtos.length === 0 ? (
+            <div className="text-center py-12 px-6 bg-stone-50/50 rounded-2xl border border-dashed border-stone-200">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                <Package className="w-6 h-6" />
               </div>
-            )}
-          </div>
+              <h4 className="text-base font-bold text-stone-800">
+                {categorias.length > 0 ? 'Categorias Criadas! Nenhum Produto Cadastrado Ainda' : 'Catálogo Vazio no Momento'}
+              </h4>
+              <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1 leading-relaxed">
+                {categorias.length > 0 
+                  ? 'Você já cadastrou categorias. Agora adicione produtos no Painel Dono > Catálogo para que eles apareçam aqui no balcão.'
+                  : 'O Frente de Caixa (PDV) exibe exclusivamente os produtos cadastrados no Painel Dono > Catálogo. Cadastre categorias e produtos para que apareçam aqui no balcão.'
+                }
+              </p>
+            </div>
+          ) : produtosFiltradosPorBuscaOuCategoria.length === 0 ? (
+            <div className="col-span-2 lg:col-span-3 text-center py-10 px-4 text-stone-500 text-sm">
+              {termoBusca.trim() 
+                ? `Nenhum produto encontrado para "${termoBusca}".` 
+                : 'Nenhum produto cadastrado nesta categoria ainda.'}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" role="list" aria-label="Lista de Produtos">
+              {produtosFiltradosPorBuscaOuCategoria.map((produto: Produto) => {
+                const qtdNoCarrinho = carrinho.find(item => item.produto.id === produto.id)?.quantidade || 0;
+                const semEstoque = produto.controlar_estoque && (produto.estoque_atual === undefined || produto.estoque_atual - qtdNoCarrinho <= 0);
+                const catDoProduto = categorias.find(c => c.id === produto.categoria_id);
+                
+                return (
+                  <button
+                    key={produto.id}
+                    disabled={semEstoque}
+                    onClick={() => !semEstoque && adicionarAoCarrinho(produto)}
+                    aria-label={`Adicionar ${produto.nome} por R$ ${produto.preco.toFixed(2)}${semEstoque ? ' - Esgotado' : ''}`}
+                    className={`relative overflow-hidden flex flex-col items-center justify-center text-center h-28 sm:h-32 p-3 rounded-2xl border transition-all outline-none ${
+                      semEstoque 
+                        ? 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed' 
+                        : 'bg-stone-50 border-stone-200 hover:border-amber-400 hover:shadow-lg hover:-translate-y-1 focus:ring-4 focus:ring-amber-500/20 focus:border-amber-500 active:scale-95 cursor-pointer'
+                    }`}
+                  >
+                    {semEstoque && (
+                      <div className="absolute top-0 inset-x-0 bg-rose-500 text-white text-[10px] font-bold tracking-widest uppercase py-0.5 shadow-sm">
+                        Esgotado
+                      </div>
+                    )}
+                    {catDoProduto && (
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded-full border border-amber-200/50 mb-1 max-w-[95%] truncate">
+                        {catDoProduto.nome}
+                      </span>
+                    )}
+                    <span className={`font-bold leading-tight line-clamp-2 ${semEstoque ? 'text-stone-500' : 'text-stone-800'}`}>
+                      {produto.nome}
+                    </span>
+                    <span className={`font-mono font-black text-base sm:text-lg mt-0.5 ${semEstoque ? 'text-stone-400' : 'text-amber-700'}`}>
+                      R$ {produto.preco.toFixed(2)}
+                    </span>
+                    {produto.controlar_estoque && !semEstoque && produto.estoque_atual !== undefined && (
+                      <span className="text-[10px] text-stone-400 font-medium absolute bottom-1.5">
+                        {produto.estoque_atual - qtdNoCarrinho} em estoque
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -688,12 +889,21 @@ export const CaixaPage: React.FC = () => {
                 <p className="text-xs">Selecione produtos no catálogo</p>
               </div>
             ) : (
-              carrinho.map(item => (
-                <div key={item.id_temp} className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-stone-50/50 p-3 rounded-2xl border border-stone-100/50 hover:bg-stone-50 transition-colors gap-3 sm:gap-0">
-                  <div className="flex-1 min-w-0 pr-4 w-full sm:w-auto">
-                    <p className="font-semibold text-stone-800 truncate">{item.produto.nome}</p>
-                    <p className="text-xs font-mono text-stone-500">R$ {item.produto.preco.toFixed(2)} un.</p>
-                  </div>
+              carrinho.map(item => {
+                const catDoItem = categorias.find(c => c.id === item.produto.categoria_id);
+                return (
+                  <div key={item.id_temp} className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-stone-50/50 p-3 rounded-2xl border border-stone-100/50 hover:bg-stone-50 transition-colors gap-3 sm:gap-0">
+                    <div className="flex-1 min-w-0 pr-4 w-full sm:w-auto">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-semibold text-stone-800 truncate">{item.produto.nome}</p>
+                        {catDoItem && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200/60 shrink-0">
+                            {catDoItem.nome}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs font-mono text-stone-500">R$ {item.produto.preco.toFixed(2)} un.</p>
+                    </div>
                   <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
                     <div className="flex items-center bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden shrink-0">
                       <button type="button" onClick={() => alterarQuantidade(item.id_temp, -1)} className="px-2 py-1 hover:bg-stone-50 active:bg-stone-100 transition-colors">
@@ -718,7 +928,8 @@ export const CaixaPage: React.FC = () => {
                     </button>
                   </div>
                 </div>
-              ))
+              );
+            })
             )}
           </div>
 
@@ -782,11 +993,54 @@ export const CaixaPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={resetarFormulario}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-500 hover:text-stone-800 bg-stone-200/80 hover:bg-stone-300 px-3 py-1.5 rounded-lg transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-500 hover:text-stone-800 bg-stone-200/80 hover:bg-stone-300 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
                   >
                     Limpar (ESC)
                   </button>
                 )}
+              </div>
+            </div>
+
+            {/* OPÇÃO DE CPF NA NOTA & EMISSÃO FISCAL */}
+            <div className="bg-stone-50 rounded-2xl p-4 border border-stone-200/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <Receipt className="w-4 h-4 text-emerald-600" />
+                  <span>CPF na Nota Fiscal</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  {cpfNaNota && (
+                    <button
+                      type="button"
+                      onClick={() => setCpfNaNota('')}
+                      className="text-[11px] font-bold text-stone-400 hover:text-stone-600 transition-colors cursor-pointer"
+                    >
+                      Sem CPF
+                    </button>
+                  )}
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                    <input
+                      type="checkbox"
+                      checked={emitirNfeCheck}
+                      onChange={e => setEmitirNfeCheck(e.target.checked)}
+                      className="rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                    />
+                    <span>Emitir NFC-e</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="000.000.000-00 (Opcional)"
+                  value={cpfNaNota}
+                  onChange={e => {
+                    const raw = e.target.value.replace(/\D/g, '').slice(0, 11);
+                    setCpfNaNota(formatarCpf(raw));
+                  }}
+                  className="w-full px-4 py-2.5 bg-white border border-stone-300 rounded-xl text-sm font-mono font-bold focus:border-emerald-600 outline-none placeholder:text-stone-300"
+                />
               </div>
             </div>
 
@@ -999,9 +1253,14 @@ export const CaixaPage: React.FC = () => {
 
             {/* SELEÇÃO DE FORMA DE PAGAMENTO */}
             <div className="pt-4 border-t border-stone-100">
-              <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-3">
-                Forma de Pagamento
-              </label>
+              <div className="flex items-center justify-between mb-2.5">
+                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider">
+                  Forma de Pagamento
+                </label>
+                <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                  {formaPagamento === 'pix' ? 'Pix' : formaPagamento === 'dinheiro' ? 'Dinheiro' : formaPagamento === 'cartao_credito' ? 'Crédito' : 'Débito'} Selecionado
+                </span>
+              </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
                 {[
                   { id: 'pix', label: 'Pix', icone: QrCode },
@@ -1016,9 +1275,9 @@ export const CaixaPage: React.FC = () => {
                       key={pgto.id}
                       type="button"
                       onClick={() => setFormaPagamento(pgto.id as any)}
-                      className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border-2 transition-all ${
+                      className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border-2 transition-all cursor-pointer ${
                         isSelected
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm'
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm ring-2 ring-emerald-500/20'
                           : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:bg-stone-50'
                       }`}
                     >
@@ -1028,6 +1287,27 @@ export const CaixaPage: React.FC = () => {
                   );
                 })}
               </div>
+
+              {/* Botão de Finalização Instantânea na Hora da Pressa */}
+              {carrinho.length > 0 && modoCaixa === 'balcao' && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmarCompra(undefined, true)}
+                    disabled={isProcessando}
+                    className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-black text-sm rounded-2xl shadow-md shadow-amber-600/20 flex items-center justify-between transition-all active:scale-95 cursor-pointer"
+                    title="Finaliza a venda imediatamente no balcão sem precisar digitar telefone (Atalho: F2)"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-200 fill-amber-200 animate-pulse" />
+                      <span>Venda Rápida 1-Clique ({formaPagamento.toUpperCase()})</span>
+                    </span>
+                    <span className="bg-black/20 px-2.5 py-1 rounded-xl text-xs font-mono font-bold">
+                      [F2] R$ {totalCarrinho.toFixed(2)}
+                    </span>
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="pt-6 border-t border-stone-100 flex flex-col gap-3">
@@ -1127,12 +1407,12 @@ export const CaixaPage: React.FC = () => {
                     disabled={isProcessando || carrinho.length === 0}
                     className={`w-full py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all duration-200 active:scale-95 border-2 ${
                       carrinho.length > 0
-                        ? 'border-stone-300 text-stone-600 hover:bg-stone-100'
+                        ? 'border-stone-300 text-stone-600 hover:bg-stone-100 cursor-pointer'
                         : 'border-stone-200 text-stone-400 cursor-not-allowed bg-stone-50'
                     }`}
                   >
                     <UserCheck className="w-4 h-4" />
-                    Venda Rápida (Cliente Anônimo)
+                    Venda Rápida Balcão (Cliente Anônimo)
                   </button>
                 </>
               )}
@@ -1169,6 +1449,21 @@ export const CaixaPage: React.FC = () => {
         title={alertConfig.title}
         message={alertConfig.message}
         onClose={() => setAlertConfig({ ...alertConfig, isOpen: false })}
+      />
+
+      <QrCodeMesasModal
+        isOpen={modalQrCodeAberto}
+        onClose={() => setModalQrCodeAberto(false)}
+        totalMesas={20}
+      />
+
+      {/* MODAL DE EMISSÃO DA NOTA FISCAL (DANFE & WHATSAPP) */}
+      <ModalEmissaoNfe
+        isOpen={modalNfe.aberto}
+        nota={modalNfe.nota}
+        configFiscal={configFiscal}
+        webhookUrlWhatsApp={config.webhook_whatsapp_url}
+        onClose={() => setModalNfe({ aberto: false, nota: null })}
       />
     </div>
   );

@@ -70,9 +70,13 @@ export const AwardModal: React.FC<AwardModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="award-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+      className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+      onClick={onClose}
     >
-      <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border-4 border-emerald-500 animate-scaleUp max-h-[92vh] flex flex-col">
+      <div 
+        className="bg-white rounded-3xl shadow-2xl max-w-lg w-full my-auto overflow-hidden border-4 border-emerald-500 animate-scaleUp max-h-[calc(100vh-2rem)] sm:max-h-[88vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
         
         {/* Topo comemorativo */}
         <div className="bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 p-5 sm:p-6 text-white text-center relative shrink-0">
