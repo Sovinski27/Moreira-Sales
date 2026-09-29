@@ -445,28 +445,47 @@ export async function registerCompra(
 // --- CATALOGO (PRODUTOS & CATEGORIAS) ---
 
 export async function fetchCategorias(): Promise<Categoria[]> {
-  const localCats = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
+  let categoriasList: Categoria[] = [];
 
   if (isSupabaseConfigured && supabase) {
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from('categorias')
-          .select('*')
-          .order('ordem');
-        if (!error && data && data.length > 0) {
-          setLocal(STORAGE_KEYS.CATEGORIAS, data);
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('categorias_atualizadas'));
-          }
-        }
-      } catch (e) {
-        console.warn('Supabase fetch categorias background error:', e);
+    try {
+      const { data, error } = await supabase
+        .from('categorias')
+        .select('*')
+        .order('ordem');
+      if (!error && data && data.length > 0) {
+        categoriasList = data as Categoria[];
+        setLocal(STORAGE_KEYS.CATEGORIAS, categoriasList);
+        return categoriasList;
       }
-    })();
+    } catch (e) {
+      console.warn('Falha ao buscar categorias no Supabase:', e);
+    }
   }
 
-  return localCats;
+  categoriasList = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
+
+  if (categoriasList.length === 0) {
+    const defaultCats: Categoria[] = [
+      { id: 'cat-bebidas-quentes', nome: 'Bebidas quentes', icone: 'Coffee', ordem: 1 },
+      { id: 'cat-paes-salgados', nome: 'Pães & Salgados', icone: 'Package', ordem: 2 },
+      { id: 'cat-doces', nome: 'Doces & Sobremesas', icone: 'Package', ordem: 3 }
+    ];
+    categoriasList = defaultCats;
+    setLocal(STORAGE_KEYS.CATEGORIAS, defaultCats);
+
+    if (isSupabaseConfigured && supabase) {
+      (async () => {
+        try {
+          await supabase.from('categorias').upsert(defaultCats);
+        } catch (e) {
+          console.warn('Erro ao semear categorias padrão no Supabase:', e);
+        }
+      })();
+    }
+  }
+
+  return categoriasList;
 }
 
 export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: string }): Promise<Categoria> {
@@ -493,15 +512,13 @@ export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: st
   }
 
   if (isSupabaseConfigured && supabase) {
-    (async () => {
-      try {
-        await supabase
-          .from('categorias')
-          .upsert({ ...newCategoria });
-      } catch (e) {
-        console.warn('Falha ao salvar categoria no Supabase (background):', e);
-      }
-    })();
+    try {
+      await supabase
+        .from('categorias')
+        .upsert({ ...newCategoria });
+    } catch (e) {
+      console.warn('Falha ao salvar categoria no Supabase:', e);
+    }
   }
 
   return newCategoria;
@@ -525,42 +542,119 @@ export async function deleteCategoria(id: string): Promise<void> {
   }
 
   if (isSupabaseConfigured && supabase) {
-    (async () => {
-      try {
-        await supabase
-          .from('categorias')
-          .delete()
-          .eq('id', id);
-      } catch (e) {
-        console.warn('Falha ao excluir categoria no Supabase (background):', e);
-      }
-    })();
+    try {
+      await supabase
+        .from('categorias')
+        .delete()
+        .eq('id', id);
+    } catch (e) {
+      console.warn('Falha ao excluir categoria no Supabase:', e);
+    }
   }
 }
 
 export async function fetchProdutos(): Promise<Produto[]> {
-  const localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
+  let produtosList: Produto[] = [];
 
   if (isSupabaseConfigured && supabase) {
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from('produtos')
-          .select('*')
-          .order('nome');
-        if (!error && data && data.length > 0) {
-          setLocal(STORAGE_KEYS.PRODUTOS, data);
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('produtos_atualizados'));
-          }
-        }
-      } catch (e) {
-        console.warn('Supabase fetch produtos background error:', e);
+    try {
+      const { data, error } = await supabase
+        .from('produtos')
+        .select('*')
+        .order('nome');
+      if (!error && data && data.length > 0) {
+        produtosList = data as Produto[];
+        setLocal(STORAGE_KEYS.PRODUTOS, produtosList);
+        return produtosList;
       }
-    })();
+    } catch (e) {
+      console.warn('Falha ao buscar produtos no Supabase:', e);
+    }
   }
 
-  return localProds;
+  produtosList = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
+
+  // Se não existirem produtos (ex: primeiro acesso no celular), vincula itens padrão à categoria existente
+  if (produtosList.length === 0) {
+    const cats = await fetchCategorias();
+    const catBebidas = cats.find(c => c.nome.toLowerCase().includes('bebida') || c.nome.toLowerCase().includes('quente'));
+    const catAlimentos = cats.find(c => c.nome.toLowerCase().includes('pão') || c.nome.toLowerCase().includes('salgado') || c.nome.toLowerCase().includes('doce'));
+    
+    const catBebidasId = catBebidas ? catBebidas.id : (cats.length > 0 ? cats[0].id : 'cat-bebidas-quentes');
+    const catAlimentosId = catAlimentos ? catAlimentos.id : catBebidasId;
+
+    const produtosIniciais: Produto[] = [
+      {
+        id: 'prod-cafe-expresso',
+        categoria_id: catBebidasId,
+        nome: 'Café Expresso',
+        preco: 5.50,
+        custo: 1.50,
+        ativo: true,
+        controlar_estoque: false
+      },
+      {
+        id: 'prod-cappuccino',
+        categoria_id: catBebidasId,
+        nome: 'Cappuccino Cremoso Especial',
+        preco: 8.50,
+        custo: 2.50,
+        ativo: true,
+        controlar_estoque: false
+      },
+      {
+        id: 'prod-cafe-leite',
+        categoria_id: catBebidasId,
+        nome: 'Café com Leite Pingado',
+        preco: 6.00,
+        custo: 1.80,
+        ativo: true,
+        controlar_estoque: false
+      },
+      {
+        id: 'prod-chocolate-quente',
+        categoria_id: catBebidasId,
+        nome: 'Chocolate Quente Cremoso',
+        preco: 9.00,
+        custo: 3.00,
+        ativo: true,
+        controlar_estoque: false
+      },
+      {
+        id: 'prod-pao-chapa',
+        categoria_id: catAlimentosId,
+        nome: 'Pão Francês na Chapa com Manteiga',
+        preco: 5.00,
+        custo: 1.20,
+        ativo: true,
+        controlar_estoque: false
+      },
+      {
+        id: 'prod-pao-queijo',
+        categoria_id: catAlimentosId,
+        nome: 'Pão de Queijo Tradicional',
+        preco: 4.50,
+        custo: 1.10,
+        ativo: true,
+        controlar_estoque: false
+      }
+    ];
+
+    produtosList = produtosIniciais;
+    setLocal(STORAGE_KEYS.PRODUTOS, produtosIniciais);
+
+    if (isSupabaseConfigured && supabase) {
+      (async () => {
+        try {
+          await supabase.from('produtos').upsert(produtosIniciais);
+        } catch (e) {
+          console.warn('Erro ao semear produtos padrão no Supabase:', e);
+        }
+      })();
+    }
+  }
+
+  return produtosList;
 }
 
 export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }): Promise<Produto> {
@@ -586,15 +680,13 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
   }
 
   if (isSupabaseConfigured && supabase) {
-    (async () => {
-      try {
-        await supabase
-          .from('produtos')
-          .upsert({ ...newProduto });
-      } catch (e) {
-        console.warn('Falha ao salvar produto no Supabase (background):', e);
-      }
-    })();
+    try {
+      await supabase
+        .from('produtos')
+        .upsert({ ...newProduto });
+    } catch (e) {
+      console.warn('Falha ao salvar produto no Supabase:', e);
+    }
   }
 
   return newProduto;
