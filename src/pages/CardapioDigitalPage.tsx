@@ -17,13 +17,14 @@ import {
   UtensilsCrossed,
   RotateCcw
 } from 'lucide-react';
-import { Produto, Categoria, ItemPedidoCozinha, PedidoCozinha, Cliente } from '../types';
+import { Produto, Categoria, ItemPedidoCozinha, PedidoCozinha, Cliente, Compra } from '../types';
 import { 
   fetchProdutos, 
   fetchCategorias, 
   criarPedidoCardapio, 
   fetchPedidosCozinha, 
   fetchClientes, 
+  fetchCompras,
   identificarOuCadastrarCliente 
 } from '../services/db';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
@@ -82,12 +83,18 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
   const [pedidosAtivosMesa, setPedidosAtivosMesa] = useState<PedidoCozinha[]>([]);
   const [ultimoPedidoEnviado, setUltimoPedidoEnviado] = useState<PedidoCozinha | null>(null);
 
-  // Carregar produtos, categorias e clientes existentes
+  // Histórico de compras e pedidos para cálculo fidedigno de visitas em tempo real
+  const [comprasExistentes, setComprasExistentes] = useState<Compra[]>([]);
+  const [pedidosExistentes, setPedidosExistentes] = useState<PedidoCozinha[]>([]);
+
+  // Carregar produtos, categorias, clientes e histórico existente
   useEffect(() => {
     const recarregar = () => {
       fetchProdutos().then(setProdutos);
       fetchCategorias().then(setCategorias);
       fetchClientes().then(setClientesList);
+      fetchCompras().then(setComprasExistentes);
+      fetchPedidosCozinha().then(setPedidosExistentes);
     };
     recarregar();
 
@@ -95,6 +102,8 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     window.addEventListener('produtos_atualizados', recarregar);
     window.addEventListener('categorias_atualizadas', recarregar);
     window.addEventListener('clientes_atualizados', recarregar);
+    window.addEventListener('compras_atualizadas', recarregar);
+    window.addEventListener('pedidos_cozinha_atualizados', recarregar);
     window.addEventListener('storage', recarregar);
 
     return () => {
@@ -102,9 +111,31 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
       window.removeEventListener('produtos_atualizados', recarregar);
       window.removeEventListener('categorias_atualizadas', recarregar);
       window.removeEventListener('clientes_atualizados', recarregar);
+      window.removeEventListener('compras_atualizadas', recarregar);
+      window.removeEventListener('pedidos_cozinha_atualizados', recarregar);
       window.removeEventListener('storage', recarregar);
     };
   }, []);
+
+  // Calcular número REAL de visitas de um cliente através do histórico
+  const obterVisitasReais = (cliente: Cliente | null): number => {
+    if (!cliente) return 0;
+    const cNome = cliente.nome ? cliente.nome.trim().toLowerCase() : '';
+    const cTel = cliente.whatsapp ? cleanPhone(cliente.whatsapp) : '';
+
+    const countCompras = comprasExistentes.filter(cp => 
+      cp.cliente_id === cliente.id ||
+      (cNome && cp.detalhes && cp.detalhes.toLowerCase().includes(cNome))
+    ).length;
+
+    const countPedidos = pedidosExistentes.filter(p => 
+      (p.cliente_id && p.cliente_id === cliente.id) ||
+      (cNome && p.cliente_nome && p.cliente_nome.trim().toLowerCase() === cNome) ||
+      (cTel && p.cliente_telefone && cleanPhone(p.cliente_telefone) === cTel)
+    ).length;
+
+    return Math.max(cliente.total_compras_historico || 0, countCompras, countPedidos);
+  };
 
   // Identificação em tempo real por telefone ou por nome
   useEffect(() => {
@@ -163,7 +194,8 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
         nomeFinal,
         telLimpo
       );
-      setClienteAtivo(cliente);
+      const visitasReal = Math.max(cliente.total_compras_historico || 0, obterVisitasReais(cliente));
+      setClienteAtivo({ ...cliente, total_compras_historico: visitasReal });
       setAcessouCardapio(true);
     } catch (err) {
       console.warn('Erro ao registrar/identificar cliente:', err);
@@ -428,7 +460,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
                 <div className="min-w-0">
                   <p className="font-bold truncate">Cliente identificado: {clienteEncontradoNoPreenchimento.nome}</p>
                   <p className="text-[11px] text-emerald-700">
-                    Histórico vinculado: {clienteEncontradoNoPreenchimento.total_compras_historico || 0} visitas já registradas no sistema.
+                    Histórico vinculado: {obterVisitasReais(clienteEncontradoNoPreenchimento)} {obterVisitasReais(clienteEncontradoNoPreenchimento) === 1 ? 'visita já registrada' : 'visitas já registradas'} no sistema.
                   </p>
                 </div>
               </div>
@@ -525,7 +557,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               </div>
               <p className="text-xs text-stone-500 font-mono truncate">
                 {telefoneInput ? formatPhoneDisplay(telefoneInput) : 'Atendimento sem WhatsApp'}
-                {clienteAtivo && ` • ${clienteAtivo.total_compras_historico || 0} visitas no histórico`}
+                {clienteAtivo && ` • ${obterVisitasReais(clienteAtivo)} ${obterVisitasReais(clienteAtivo) === 1 ? 'visita' : 'visitas'} no histórico`}
               </p>
             </div>
           </div>

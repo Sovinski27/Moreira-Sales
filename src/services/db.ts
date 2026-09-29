@@ -192,18 +192,54 @@ export async function saveConfiguracao(
 }
 
 export async function fetchClientes(): Promise<Cliente[]> {
+  let clientesList: Cliente[] = [];
+
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('clientes')
         .select('*')
         .order('nome');
-      if (!error && data) return data as Cliente[];
+      if (!error && data) {
+        clientesList = data as Cliente[];
+      }
     } catch (e) {
       console.warn('Falha ao buscar clientes no Supabase, usando local:', e);
     }
   }
-  return getLocal<Cliente[]>(STORAGE_KEYS.CLIENTES, INITIAL_CLIENTES);
+
+  if (clientesList.length === 0) {
+    clientesList = getLocal<Cliente[]>(STORAGE_KEYS.CLIENTES, INITIAL_CLIENTES);
+  }
+
+  // Correlacionar com compras e pedidos de cozinha para garantir cálculo real de visitas
+  try {
+    const compras = getLocal<Compra[]>(STORAGE_KEYS.COMPRAS, INITIAL_COMPRAS);
+    const pedidos = getLocal<PedidoCozinha[]>('panificadora_pedidos_cozinha', []);
+
+    clientesList = clientesList.map(c => {
+      const cNome = c.nome ? c.nome.trim().toLowerCase() : '';
+      const cTel = c.whatsapp ? cleanPhone(c.whatsapp) : '';
+
+      const countCompras = compras.filter(cp => cp.cliente_id === c.id).length;
+      const countPedidos = pedidos.filter(p => 
+        (p.cliente_id && p.cliente_id === c.id) ||
+        (cNome && p.cliente_nome && p.cliente_nome.trim().toLowerCase() === cNome) ||
+        (cTel && p.cliente_telefone && cleanPhone(p.cliente_telefone) === cTel)
+      ).length;
+
+      const totalReal = Math.max(c.total_compras_historico || 0, countCompras, countPedidos);
+
+      return {
+        ...c,
+        total_compras_historico: totalReal
+      };
+    });
+  } catch (err) {
+    console.warn('Erro ao correlacionar histórico de visitas:', err);
+  }
+
+  return clientesList;
 }
 
 export async function fetchCompras(): Promise<Compra[]> {
@@ -213,7 +249,7 @@ export async function fetchCompras(): Promise<Compra[]> {
         .from('compras')
         .select('*')
         .order('criado_em', { ascending: false });
-      if (!error && data) return data as Compra[];
+      if (!error && data && data.length > 0) return data as Compra[];
     } catch (e) {
       console.warn('Falha ao buscar compras no Supabase, usando local:', e);
     }
@@ -362,12 +398,46 @@ export async function registerCompra(
   setLocal(STORAGE_KEYS.COMPRAS, updatedCompras);
 
   const clientes = getLocal<Cliente[]>(STORAGE_KEYS.CLIENTES, INITIAL_CLIENTES);
-  const updatedClientes = clientes.map((c) =>
-    c.id === clienteId
-      ? { ...c, total_compras_historico: (c.total_compras_historico || 0) + 1 }
-      : c
-  );
+  let novoTotalCli = 1;
+  const updatedClientes = clientes.map((c) => {
+    if (c.id === clienteId) {
+      novoTotalCli = (c.total_compras_historico || 0) + 1;
+      return { ...c, total_compras_historico: novoTotalCli };
+    }
+    return c;
+  });
   setLocal(STORAGE_KEYS.CLIENTES, updatedClientes);
+
+  // Sincronizar compra e histórico no Supabase
+  if (isSupabaseConfigured && supabase) {
+    (async () => {
+      try {
+        await supabase.from('compras').insert([{
+          id: newCompra.id,
+          cliente_id: newCompra.cliente_id,
+          valor: newCompra.valor,
+          custo_total: newCompra.custo_total,
+          data_compra: newCompra.data_compra,
+          criado_em: newCompra.criado_em,
+          detalhes: newCompra.detalhes,
+          pontuou_fidelidade: newCompra.pontuou_fidelidade,
+          forma_pagamento: newCompra.forma_pagamento
+        }]);
+
+        await supabase
+          .from('clientes')
+          .update({ total_compras_historico: novoTotalCli })
+          .eq('id', clienteId);
+      } catch (e) {
+        console.warn('Erro ao salvar compra/histórico no Supabase:', e);
+      }
+    })();
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('clientes_atualizados'));
+    window.dispatchEvent(new Event('compras_atualizadas'));
+  }
 
   return newCompra;
 }
@@ -714,8 +784,23 @@ export async function identificarOuCadastrarCliente(
   }
 
   if (match) {
-    // Se o cliente já existe, atualiza nome ou telefone caso tenha novas informações
+    // Se o cliente já existe, correlacionar com compras e pedidos de cozinha para calcular o total REAL de visitas
+    const compras = await fetchCompras();
+    const pedidos = await fetchPedidosCozinha();
+    const countCompras = compras.filter(cp => cp.cliente_id === match!.id).length;
+    const countPedidos = pedidos.filter(p => 
+      (p.cliente_id && p.cliente_id === match!.id) ||
+      (nomeLimpo && p.cliente_nome && p.cliente_nome.trim().toLowerCase() === nomeLimpo.toLowerCase()) ||
+      (digits && p.cliente_telefone && cleanPhone(p.cliente_telefone) === digits)
+    ).length;
+
+    const totalReal = Math.max(match.total_compras_historico || 0, countCompras, countPedidos);
+
     const updates: Partial<Cliente> = {};
+    if (totalReal !== match.total_compras_historico) {
+      match.total_compras_historico = totalReal;
+      updates.total_compras_historico = totalReal;
+    }
     if (nomeLimpo && nomeLimpo.length > match.nome.length) {
       updates.nome = nomeLimpo;
       match.nome = nomeLimpo;
@@ -810,10 +895,17 @@ export async function criarPedidoCardapio(params: {
   }
 
   // 3. Registrar compra e vincular ao histórico do cliente automaticamente
-  if (params.clienteId) {
+  let targetCliId = params.clienteId;
+  if (!targetCliId && params.clienteNome) {
+    const clientes = await fetchClientes();
+    const found = clientes.find(c => c.nome.trim().toLowerCase() === params.clienteNome.trim().toLowerCase());
+    if (found) targetCliId = found.id;
+  }
+
+  if (targetCliId) {
     try {
       await registerCompra(
-        params.clienteId,
+        targetCliId,
         total,
         true,
         `Mesa ${params.mesaNumero} (Cardápio Digital): ${params.itens.map(i => `${i.quantidade}x ${i.nome}`).join(', ')}`,
