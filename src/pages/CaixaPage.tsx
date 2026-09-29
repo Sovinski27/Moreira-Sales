@@ -3,7 +3,7 @@ import { useLoyalty } from '../context/LoyaltyContext';
 import { Cliente, Compra, Produto, Categoria, ItemCarrinho, MesaAberta, NotaFiscal, ConfiguracaoFiscal } from '../types';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
 import { buscarClientePorTelefone } from '../services/clientSearch';
-import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta, INITIAL_CONFIG_FISCAL } from '../services/db';
+import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta, fetchPedidosCozinha, updatePedidoCozinhaStatus, INITIAL_CONFIG_FISCAL } from '../services/db';
 import { AwardModal } from '../components/AwardModal';
 import { ClienteProfileModal } from '../components/ClienteProfileModal';
 import { AlertModal } from '../components/AlertModal';
@@ -135,7 +135,8 @@ export const CaixaPage: React.FC = () => {
     };
     carregarFiscal();
 
-    const interval = setInterval(carregarMesas, 2500);
+    const interval = setInterval(carregarMesas, 2000);
+    window.addEventListener('mesas_atualizadas', carregarMesas);
     window.addEventListener('novo_pedido_cozinha', carregarMesas);
     window.addEventListener('pedidos_cozinha_atualizados', carregarMesas);
     window.addEventListener('catalogo_atualizado', carregarCatalogo);
@@ -148,6 +149,7 @@ export const CaixaPage: React.FC = () => {
 
     return () => {
       clearInterval(interval);
+      window.removeEventListener('mesas_atualizadas', carregarMesas);
       window.removeEventListener('novo_pedido_cozinha', carregarMesas);
       window.removeEventListener('pedidos_cozinha_atualizados', carregarMesas);
       window.removeEventListener('catalogo_atualizado', carregarCatalogo);
@@ -259,21 +261,30 @@ export const CaixaPage: React.FC = () => {
       let clienteTelefone = '';
       let compraRegistrada: Compra | null = null;
 
-      if (clienteEncontrado && !forceAnonimo) {
-        clienteNome = clienteEncontrado.nome;
-        clienteTelefone = clienteEncontrado.whatsapp;
-        const resultado = await registrarNovaCompra(clienteEncontrado.id, totalCarrinho, detalhesCompra, carrinho, formaPagamento);
+      // Se a mesa possuía cliente vinculado, prioriza o cliente da mesa ou clienteEncontrado
+      let clienteParaVenda = clienteEncontrado;
+      if (!clienteParaVenda && mesaSelecionada?.cliente_id) {
+        clienteParaVenda = clientes.find(c => c.id === mesaSelecionada.cliente_id) || null;
+      }
+      if (!clienteParaVenda && mesaSelecionada?.cliente_nome) {
+        clienteParaVenda = clientes.find(c => c.nome.trim().toLowerCase() === mesaSelecionada.cliente_nome!.trim().toLowerCase()) || null;
+      }
+
+      if (clienteParaVenda && !forceAnonimo) {
+        clienteNome = clienteParaVenda.nome;
+        clienteTelefone = clienteParaVenda.whatsapp;
+        const resultado = await registrarNovaCompra(clienteParaVenda.id, totalCarrinho, detalhesCompra, carrinho, formaPagamento);
         compraRegistrada = resultado.compra;
         
         if (resultado.atingiuMetaAgora) {
           setModalPremio({
             aberto: true,
-            cliente: clienteEncontrado,
+            cliente: clienteParaVenda,
             comprasMes: resultado.totalMes
           });
         } else {
           setSucessoMensagem(
-            `Compra de R$ ${totalCarrinho.toFixed(2)} (${formaPagamento.toUpperCase()}) registrada para ${clienteEncontrado.nome}! ${
+            `Compra de R$ ${totalCarrinho.toFixed(2)} (${formaPagamento.toUpperCase()}) registrada para ${clienteParaVenda.nome}! ${
               resultado.pontuou ? `(${resultado.totalMes}ª visita válida no mês)` : '(abaixo do mínimo de pontuação)'
             }`
           );
@@ -352,6 +363,30 @@ export const CaixaPage: React.FC = () => {
         } catch (fiscalErr) {
           console.warn('Emissão fiscal automática no PDV ignorada ou pendente:', fiscalErr);
         }
+      }
+
+      // REGRA DO USUÁRIO: Ao fechar pagamento da mesa, ela é liberada (sinal verde) e os pedidos da cozinha são concluídos
+      if (mesaSelecionada) {
+        try {
+          await deleteMesaAberta(mesaSelecionada.id);
+          setMesasAbertas(prev => prev.filter(m => m.id !== mesaSelecionada.id && m.mesa_numero !== mesaSelecionada.mesa_numero));
+          
+          const peds = await fetchPedidosCozinha();
+          const daMesa = peds.filter(p => p.mesa_numero === mesaSelecionada.mesa_numero && p.status !== 'cancelado');
+          for (const ped of daMesa) {
+            await updatePedidoCozinhaStatus(ped.id, 'entregue');
+          }
+        } catch (errMesa) {
+          console.warn('Erro ao liberar mesa no pagamento:', errMesa);
+        }
+
+        const numMesaFormatado = mesaSelecionada.mesa_numero < 10 ? `0${mesaSelecionada.mesa_numero}` : mesaSelecionada.mesa_numero;
+        setSucessoMensagem(
+          `Pagamento da Mesa ${numMesaFormatado} recebido com sucesso! Mesa liberada (sinal verde).`
+        );
+        setTimeout(() => setSucessoMensagem(null), 4000);
+        setMesaSelecionada(null);
+        setModoCaixa('mesas');
       }
 
       resetarFormulario();
@@ -509,15 +544,28 @@ export const CaixaPage: React.FC = () => {
     const mesaAtual = mesasAbertas.find(m => m.mesa_numero === numero);
     if (mesaAtual) {
       setMesaSelecionada(mesaAtual);
-      setCarrinho(mesaAtual.carrinho);
-      if (mesaAtual.cliente_telefone) {
-        setTelefoneInput(mesaAtual.cliente_telefone);
+      setCarrinho(mesaAtual.carrinho || []);
+
+      // Auto-selecionar o cliente da mesa no caixa para fidelidade e histórico!
+      let cli: Cliente | null = null;
+      if (mesaAtual.cliente_id) {
+        cli = clientes.find(c => c.id === mesaAtual.cliente_id) || null;
+      }
+      if (!cli && mesaAtual.cliente_nome) {
+        cli = clientes.find(c => c.nome.trim().toLowerCase() === mesaAtual.cliente_nome!.trim().toLowerCase()) || null;
+      }
+      if (cli) {
+        setClienteEncontrado(cli);
+        setTelefoneInput(cli.whatsapp ? formatPhoneDisplay(cli.whatsapp) : '');
+        setIsNovoCliente(false);
+      } else if (mesaAtual.cliente_telefone) {
+        setTelefoneInput(formatPhoneDisplay(mesaAtual.cliente_telefone));
       } else if (mesaAtual.cliente_nome) {
         setNomeNovoCliente(mesaAtual.cliente_nome);
       }
     } else {
       setMesaSelecionada({
-        id: `mesa-${Date.now()}`,
+        id: `mesa-${numero}`,
         mesa_id: numero.toString(),
         mesa_numero: numero,
         criado_em: new Date().toISOString(),
@@ -525,6 +573,9 @@ export const CaixaPage: React.FC = () => {
         total: 0
       });
       setCarrinho([]);
+      setClienteEncontrado(null);
+      setTelefoneInput('');
+      setNomeNovoCliente('');
     }
   };
 
@@ -624,37 +675,39 @@ export const CaixaPage: React.FC = () => {
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
             {Array.from({ length: 30 }, (_, i) => i + 1).map(num => {
               const mesa = mesasAbertas.find(m => m.mesa_numero === num);
-              const isOcupada = !!mesa && mesa.carrinho.length > 0;
+              // REGRA DO USUÁRIO: A mesa é considerada ocupada se constar aberta (login no cardápio ou abertura manual no caixa)
+              const isOcupada = !!mesa;
               return (
                 <button
                   key={num}
                   onClick={() => handleAbrirMesa(num)}
-                  className={`relative h-28 flex flex-col items-center justify-center rounded-2xl border-2 transition-all p-2 ${
+                  className={`relative h-28 flex flex-col items-center justify-center rounded-2xl border-2 transition-all p-2 cursor-pointer ${
                     isOcupada 
-                      ? 'bg-rose-50 border-rose-200 hover:border-rose-300' 
+                      ? 'bg-rose-50 border-rose-300 hover:border-rose-400 shadow-sm' 
                       : 'bg-emerald-50 border-emerald-200 hover:border-emerald-300'
                   }`}
                 >
                   <span className={`text-2xl font-black ${isOcupada ? 'text-rose-700' : 'text-emerald-700'}`}>
-                    {num}
+                    {num < 10 ? `0${num}` : num}
                   </span>
                   {isOcupada && mesa ? (
                     <div className="flex flex-col items-center mt-1 w-full px-1">
                       {mesa.cliente_nome && (
-                        <span className="text-[10px] text-amber-900 font-extrabold truncate max-w-full">
+                        <span className="text-[10px] text-amber-950 font-extrabold truncate max-w-full">
                           {mesa.cliente_nome}
                         </span>
                       )}
-                      <span className="text-rose-900 font-black font-mono text-sm">
-                        R$ {mesa.total.toFixed(2)}
+                      <span className="text-rose-900 font-black font-mono text-xs">
+                        {mesa.total > 0 ? `R$ ${mesa.total.toFixed(2)}` : 'Em atendimento'}
                       </span>
-                      <span className="text-rose-600 font-mono text-[10px] font-bold mt-0.5 flex items-center gap-1">
-                        <Timer className="w-3 h-3" />
+                      <span className="text-rose-600 font-mono text-[9px] font-bold mt-0.5 flex items-center gap-1">
+                        <Timer className="w-2.5 h-2.5" />
                         {formatTempoPerm(mesa.criado_em)}
                       </span>
                     </div>
                   ) : (
-                    <span className="text-emerald-600 font-bold text-xs mt-2 uppercase tracking-widest">
+                    <span className="text-emerald-700 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                       Livre
                     </span>
                   )}

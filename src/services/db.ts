@@ -734,6 +734,8 @@ export async function updateStatusPedidoCozinha(id: string, status: PedidoCozinh
   await savePedidoCozinha(updated);
 }
 
+export const updatePedidoCozinhaStatus = updateStatusPedidoCozinha;
+
 export async function silenciarAlertaPedido(id: string): Promise<void> {
   const pedidos = await fetchPedidosCozinha();
   const pedido = pedidos.find(p => p.id === id);

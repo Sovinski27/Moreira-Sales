@@ -25,6 +25,8 @@ import {
   fetchPedidosCozinha, 
   fetchClientes, 
   fetchCompras,
+  fetchMesasAbertas,
+  saveMesaAberta,
   identificarOuCadastrarCliente 
 } from '../services/db';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
@@ -196,6 +198,36 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
       );
       const visitasReal = Math.max(cliente.total_compras_historico || 0, obterVisitasReais(cliente));
       setClienteAtivo({ ...cliente, total_compras_historico: visitasReal });
+
+      // 2. REGRA DO USUÁRIO: Ao fazer login no cardápio, a mesa já deve constar como ocupada com a comanda do cliente!
+      try {
+        const mesas = await fetchMesasAbertas();
+        const mesaExistente = mesas.find(m => m.mesa_numero === numMesa);
+        if (!mesaExistente) {
+          await saveMesaAberta({
+            id: `mesa-${numMesa}`,
+            mesa_id: numMesa.toString(),
+            mesa_numero: numMesa,
+            cliente_id: cliente.id,
+            cliente_nome: cliente.nome,
+            cliente_telefone: cliente.whatsapp || telLimpo,
+            carrinho: [],
+            total: 0,
+            status: 'ocupada',
+            criado_em: new Date().toISOString()
+          });
+        } else {
+          await saveMesaAberta({
+            ...mesaExistente,
+            cliente_id: cliente.id,
+            cliente_nome: cliente.nome,
+            cliente_telefone: cliente.whatsapp || telLimpo
+          });
+        }
+      } catch (errMesa) {
+        console.warn('Erro ao registrar mesa ocupada no login do cardápio:', errMesa);
+      }
+
       setAcessouCardapio(true);
     } catch (err) {
       console.warn('Erro ao registrar/identificar cliente:', err);
