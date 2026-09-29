@@ -27,15 +27,18 @@ import {
   identificarOuCadastrarCliente 
 } from '../services/db';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
+import { Footer } from '../components/Footer';
 
 interface CardapioDigitalPageProps {
   mesaInicial?: number;
   onVoltarParaSistema?: () => void;
+  isStandalone?: boolean;
 }
 
 export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({ 
   mesaInicial,
-  onVoltarParaSistema
+  onVoltarParaSistema,
+  isStandalone = false
 }) => {
   // Ler parâmetros da URL (?mesa=5)
   const initialMesaFromUrl = () => {
@@ -694,6 +697,9 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
           </div>
         )}
       </main>
+
+      {/* Rodapé Oficial Sovinski Software & Automation no modo Standalone */}
+      {isStandalone && <Footer className="mt-12 pb-24 sm:pb-8" />}
 
       {/* Modal de Observação para o Item */}
       {itemParaObservacao && (

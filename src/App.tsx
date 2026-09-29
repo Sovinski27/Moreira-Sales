@@ -6,6 +6,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminLoginPage } from './pages/AdminLoginPage';
 import { CozinhaPage } from './pages/CozinhaPage';
 import { CardapioDigitalPage } from './pages/CardapioDigitalPage';
+import { Footer } from './components/Footer';
 import { isAdminSessionActive, logoutAdmin } from './services/adminAuth';
 
 export const App: React.FC = () => {
@@ -60,11 +61,11 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Se o cliente acessou diretamente via QR Code na mesa (ex: no smartphone), renderizar tela limpa de cardápio
+  // Se o cliente acessou diretamente via QR Code na mesa (ex: no smartphone), renderizar tela limpa de cardápio com rodapé
   if (isModoClienteDireto() && currentTab === 'cardapio') {
     return (
       <LoyaltyProvider>
-        <CardapioDigitalPage onVoltarParaSistema={() => setCurrentTab('caixa')} />
+        <CardapioDigitalPage onVoltarParaSistema={() => setCurrentTab('caixa')} isStandalone />
       </LoyaltyProvider>
     );
   }
@@ -73,7 +74,12 @@ export const App: React.FC = () => {
   if (isModoCozinhaDireto() && currentTab === 'cozinha') {
     return (
       <LoyaltyProvider>
-        <CozinhaPage />
+        <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+          <div className="flex-1">
+            <CozinhaPage />
+          </div>
+          <Footer />
+        </div>
       </LoyaltyProvider>
     );
   }

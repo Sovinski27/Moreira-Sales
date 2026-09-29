@@ -4,6 +4,7 @@ import { Store, BarChart3, ChefHat, QrCode, Database, Sparkles, Lock } from 'luc
 import { fetchPedidosCozinha } from '../services/db';
 import { PedidoCozinha } from '../types';
 import { isAdminSessionActive } from '../services/adminAuth';
+import { Footer } from './Footer';
 
 export type TabType = 'caixa' | 'cozinha' | 'cardapio' | 'admin';
 
@@ -193,17 +194,8 @@ export const Layout: React.FC<LayoutProps> = ({
         {children}
       </main>
 
-      {/* Rodapé Institucional */}
-      <footer className="border-t border-stone-200 bg-white py-4 text-center text-xs text-stone-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p className="font-medium text-stone-600">
-            Panificadora & Confeitaria Moreira Sales • Umuarama - PR
-          </p>
-          <p className="text-stone-400">
-            Frente de Caixa · Cozinha KDS · Cardápio Digital · Fidelização & CRM
-          </p>
-        </div>
-      </footer>
+      {/* Rodapé do Sistema */}
+      <Footer />
     </div>
   );
 };
