@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Printer, QrCode, ExternalLink, Copy, Check } from 'lucide-react';
+import { X, Printer, QrCode, ExternalLink, Copy, Check, Globe } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface QrCodeMesasModalProps {
@@ -16,10 +16,28 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
   const [mesaSelecionada, setMesaSelecionada] = useState<number>(1);
   const [copiado, setCopiado] = useState(false);
 
+  const getInitialBaseUrl = () => {
+    if (typeof window !== 'undefined') {
+      const salvo = localStorage.getItem('moreira_sales_cardapio_domain');
+      if (salvo && salvo.trim()) return salvo.trim();
+
+      const host = window.location.hostname;
+      // Se já estiver rodando diretamente na Vercel (*.vercel.app)
+      if (host.includes('vercel.app')) {
+        return window.location.origin;
+      }
+    }
+    // URL padrão oficial da Vercel (onde o sistema está online)
+    return 'https://moreira-sales.vercel.app';
+  };
+
+  const [baseUrl, setBaseUrl] = useState<string>(getInitialBaseUrl);
+  const [editandoDominio, setEditandoDominio] = useState(false);
+
   if (!isOpen) return null;
 
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-  const urlMesa = `${baseUrl}/cardapio?mesa=${mesaSelecionada}`;
+  const cleanBaseUrl = baseUrl.trim().replace(/\/$/, '');
+  const urlMesa = `${cleanBaseUrl}/cardapio?mesa=${mesaSelecionada}`;
 
   const handleCopiarLink = () => {
     navigator.clipboard.writeText(urlMesa);
@@ -93,6 +111,53 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Indicador e Controle do Domínio Online (Vercel) */}
+              <div className="bg-amber-50/80 border border-amber-200/90 rounded-2xl p-3 text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-amber-950 flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Domínio Online (Vercel):</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditandoDominio(!editandoDominio)}
+                    className="text-[11px] text-amber-800 hover:text-amber-950 font-bold underline cursor-pointer"
+                  >
+                    {editandoDominio ? 'Concluir' : 'Alterar Link'}
+                  </button>
+                </div>
+
+                {editandoDominio ? (
+                  <div className="flex gap-1.5 items-center pt-1">
+                    <input
+                      type="text"
+                      value={baseUrl}
+                      onChange={e => {
+                        setBaseUrl(e.target.value);
+                        localStorage.setItem('moreira_sales_cardapio_domain', e.target.value);
+                      }}
+                      placeholder="https://moreira-sales.vercel.app"
+                      className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-xl text-xs font-mono outline-none focus:border-amber-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBaseUrl('https://moreira-sales.vercel.app');
+                        localStorage.setItem('moreira_sales_cardapio_domain', 'https://moreira-sales.vercel.app');
+                      }}
+                      className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-xl shrink-0 transition-colors cursor-pointer"
+                    >
+                      Padrão
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-emerald-800 font-semibold flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                    <span className="truncate font-mono">{cleanBaseUrl}</span>
+                  </p>
+                )}
               </div>
 
               {/* Caixa de Link Direto com Copiar */}
