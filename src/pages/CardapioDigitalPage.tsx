@@ -46,16 +46,16 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
       const m = params.get('mesa');
       if (m && !isNaN(parseInt(m, 10))) return m;
     }
-    return '';
+    return '1';
   };
 
-  // Estados da Tela Inicial de Recepção (Conforme o print exato do usuário)
+  // Estados da Tela Inicial de Recepção
   const [mesaInput, setMesaInput] = useState<string>(initialMesaFromUrl);
   const [nomeInput, setNomeInput] = useState<string>('');
   const [telefoneInput, setTelefoneInput] = useState<string>('');
 
-  // Controle de acesso ao cardápio (False = tela do print; True = cardápio completo de pedidos)
-  const [acessouCardapio, setAcessouCardapio] = useState<boolean>(false);
+  // Ao acessar o cardápio, abre diretamente a vitrine de produtos e pedidos para o cliente!
+  const [acessouCardapio, setAcessouCardapio] = useState<boolean>(true);
 
   // Cliente reconhecido ou criado
   const [clienteAtivo, setClienteAtivo] = useState<Cliente | null>(null);

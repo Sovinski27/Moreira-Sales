@@ -178,16 +178,27 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
                 </div>
               </div>
 
-              {/* Botão de Testar no Navegador */}
-              <a
-                href={urlMesa}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full py-2.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Abrir Cardápio da Mesa {mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada}</span>
-              </a>
+              {/* Botões de Ação para Teste */}
+              <div className="space-y-2">
+                <a
+                  href={urlMesa}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Abrir Cardápio Online na Vercel (Mesa {mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada})</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => window.open(`/cardapio?mesa=${mesaSelecionada}`, '_blank')}
+                  className="w-full py-2.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Testar Cardápio Neste Navegador (Aba Local)</span>
+                </button>
+              </div>
             </div>
 
             {/* Coluna 2: Preview do Display de Mesa / Cartão de Impressão */}

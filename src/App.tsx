@@ -20,16 +20,19 @@ export const App: React.FC = () => {
     window.addEventListener('admin_auth_changed', handleAuthChange);
     return () => window.removeEventListener('admin_auth_changed', handleAuthChange);
   }, []);
-  // Detectar se a URL está sendo aberta em modo cliente de mesa (/cardapio, ?modo=cardapio, ?mesa=3 ou subdomínio cardapio.*)
+  // Detectar se a URL está sendo aberta em modo cliente de mesa (/cardapio, ?modo=cardapio, ?mesa=3, #cardapio ou subdomínio cardapio.*)
   const isModoClienteDireto = () => {
     if (typeof window === 'undefined') return false;
     const path = window.location.pathname.toLowerCase();
     const params = new URLSearchParams(window.location.search);
     const host = window.location.hostname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
     return (
       host.startsWith('cardapio.') ||
       path.includes('cardapio') ||
+      hash.includes('cardapio') ||
       params.get('modo') === 'cardapio' ||
+      params.has('cardapio') ||
       (params.has('mesa') && params.get('modo') !== 'caixa')
     );
   };
