@@ -469,29 +469,38 @@ export async function registerCompra(
 // --- CATALOGO (PRODUTOS & CATEGORIAS) ---
 
 export async function fetchCategorias(): Promise<Categoria[]> {
+  const localCats = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []);
+
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('categorias')
         .select('*')
         .order('ordem');
-      if (!error && data) {
-        // Preserva 100% exclusivamente as categorias cadastradas pelo dono
-        const categoriasLimpas = (data as Categoria[]).filter(c => 
-          !['cat-bebidas-quentes', 'cat-paes-salgados', 'cat-doces', 'cat-1', 'cat-2', 'cat-3', 'cat-4'].includes(c.id)
-        );
-        setLocal(STORAGE_KEYS.CATEGORIAS, categoriasLimpas);
-        return categoriasLimpas;
+
+      if (!error && data && data.length > 0) {
+        // Unir categorias da nuvem com quaisquer categorias locais
+        const cloudIds = new Set(data.map((c: any) => c.id));
+        const pendentes = localCats.filter(c => !cloudIds.has(c.id));
+        const unificadas = [...data, ...pendentes];
+        setLocal(STORAGE_KEYS.CATEGORIAS, unificadas);
+
+        // Se haviam categorias locais pendentes de envio para o Supabase, envia em background
+        if (pendentes.length > 0) {
+          supabase.from('categorias').upsert(pendentes).then(() => {});
+        }
+
+        return unificadas as Categoria[];
+      } else if (localCats.length > 0) {
+        // Se a nuvem não tem categorias mas temos localmente, tenta sincronizar para o Supabase
+        supabase.from('categorias').upsert(localCats).then(() => {});
       }
     } catch (e) {
       console.warn('Falha ao buscar categorias no Supabase:', e);
     }
   }
 
-  const localCats = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
-  return localCats.filter(c => 
-    !['cat-bebidas-quentes', 'cat-paes-salgados', 'cat-doces', 'cat-1', 'cat-2', 'cat-3', 'cat-4'].includes(c.id)
-  );
+  return localCats;
 }
 
 export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: string }): Promise<Categoria> {
@@ -504,18 +513,8 @@ export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: st
       : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cat-${Date.now()}`)
   };
 
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase
-        .from('categorias')
-        .upsert({ ...newCategoria });
-    } catch (e) {
-      console.warn('Falha ao salvar categoria no Supabase:', e);
-    }
-  }
-
-  // Atualizar imediatamente no localStorage para resposta instantânea em 100% dos painéis
-  const categorias = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
+  // Salvar imediatamente no localStorage para garantir que a UI responda na hora
+  const categorias = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []);
   const exists = categorias.some(c => c.id === newCategoria.id);
   const updatedList = exists 
     ? categorias.map(c => c.id === newCategoria.id ? newCategoria : c)
@@ -527,26 +526,29 @@ export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: st
     window.dispatchEvent(new CustomEvent('categorias_atualizadas'));
   }
 
+  // Persistir na nuvem do Supabase
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('categorias')
+        .upsert({ ...newCategoria });
+      if (error) {
+        console.warn('Erro ao salvar categoria no Supabase:', error.message);
+      }
+    } catch (e) {
+      console.warn('Falha ao salvar categoria no Supabase:', e);
+    }
+  }
+
   return newCategoria;
 }
 
 export async function deleteCategoria(id: string): Promise<void> {
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase
-        .from('categorias')
-        .delete()
-        .eq('id', id);
-    } catch (e) {
-      console.warn('Falha ao excluir categoria no Supabase:', e);
-    }
-  }
-
-  const categorias = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
+  const categorias = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []);
   setLocal(STORAGE_KEYS.CATEGORIAS, categorias.filter(c => c.id !== id));
 
   // Remove ou desvincula produtos associados para manter consistência
-  const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
+  const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
   const updatedProdutos = produtos.filter(p => p.categoria_id !== id);
   if (produtos.length !== updatedProdutos.length) {
     setLocal(STORAGE_KEYS.PRODUTOS, updatedProdutos);
@@ -557,40 +559,50 @@ export async function deleteCategoria(id: string): Promise<void> {
     window.dispatchEvent(new CustomEvent('categorias_atualizadas'));
     window.dispatchEvent(new CustomEvent('produtos_atualizados'));
   }
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('categorias')
+        .delete()
+        .eq('id', id);
+    } catch (e) {
+      console.warn('Falha ao excluir categoria no Supabase:', e);
+    }
+  }
 }
 
 export async function fetchProdutos(): Promise<Produto[]> {
+  const localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('produtos')
         .select('*')
         .order('nome');
-      if (!error && data) {
-        // Preserva 100% exclusivamente os produtos cadastrados pelo dono no painel administrativo
-        const produtosLimpos = (data as Produto[]).filter(p => 
-          !p.id.startsWith('prod-cafe-') &&
-          !p.id.startsWith('prod-cappuccino') &&
-          !p.id.startsWith('prod-chocolate-') &&
-          !p.id.startsWith('prod-pao-') &&
-          !['prod-torta-holandesa', 'prod-suco-laranja', 'prod-1', 'prod-2', 'prod-3', 'prod-4', 'prod-5', 'prod-6', 'prod-7', 'prod-8', 'prod-9', 'prod-10'].includes(p.id)
-        );
-        setLocal(STORAGE_KEYS.PRODUTOS, produtosLimpos);
-        return produtosLimpos;
+
+      if (!error && data && data.length > 0) {
+        const cloudIds = new Set(data.map((p: any) => p.id));
+        const pendentes = localProds.filter(p => !cloudIds.has(p.id));
+        const unificados = [...data, ...pendentes];
+        setLocal(STORAGE_KEYS.PRODUTOS, unificados);
+
+        if (pendentes.length > 0) {
+          supabase.from('produtos').upsert(pendentes).then(() => {});
+        }
+
+        return unificados as Produto[];
+      } else if (localProds.length > 0) {
+        // Se a nuvem ainda não tem produtos mas o dono cadastrou localmente, envia para a nuvem
+        supabase.from('produtos').upsert(localProds).then(() => {});
       }
     } catch (e) {
       console.warn('Falha ao buscar produtos no Supabase:', e);
     }
   }
 
-  const localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
-  return localProds.filter(p => 
-    !p.id.startsWith('prod-cafe-') &&
-    !p.id.startsWith('prod-cappuccino') &&
-    !p.id.startsWith('prod-chocolate-') &&
-    !p.id.startsWith('prod-pao-') &&
-    !['prod-torta-holandesa', 'prod-suco-laranja', 'prod-1', 'prod-2', 'prod-3', 'prod-4', 'prod-5', 'prod-6', 'prod-7', 'prod-8', 'prod-9', 'prod-10'].includes(p.id)
-  );
+  return localProds;
 }
 
 export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }): Promise<Produto> {
@@ -602,18 +614,8 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
       : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `prod-${Date.now()}`)
   };
 
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase
-        .from('produtos')
-        .upsert({ ...newProduto });
-    } catch (e) {
-      console.warn('Falha ao salvar produto no Supabase:', e);
-    }
-  }
-
-  // Atualizar imediatamente no localStorage para sincronização instantânea
-  const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
+  // Salvar imediatamente no localStorage para resposta instantânea
+  const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
   const exists = produtos.some(p => p.id === newProduto.id);
   const updatedList = exists 
     ? produtos.map(p => p.id === newProduto.id ? newProduto : p)
@@ -625,11 +627,25 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
     window.dispatchEvent(new CustomEvent('produtos_atualizados'));
   }
 
+  // Persistir na nuvem do Supabase
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase
+        .from('produtos')
+        .upsert({ ...newProduto });
+      if (error) {
+        console.warn('Erro ao salvar produto no Supabase:', error.message);
+      }
+    } catch (e) {
+      console.warn('Falha ao salvar produto no Supabase:', e);
+    }
+  }
+
   return newProduto;
 }
 
 export async function deleteProduto(id: string): Promise<void> {
-  const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
+  const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
   setLocal(STORAGE_KEYS.PRODUTOS, produtos.filter(p => p.id !== id));
 
   if (typeof window !== 'undefined') {
@@ -638,16 +654,14 @@ export async function deleteProduto(id: string): Promise<void> {
   }
 
   if (isSupabaseConfigured && supabase) {
-    (async () => {
-      try {
-        await supabase
-          .from('produtos')
-          .delete()
-          .eq('id', id);
-      } catch (e) {
-        console.warn('Falha ao excluir produto no Supabase (background):', e);
-      }
-    })();
+    try {
+      await supabase
+        .from('produtos')
+        .delete()
+        .eq('id', id);
+    } catch (e) {
+      console.warn('Falha ao excluir produto no Supabase:', e);
+    }
   }
 }
 // --- MESAS ABERTAS ---
