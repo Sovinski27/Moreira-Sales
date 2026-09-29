@@ -50,7 +50,7 @@ export const STORAGE_KEYS = {
 
 // --- MOCK / LOCAL STORAGE ENGINE ---
 const CLEANUP_KEY = 'panificadora_cleaned_v3';
-const CLEANUP_KEY_CATALOGO = 'panificadora_cleaned_v4_catalogo_clean';
+const CLEANUP_KEY_CATALOGO_V5 = 'panificadora_pure_dono_v5';
 
 function runInitialCleanupIfNeeded(): void {
   if (typeof localStorage === 'undefined') return;
@@ -76,38 +76,62 @@ function runInitialCleanupIfNeeded(): void {
       localStorage.setItem(CLEANUP_KEY, 'true');
     }
 
-    // Limpeza de catálogo: garantir que o PDV seja alimentado EXCLUSIVAMENTE pelo catálogo do usuário
-    const isCleanCatalogo = localStorage.getItem(CLEANUP_KEY_CATALOGO);
-    if (!isCleanCatalogo) {
+    // Limpeza de catálogo: garantir que o PDV e o Cardápio sejam 100% EXCLUSIVAMENTE cadastrados pelo dono
+    const isCleanCatalogoV5 = localStorage.getItem(CLEANUP_KEY_CATALOGO_V5);
+    if (!isCleanCatalogoV5) {
       const rawCategorias = localStorage.getItem(STORAGE_KEYS.CATEGORIAS);
       if (rawCategorias) {
         try {
           const cats = JSON.parse(rawCategorias) as Categoria[];
-          // Preservar apenas categorias criadas pelo usuário (remover as demo cat-1, cat-2, cat-3, cat-4)
-          const userCats = cats.filter(c => !['cat-1', 'cat-2', 'cat-3', 'cat-4'].includes(c.id));
+          const userCats = cats.filter(c => !['cat-bebidas-quentes', 'cat-paes-salgados', 'cat-doces', 'cat-1', 'cat-2', 'cat-3', 'cat-4'].includes(c.id));
           localStorage.setItem(STORAGE_KEYS.CATEGORIAS, JSON.stringify(userCats));
         } catch {
           localStorage.setItem(STORAGE_KEYS.CATEGORIAS, JSON.stringify([]));
         }
-      } else {
-        localStorage.setItem(STORAGE_KEYS.CATEGORIAS, JSON.stringify([]));
       }
 
       const rawProdutos = localStorage.getItem(STORAGE_KEYS.PRODUTOS);
       if (rawProdutos) {
         try {
           const prods = JSON.parse(rawProdutos) as Produto[];
-          // Preservar apenas produtos criados pelo usuário (remover os demo prod-1..prod-10)
-          const userProds = prods.filter(p => !['prod-1', 'prod-2', 'prod-3', 'prod-4', 'prod-5', 'prod-6', 'prod-7', 'prod-8', 'prod-9', 'prod-10'].includes(p.id));
+          const userProds = prods.filter(p => 
+            !p.id.startsWith('prod-cafe-') &&
+            !p.id.startsWith('prod-cappuccino') &&
+            !p.id.startsWith('prod-chocolate-') &&
+            !p.id.startsWith('prod-pao-') &&
+            !['prod-torta-holandesa', 'prod-suco-laranja', 'prod-1', 'prod-2', 'prod-3', 'prod-4', 'prod-5', 'prod-6', 'prod-7', 'prod-8', 'prod-9', 'prod-10'].includes(p.id)
+          );
           localStorage.setItem(STORAGE_KEYS.PRODUTOS, JSON.stringify(userProds));
         } catch {
           localStorage.setItem(STORAGE_KEYS.PRODUTOS, JSON.stringify([]));
         }
-      } else {
-        localStorage.setItem(STORAGE_KEYS.PRODUTOS, JSON.stringify([]));
       }
 
-      localStorage.setItem(CLEANUP_KEY_CATALOGO, 'true');
+      localStorage.setItem(CLEANUP_KEY_CATALOGO_V5, 'true');
+
+      if (isSupabaseConfigured && supabase) {
+        (async () => {
+          try {
+            await supabase.from('produtos').delete().in('id', [
+              'prod-cafe-expresso',
+              'prod-cappuccino',
+              'prod-cafe-leite',
+              'prod-chocolate-quente',
+              'prod-pao-chapa',
+              'prod-pao-queijo',
+              'prod-torta-holandesa',
+              'prod-suco-laranja'
+            ]);
+            await supabase.from('categorias').delete().in('id', [
+              'cat-bebidas-quentes',
+              'cat-paes-salgados',
+              'cat-doces'
+            ]);
+          } catch (e) {
+            // ignore
+          }
+        })();
+      }
     }
   } catch (e) {
     console.warn('Erro ao verificar limpeza do localStorage:', e);
@@ -445,47 +469,29 @@ export async function registerCompra(
 // --- CATALOGO (PRODUTOS & CATEGORIAS) ---
 
 export async function fetchCategorias(): Promise<Categoria[]> {
-  let categoriasList: Categoria[] = [];
-
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('categorias')
         .select('*')
         .order('ordem');
-      if (!error && data && data.length > 0) {
-        categoriasList = data as Categoria[];
-        setLocal(STORAGE_KEYS.CATEGORIAS, categoriasList);
-        return categoriasList;
+      if (!error && data) {
+        // Preserva 100% exclusivamente as categorias cadastradas pelo dono
+        const categoriasLimpas = (data as Categoria[]).filter(c => 
+          !['cat-bebidas-quentes', 'cat-paes-salgados', 'cat-doces', 'cat-1', 'cat-2', 'cat-3', 'cat-4'].includes(c.id)
+        );
+        setLocal(STORAGE_KEYS.CATEGORIAS, categoriasLimpas);
+        return categoriasLimpas;
       }
     } catch (e) {
       console.warn('Falha ao buscar categorias no Supabase:', e);
     }
   }
 
-  categoriasList = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
-
-  if (categoriasList.length === 0) {
-    const defaultCats: Categoria[] = [
-      { id: 'cat-bebidas-quentes', nome: 'Bebidas quentes', icone: 'Coffee', ordem: 1 },
-      { id: 'cat-paes-salgados', nome: 'Pães & Salgados', icone: 'Package', ordem: 2 },
-      { id: 'cat-doces', nome: 'Doces & Sobremesas', icone: 'Package', ordem: 3 }
-    ];
-    categoriasList = defaultCats;
-    setLocal(STORAGE_KEYS.CATEGORIAS, defaultCats);
-
-    if (isSupabaseConfigured && supabase) {
-      (async () => {
-        try {
-          await supabase.from('categorias').upsert(defaultCats);
-        } catch (e) {
-          console.warn('Erro ao semear categorias padrão no Supabase:', e);
-        }
-      })();
-    }
-  }
-
-  return categoriasList;
+  const localCats = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
+  return localCats.filter(c => 
+    !['cat-bebidas-quentes', 'cat-paes-salgados', 'cat-doces', 'cat-1', 'cat-2', 'cat-3', 'cat-4'].includes(c.id)
+  );
 }
 
 export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: string }): Promise<Categoria> {
@@ -497,6 +503,16 @@ export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: st
       ? categoria.id 
       : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cat-${Date.now()}`)
   };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('categorias')
+        .upsert({ ...newCategoria });
+    } catch (e) {
+      console.warn('Falha ao salvar categoria no Supabase:', e);
+    }
+  }
 
   // Atualizar imediatamente no localStorage para resposta instantânea em 100% dos painéis
   const categorias = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
@@ -511,20 +527,21 @@ export async function saveCategoria(categoria: Omit<Categoria, 'id'> & { id?: st
     window.dispatchEvent(new CustomEvent('categorias_atualizadas'));
   }
 
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase
-        .from('categorias')
-        .upsert({ ...newCategoria });
-    } catch (e) {
-      console.warn('Falha ao salvar categoria no Supabase:', e);
-    }
-  }
-
   return newCategoria;
 }
 
 export async function deleteCategoria(id: string): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('categorias')
+        .delete()
+        .eq('id', id);
+    } catch (e) {
+      console.warn('Falha ao excluir categoria no Supabase:', e);
+    }
+  }
+
   const categorias = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
   setLocal(STORAGE_KEYS.CATEGORIAS, categorias.filter(c => c.id !== id));
 
@@ -540,121 +557,40 @@ export async function deleteCategoria(id: string): Promise<void> {
     window.dispatchEvent(new CustomEvent('categorias_atualizadas'));
     window.dispatchEvent(new CustomEvent('produtos_atualizados'));
   }
-
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase
-        .from('categorias')
-        .delete()
-        .eq('id', id);
-    } catch (e) {
-      console.warn('Falha ao excluir categoria no Supabase:', e);
-    }
-  }
 }
 
 export async function fetchProdutos(): Promise<Produto[]> {
-  let produtosList: Produto[] = [];
-
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('produtos')
         .select('*')
         .order('nome');
-      if (!error && data && data.length > 0) {
-        produtosList = data as Produto[];
-        setLocal(STORAGE_KEYS.PRODUTOS, produtosList);
-        return produtosList;
+      if (!error && data) {
+        // Preserva 100% exclusivamente os produtos cadastrados pelo dono no painel administrativo
+        const produtosLimpos = (data as Produto[]).filter(p => 
+          !p.id.startsWith('prod-cafe-') &&
+          !p.id.startsWith('prod-cappuccino') &&
+          !p.id.startsWith('prod-chocolate-') &&
+          !p.id.startsWith('prod-pao-') &&
+          !['prod-torta-holandesa', 'prod-suco-laranja', 'prod-1', 'prod-2', 'prod-3', 'prod-4', 'prod-5', 'prod-6', 'prod-7', 'prod-8', 'prod-9', 'prod-10'].includes(p.id)
+        );
+        setLocal(STORAGE_KEYS.PRODUTOS, produtosLimpos);
+        return produtosLimpos;
       }
     } catch (e) {
       console.warn('Falha ao buscar produtos no Supabase:', e);
     }
   }
 
-  produtosList = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
-
-  // Se não existirem produtos (ex: primeiro acesso no celular), vincula itens padrão à categoria existente
-  if (produtosList.length === 0) {
-    const cats = await fetchCategorias();
-    const catBebidas = cats.find(c => c.nome.toLowerCase().includes('bebida') || c.nome.toLowerCase().includes('quente'));
-    const catAlimentos = cats.find(c => c.nome.toLowerCase().includes('pão') || c.nome.toLowerCase().includes('salgado') || c.nome.toLowerCase().includes('doce'));
-    
-    const catBebidasId = catBebidas ? catBebidas.id : (cats.length > 0 ? cats[0].id : 'cat-bebidas-quentes');
-    const catAlimentosId = catAlimentos ? catAlimentos.id : catBebidasId;
-
-    const produtosIniciais: Produto[] = [
-      {
-        id: 'prod-cafe-expresso',
-        categoria_id: catBebidasId,
-        nome: 'Café Expresso',
-        preco: 5.50,
-        custo: 1.50,
-        ativo: true,
-        controlar_estoque: false
-      },
-      {
-        id: 'prod-cappuccino',
-        categoria_id: catBebidasId,
-        nome: 'Cappuccino Cremoso Especial',
-        preco: 8.50,
-        custo: 2.50,
-        ativo: true,
-        controlar_estoque: false
-      },
-      {
-        id: 'prod-cafe-leite',
-        categoria_id: catBebidasId,
-        nome: 'Café com Leite Pingado',
-        preco: 6.00,
-        custo: 1.80,
-        ativo: true,
-        controlar_estoque: false
-      },
-      {
-        id: 'prod-chocolate-quente',
-        categoria_id: catBebidasId,
-        nome: 'Chocolate Quente Cremoso',
-        preco: 9.00,
-        custo: 3.00,
-        ativo: true,
-        controlar_estoque: false
-      },
-      {
-        id: 'prod-pao-chapa',
-        categoria_id: catAlimentosId,
-        nome: 'Pão Francês na Chapa com Manteiga',
-        preco: 5.00,
-        custo: 1.20,
-        ativo: true,
-        controlar_estoque: false
-      },
-      {
-        id: 'prod-pao-queijo',
-        categoria_id: catAlimentosId,
-        nome: 'Pão de Queijo Tradicional',
-        preco: 4.50,
-        custo: 1.10,
-        ativo: true,
-        controlar_estoque: false
-      }
-    ];
-
-    produtosList = produtosIniciais;
-    setLocal(STORAGE_KEYS.PRODUTOS, produtosIniciais);
-
-    if (isSupabaseConfigured && supabase) {
-      (async () => {
-        try {
-          await supabase.from('produtos').upsert(produtosIniciais);
-        } catch (e) {
-          console.warn('Erro ao semear produtos padrão no Supabase:', e);
-        }
-      })();
-    }
-  }
-
-  return produtosList;
+  const localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
+  return localProds.filter(p => 
+    !p.id.startsWith('prod-cafe-') &&
+    !p.id.startsWith('prod-cappuccino') &&
+    !p.id.startsWith('prod-chocolate-') &&
+    !p.id.startsWith('prod-pao-') &&
+    !['prod-torta-holandesa', 'prod-suco-laranja', 'prod-1', 'prod-2', 'prod-3', 'prod-4', 'prod-5', 'prod-6', 'prod-7', 'prod-8', 'prod-9', 'prod-10'].includes(p.id)
+  );
 }
 
 export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }): Promise<Produto> {
@@ -665,6 +601,16 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
       ? produto.id
       : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `prod-${Date.now()}`)
   };
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('produtos')
+        .upsert({ ...newProduto });
+    } catch (e) {
+      console.warn('Falha ao salvar produto no Supabase:', e);
+    }
+  }
 
   // Atualizar imediatamente no localStorage para sincronização instantânea
   const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
@@ -677,16 +623,6 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
     window.dispatchEvent(new CustomEvent('produtos_atualizados'));
-  }
-
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase
-        .from('produtos')
-        .upsert({ ...newProduto });
-    } catch (e) {
-      console.warn('Falha ao salvar produto no Supabase:', e);
-    }
   }
 
   return newProduto;
