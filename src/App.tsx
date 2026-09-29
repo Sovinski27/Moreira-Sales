@@ -20,12 +20,18 @@ export const App: React.FC = () => {
     window.addEventListener('admin_auth_changed', handleAuthChange);
     return () => window.removeEventListener('admin_auth_changed', handleAuthChange);
   }, []);
-  // Detectar se a URL está sendo aberta em modo cliente de mesa (/cardapio, ?modo=cardapio ou ?mesa=3)
+  // Detectar se a URL está sendo aberta em modo cliente de mesa (/cardapio, ?modo=cardapio, ?mesa=3 ou subdomínio cardapio.*)
   const isModoClienteDireto = () => {
     if (typeof window === 'undefined') return false;
     const path = window.location.pathname.toLowerCase();
     const params = new URLSearchParams(window.location.search);
-    return path.includes('cardapio') || params.get('modo') === 'cardapio' || (params.has('mesa') && params.get('modo') !== 'caixa');
+    const host = window.location.hostname.toLowerCase();
+    return (
+      host.startsWith('cardapio.') ||
+      path.includes('cardapio') ||
+      params.get('modo') === 'cardapio' ||
+      (params.has('mesa') && params.get('modo') !== 'caixa')
+    );
   };
 
   const isModoCozinhaDireto = () => {
@@ -35,13 +41,14 @@ export const App: React.FC = () => {
   };
 
   const [currentTab, setCurrentTab] = useState<TabType>(() => {
-    if (isModoClienteDireto()) return 'cardapio';
     if (isModoCozinhaDireto()) return 'cozinha';
     return 'caixa';
   });
 
-  // Atalhos de teclado (F1: Caixa, F2: Admin, F3: Cozinha KDS, F4: Cardápio Digital)
+  // Atalhos de teclado exclusivos do Sistema Operacional (F1: Caixa, F2: Admin, F3: Cozinha KDS)
   useEffect(() => {
+    if (isModoClienteDireto()) return; // Clientes no cardápio não possuem atalhos operacionais
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F1') {
         e.preventDefault();
@@ -52,25 +59,27 @@ export const App: React.FC = () => {
       } else if (e.key === 'F3') {
         e.preventDefault();
         setCurrentTab('cozinha');
-      } else if (e.key === 'F4') {
-        e.preventDefault();
-        setCurrentTab('cardapio');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Se o cliente acessou diretamente via QR Code na mesa (ex: no smartphone), renderizar tela limpa de cardápio com rodapé
-  if (isModoClienteDireto() && currentTab === 'cardapio') {
+  // =========================================================================
+  // 1. LINK EXCLUSIVO E 100% ISOLADO DO CARDÁPIO DIGITAL (CLIENTES DAS MESAS)
+  // =========================================================================
+  // Nenhuma navegação operacional (caixa/cozinha/admin) é montada ou exposta.
+  if (isModoClienteDireto()) {
     return (
       <LoyaltyProvider>
-        <CardapioDigitalPage onVoltarParaSistema={() => setCurrentTab('caixa')} isStandalone />
+        <CardapioDigitalPage isStandalone />
       </LoyaltyProvider>
     );
   }
 
-  // Se o monitor da cozinha foi aberto diretamente via URL ?modo=cozinha
+  // =========================================================================
+  // 2. MONITOR STANDALONE DEDICADO DA COZINHA KDS (TELA DA COZINHA)
+  // =========================================================================
   if (isModoCozinhaDireto() && currentTab === 'cozinha') {
     return (
       <LoyaltyProvider>
@@ -84,14 +93,14 @@ export const App: React.FC = () => {
     );
   }
 
+  // =========================================================================
+  // 3. SISTEMA OPERACIONAL DA PANIFICADORA (CAIXA, COZINHA, PAINEL DO DONO)
+  // =========================================================================
   return (
     <LoyaltyProvider>
       <Layout currentTab={currentTab} setCurrentTab={setCurrentTab}>
         {currentTab === 'caixa' && <CaixaPage />}
         {currentTab === 'cozinha' && <CozinhaPage />}
-        {currentTab === 'cardapio' && (
-          <CardapioDigitalPage onVoltarParaSistema={() => setCurrentTab('caixa')} />
-        )}
         {currentTab === 'admin' && (
           isAdminAuthenticated ? (
             <AdminDashboard 

@@ -5,8 +5,9 @@ import { fetchPedidosCozinha } from '../services/db';
 import { PedidoCozinha } from '../types';
 import { isAdminSessionActive } from '../services/adminAuth';
 import { Footer } from './Footer';
+import { QrCodeMesasModal } from './QrCodeMesasModal';
 
-export type TabType = 'caixa' | 'cozinha' | 'cardapio' | 'admin';
+export type TabType = 'caixa' | 'cozinha' | 'admin';
 
 interface LayoutProps {
   currentTab: TabType;
@@ -22,6 +23,7 @@ export const Layout: React.FC<LayoutProps> = ({
   const { isSupabaseOnline, metricas } = useLoyalty();
   const [pedidosCozinha, setPedidosCozinha] = useState<PedidoCozinha[]>([]);
   const [isAdminAuth, setIsAdminAuth] = useState<boolean>(() => isAdminSessionActive());
+  const [modalQrCodeAberto, setModalQrCodeAberto] = useState(false);
 
   useEffect(() => {
     const handleAuth = () => setIsAdminAuth(isAdminSessionActive());
@@ -129,22 +131,7 @@ export const Layout: React.FC<LayoutProps> = ({
                   )}
                 </button>
 
-                {/* 3. Cardápio Digital & QR Mesas (F4) */}
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('cardapio')}
-                  className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${
-                    currentTab === 'cardapio'
-                      ? 'bg-stone-900 text-white shadow-sm'
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
-                  }`}
-                  title="Cardápio Digital das Mesas (F4)"
-                >
-                  <QrCode className="w-4 h-4 shrink-0" />
-                  <span>Cardápio</span>
-                </button>
-
-                {/* 4. Painel do Dono (Admin) (F2) */}
+                {/* 3. Painel do Dono (Admin) (F2) */}
                 <button
                   type="button"
                   onClick={() => setCurrentTab('admin')}
@@ -168,6 +155,17 @@ export const Layout: React.FC<LayoutProps> = ({
                   )}
                 </button>
               </nav>
+
+              {/* Botão de Gestão dos QR Codes / Link do Cardápio das Mesas */}
+              <button
+                type="button"
+                onClick={() => setModalQrCodeAberto(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors shadow-2xs cursor-pointer shrink-0"
+                title="Visualizar, copiar links e imprimir QR Codes do Cardápio das Mesas"
+              >
+                <QrCode className="w-4 h-4 text-amber-700 shrink-0" />
+                <span className="hidden sm:inline">QR Codes das Mesas</span>
+              </button>
 
               {/* Status de Nuvem */}
               <div className="hidden sm:flex items-center shrink-0">
@@ -196,6 +194,13 @@ export const Layout: React.FC<LayoutProps> = ({
 
       {/* Rodapé do Sistema */}
       <Footer />
+
+      {/* Modal de Gestão e Impressão de QR Codes do Cardápio das Mesas */}
+      <QrCodeMesasModal
+        isOpen={modalQrCodeAberto}
+        onClose={() => setModalQrCodeAberto(false)}
+        totalMesas={20}
+      />
     </div>
   );
 };

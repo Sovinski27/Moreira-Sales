@@ -31,14 +31,12 @@ import { Footer } from '../components/Footer';
 
 interface CardapioDigitalPageProps {
   mesaInicial?: number;
-  onVoltarParaSistema?: () => void;
   isStandalone?: boolean;
 }
 
 export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({ 
   mesaInicial,
-  onVoltarParaSistema,
-  isStandalone = false
+  isStandalone = true
 }) => {
   // Ler parâmetros da URL (?mesa=5)
   const initialMesaFromUrl = () => {
@@ -424,19 +422,6 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               </button>
             </div>
           </form>
-
-          {/* Botão Voltar ao Sistema Geral (para uso interno caso esteja no balcão) */}
-          {onVoltarParaSistema && (
-            <div className="text-center mt-5">
-              <button
-                type="button"
-                onClick={onVoltarParaSistema}
-                className="text-xs font-semibold text-stone-400 hover:text-stone-600 transition-colors"
-              >
-                ← Voltar ao Sistema Principal
-              </button>
-            </div>
-          )}
         </div>
       </div>
     );
