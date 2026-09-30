@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   CheckSquare, 
-  Square, 
   CheckCircle2, 
   Clock, 
   Calendar, 
@@ -9,28 +8,21 @@ import {
   TrendingUp, 
   Plus, 
   Search, 
-  Filter, 
   Download, 
   Printer, 
   RotateCcw, 
   Edit, 
   Trash2, 
-  Sliders, 
-  User, 
-  Sparkles, 
+  Layers, 
   Check, 
   X, 
-  ChevronRight, 
   BarChart3, 
-  Flame, 
-  Layers, 
-  FileText,
-  ShieldCheck,
+  Award,
+  Save,
   Building2,
   Coffee,
-  HelpCircle,
-  Award,
-  Save
+  ShieldCheck,
+  FileText
 } from 'lucide-react';
 import { 
   ItemChecklist, 
@@ -41,6 +33,10 @@ import {
   RegistroHistoricoChecklist 
 } from '../types';
 import { 
+  CHECKLIST_KEYS,
+  INITIAL_CHECKLIST_CATEGORIAS,
+  INITIAL_CHECKLIST_ITENS,
+  getHistoricoInicialMock,
   fetchChecklistCategorias, 
   fetchChecklistItens, 
   fetchChecklistHistorico, 
@@ -51,13 +47,19 @@ import {
   saveChecklistCategoria, 
   deleteChecklistCategoria 
 } from '../services/checklistData';
+import { getLocal } from '../services/db';
 
 export const ChecklistTab: React.FC = () => {
-  // Estados de Dados
-  const [categorias, setCategorias] = useState<CategoriaChecklist[]>([]);
-  const [itens, setItens] = useState<ItemChecklist[]>([]);
-  const [historico, setHistorico] = useState<RegistroHistoricoChecklist[]>([]);
-  const [carregando, setCarregando] = useState(true);
+  // Estados de Dados com Hidratação Instantânea (Zero Delay / Sem tela vazia)
+  const [categorias, setCategorias] = useState<CategoriaChecklist[]>(() => {
+    return getLocal<CategoriaChecklist[]>(CHECKLIST_KEYS.CATEGORIAS, INITIAL_CHECKLIST_CATEGORIAS);
+  });
+  const [itens, setItens] = useState<ItemChecklist[]>(() => {
+    return getLocal<ItemChecklist[]>(CHECKLIST_KEYS.ITENS, INITIAL_CHECKLIST_ITENS);
+  });
+  const [historico, setHistorico] = useState<RegistroHistoricoChecklist[]>(() => {
+    return getLocal<RegistroHistoricoChecklist[]>(CHECKLIST_KEYS.HISTORICO, getHistoricoInicialMock());
+  });
 
   // Filtros de Exibição
   const [filtroPeriodicidade, setFiltroPeriodicidade] = useState<PeriodicidadeChecklist | 'todas'>('todas');
@@ -65,14 +67,27 @@ export const ChecklistTab: React.FC = () => {
   const [filtroStatus, setFiltroStatus] = useState<'todos' | 'pendentes' | 'concluidos'>('todos');
   const [busca, setBusca] = useState<string>('');
 
-  // Modais de Criação e Edição
+  // Modais de Controle
   const [modalItemAberto, setModalItemAberto] = useState(false);
   const [itemEmEdicao, setItemEmEdicao] = useState<ItemChecklist | null>(null);
 
+  // Estados controlados para o formulário de atividade
+  const [tituloItem, setTituloItem] = useState('');
+  const [categoriaIdItem, setCategoriaIdItem] = useState('');
+  const [periodicidadeItem, setPeriodicidadeItem] = useState<PeriodicidadeChecklist>('diario');
+  const [turnoItem, setTurnoItem] = useState<TurnoChecklist>('manha');
+  const [responsavelItem, setResponsavelItem] = useState('');
+  const [prioridadeItem, setPrioridadeItem] = useState<PrioridadeChecklist>('alta');
+  const [instrucoesItem, setInstrucoesItem] = useState('');
+
+  // Modal de Categorias
   const [modalCategoriasAberto, setModalCategoriasAberto] = useState(false);
   const [novaCategoriaNome, setNovaCategoriaNome] = useState('');
   const [novaCategoriaDesc, setNovaCategoriaDesc] = useState('');
   const [novaCategoriaCor, setNovaCategoriaCor] = useState('amber');
+
+  // Modal de Impressão / Auditoria
+  const [modalImprimirAberto, setModalImprimirAberto] = useState(false);
 
   // Modal para Baixa com Observação
   const [modalBaixaAberto, setModalBaixaAberto] = useState(false);
@@ -83,8 +98,8 @@ export const ChecklistTab: React.FC = () => {
   // Feedback de Sucesso
   const [sucessoMsg, setSucessoMsg] = useState<string | null>(null);
 
-  // Carregar Dados Iniciais
-  const carregarTudo = async () => {
+  // Carregar Dados do Banco / Cache
+  const carregarTudo = useCallback(async () => {
     try {
       const [cats, its, hist] = await Promise.all([
         fetchChecklistCategorias(),
@@ -96,17 +111,15 @@ export const ChecklistTab: React.FC = () => {
       setHistorico(hist);
     } catch (e) {
       console.warn('Erro ao carregar dados do checklist:', e);
-    } finally {
-      setCarregando(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     carregarTudo();
     const handleUpdate = () => carregarTudo();
     window.addEventListener('checklist_atualizado', handleUpdate);
     return () => window.removeEventListener('checklist_atualizado', handleUpdate);
-  }, []);
+  }, [carregarTudo]);
 
   // Feedback Temporário
   const mostrarSucesso = (msg: string) => {
@@ -162,8 +175,6 @@ export const ChecklistTab: React.FC = () => {
   // =========================================================================
   // DADOS PARA OS GRÁFICOS DE DESEMPENHO
   // =========================================================================
-
-  // 1. Gráfico de Evolução dos Últimos 7 Dias
   const dadosGraficoDias = useMemo(() => {
     const dias = [];
     const hoje = new Date();
@@ -175,7 +186,6 @@ export const ChecklistTab: React.FC = () => {
       const diaSemana = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '').toUpperCase();
 
       if (i === 0) {
-        // Hoje: baseado nas tarefas diárias ativas
         const pctHoje = kpis.taxaDiaria;
         dias.push({
           label: 'Hoje',
@@ -186,9 +196,7 @@ export const ChecklistTab: React.FC = () => {
           total: kpis.diariosTotal
         });
       } else {
-        // Dias anteriores do histórico
         const concluidosNoDia = historico.filter(h => h.data === dataIso).length;
-        // Normaliza para uma porcentagem entre 75% e 100%
         const estimativaTotal = kpis.diariosTotal || 10;
         const pct = Math.min(100, Math.round((concluidosNoDia / estimativaTotal) * 100)) || (85 + (i * 2) % 15);
         dias.push({
@@ -204,25 +212,6 @@ export const ChecklistTab: React.FC = () => {
     return dias;
   }, [historico, kpis]);
 
-  // 2. Desempenho por Categoria
-  const desempenhoCategorias = useMemo(() => {
-    return categorias.map(cat => {
-      const itensDaCat = itens.filter(i => i.categoria_id === cat.id);
-      const concluidos = itensDaCat.filter(i => i.concluido).length;
-      const total = itensDaCat.length;
-      const pct = total > 0 ? Math.round((concluidos / total) * 100) : 0;
-      return {
-        id: cat.id,
-        nome: cat.nome,
-        cor: cat.cor || 'amber',
-        total,
-        concluidos,
-        pct
-      };
-    });
-  }, [categorias, itens]);
-
-  // 3. Desempenho por Setor / Responsável
   const desempenhoResponsaveis = useMemo(() => {
     const setores = ['Padeiro', 'Caixa', 'Cozinha', 'Balcão', 'Limpeza', 'Gerente'];
     return setores.map(setor => {
@@ -262,11 +251,9 @@ export const ChecklistTab: React.FC = () => {
   // Dar baixa / Alternar conclusão
   const handleToggleClick = (item: ItemChecklist) => {
     if (item.concluido) {
-      // Desmarcar diretamente
       toggleChecklistItem(item.id, false);
       mostrarSucesso(`Item "${item.titulo}" reaberto.`);
     } else {
-      // Abrir modal para registrar quem fez e observação (ou marcar direto)
       setItemParaBaixa(item);
       setResponsavelBaixa(item.responsavel || 'Administrador');
       setObservacaoBaixa('');
@@ -284,31 +271,54 @@ export const ChecklistTab: React.FC = () => {
     );
     setModalBaixaAberto(false);
     mostrarSucesso(`Atividade concluída com sucesso!`);
+    carregarTudo();
+  };
+
+  // Abrir Modal de Nova Atividade
+  const handleAbrirNovaAtividade = () => {
+    setItemEmEdicao(null);
+    setTituloItem('');
+    setCategoriaIdItem(categorias[0]?.id || 'cat-abertura');
+    setPeriodicidadeItem('diario');
+    setTurnoItem('abertura');
+    setResponsavelItem('');
+    setPrioridadeItem('alta');
+    setInstrucoesItem('');
+    setModalItemAberto(true);
+  };
+
+  // Abrir Modal de Edição de Atividade
+  const handleAbrirEditarItem = (item: ItemChecklist) => {
+    setItemEmEdicao(item);
+    setTituloItem(item.titulo);
+    setCategoriaIdItem(item.categoria_id);
+    setPeriodicidadeItem(item.periodicidade);
+    setTurnoItem(item.turno || 'manha');
+    setResponsavelItem(item.responsavel || '');
+    setPrioridadeItem(item.prioridade || 'alta');
+    setInstrucoesItem(item.instrucoes || '');
+    setModalItemAberto(true);
   };
 
   // Salvar Nova Atividade ou Editar
-  const handleSalvarItem = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSalvarItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const titulo = formData.get('titulo') as string;
-    const categoria_id = formData.get('categoria_id') as string;
-    const periodicidade = formData.get('periodicidade') as PeriodicidadeChecklist;
-    const turno = formData.get('turno') as TurnoChecklist;
-    const responsavel = formData.get('responsavel') as string;
-    const prioridade = formData.get('prioridade') as PrioridadeChecklist;
-    const instrucoes = formData.get('instrucoes') as string;
+    if (!tituloItem.trim()) {
+      alert('Por favor, informe o título da atividade.');
+      return;
+    }
 
-    if (!titulo.trim() || !categoria_id) return;
+    const targetCatId = categoriaIdItem || categorias[0]?.id || 'cat-abertura';
 
     const novoItem: ItemChecklist = {
       id: itemEmEdicao ? itemEmEdicao.id : `item-${Date.now()}`,
-      titulo: titulo.trim(),
-      categoria_id,
-      periodicidade,
-      turno,
-      responsavel: responsavel.trim() || undefined,
-      prioridade,
-      instrucoes: instrucoes.trim() || undefined,
+      titulo: tituloItem.trim(),
+      categoria_id: targetCatId,
+      periodicidade: periodicidadeItem,
+      turno: turnoItem,
+      responsavel: responsavelItem.trim() || undefined,
+      prioridade: prioridadeItem,
+      instrucoes: instrucoesItem.trim() || undefined,
       ativo: true,
       concluido: itemEmEdicao ? itemEmEdicao.concluido : false,
       concluido_em: itemEmEdicao ? itemEmEdicao.concluido_em : undefined,
@@ -321,6 +331,7 @@ export const ChecklistTab: React.FC = () => {
     setModalItemAberto(false);
     setItemEmEdicao(null);
     mostrarSucesso(itemEmEdicao ? 'Atividade atualizada com sucesso!' : 'Nova atividade cadastrada com sucesso!');
+    carregarTudo();
   };
 
   // Salvar Nova Categoria
@@ -339,6 +350,7 @@ export const ChecklistTab: React.FC = () => {
     setNovaCategoriaNome('');
     setNovaCategoriaDesc('');
     mostrarSucesso('Nova categoria de checklist adicionada!');
+    carregarTudo();
   };
 
   // Excluir Atividade
@@ -346,6 +358,7 @@ export const ChecklistTab: React.FC = () => {
     if (confirm(`Deseja realmente excluir a atividade "${titulo}"?`)) {
       await deleteChecklistItem(id);
       mostrarSucesso('Atividade excluída.');
+      carregarTudo();
     }
   };
 
@@ -355,33 +368,44 @@ export const ChecklistTab: React.FC = () => {
     if (confirm(`Deseja reiniciar ${texto} para um novo ciclo? O histórico anterior continuará salvo para auditoria.`)) {
       await resetCicloChecklist(tipo);
       mostrarSucesso('Checklists reiniciados para o novo ciclo!');
+      carregarTudo();
     }
   };
 
-  // Exportar Relatório em CSV / Excel
+  // Exportar Relatório em CSV / Excel (100% Blindado com BOM UTF-8)
   const handleExportarCSV = () => {
-    const cabecalho = 'ID,Titulo,Categoria,Periodicidade,Turno,Responsavel,Prioridade,Status,Concluido_Em,Concluido_Por,Observacao\n';
-    const linhas = itens.map(i => {
-      const cat = categorias.find(c => c.id === i.categoria_id)?.nome || i.categoria_id;
-      const status = i.concluido ? 'CONCLUIDO' : 'PENDENTE';
-      const concluidoEm = i.concluido_em ? new Date(i.concluido_em).toLocaleString('pt-BR') : '';
-      return `"${i.id}","${i.titulo.replace(/"/g, '""')}","${cat}","${i.periodicidade}","${i.turno || ''}","${i.responsavel || ''}","${i.prioridade || ''}","${status}","${concluidoEm}","${i.concluido_por || ''}","${(i.observacao || '').replace(/"/g, '""')}"`;
-    }).join('\n');
+    try {
+      const cabecalho = 'ID;Titulo;Categoria;Periodicidade;Turno;Responsavel;Prioridade;Status;Concluido_Em;Concluido_Por;Observacao\n';
+      const linhas = itens.map(i => {
+        const cat = categorias.find(c => c.id === i.categoria_id)?.nome || i.categoria_id;
+        const status = i.concluido ? 'CONCLUIDO' : 'PENDENTE';
+        const concluidoEm = i.concluido_em ? new Date(i.concluido_em).toLocaleString('pt-BR') : '';
+        return `"${i.id}";"${i.titulo.replace(/"/g, '""')}";"${cat}";"${i.periodicidade}";"${i.turno || ''}";"${i.responsavel || ''}";"${i.prioridade || ''}";"${status}";"${concluidoEm}";"${i.concluido_por || ''}";"${(i.observacao || '').replace(/"/g, '""')}"`;
+      }).join('\n');
 
-    const blob = new Blob([cabecalho + linhas], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `checklist_auditoria_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    mostrarSucesso('Planilha CSV de auditoria exportada com sucesso!');
+      const blob = new Blob(['\uFEFF' + cabecalho + linhas], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `checklist_auditoria_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        if (link.parentNode) {
+          link.parentNode.removeChild(link);
+        }
+        URL.revokeObjectURL(url);
+      }, 500);
+      mostrarSucesso('Planilha CSV de auditoria exportada com sucesso!');
+    } catch (e) {
+      console.error('Erro ao exportar CSV:', e);
+      alert('Erro ao exportar CSV. Verifique as permissões de download do navegador.');
+    }
   };
 
-  // Imprimir Relatório
-  const handleImprimir = () => {
-    window.print();
+  // Acionar Modal de Impressão
+  const handleAbrirImprimir = () => {
+    setModalImprimirAberto(true);
   };
 
   return (
@@ -406,44 +430,47 @@ export const ChecklistTab: React.FC = () => {
           </p>
         </div>
 
-        {/* Botões de Ação */}
+        {/* 4 BOTÕES PRINCIPAIS DE AÇÃO (EXPORT, IMPRIMIR, CATEGORIAS, NOVA ATIVIDADE) */}
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          {/* Botão Exportar */}
           <button
             type="button"
             onClick={handleExportarCSV}
-            className="px-3.5 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Exportar planilha para Excel"
+            className="px-3.5 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95"
+            title="Exportar planilha completa para Excel"
           >
-            <Download className="w-4 h-4 text-stone-500" />
+            <Download className="w-4 h-4 text-stone-600" />
             <span>Exportar CSV</span>
           </button>
 
+          {/* Botão Imprimir */}
           <button
             type="button"
-            onClick={handleImprimir}
-            className="px-3.5 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Imprimir prancheta de auditoria"
+            onClick={handleAbrirImprimir}
+            className="px-3.5 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95"
+            title="Abrir folha de auditoria formatada para impressão"
           >
-            <Printer className="w-4 h-4 text-stone-500" />
-            <span className="hidden sm:inline">Imprimir</span>
+            <Printer className="w-4 h-4 text-stone-600" />
+            <span>Imprimir</span>
           </button>
 
+          {/* Botão Categorias */}
           <button
             type="button"
             onClick={() => setModalCategoriasAberto(true)}
-            className="px-3.5 py-2.5 bg-stone-800 hover:bg-stone-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3.5 py-2.5 bg-stone-800 hover:bg-stone-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95"
+            title="Gerenciar setores e categorias de rotina"
           >
             <Layers className="w-4 h-4" />
             <span>Categorias</span>
           </button>
 
+          {/* Botão Nova Atividade */}
           <button
             type="button"
-            onClick={() => {
-              setItemEmEdicao(null);
-              setModalItemAberto(true);
-            }}
+            onClick={handleAbrirNovaAtividade}
             className="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
+            title="Cadastrar uma nova tarefa operacional"
           >
             <Plus className="w-4 h-4" />
             <span>+ Nova Atividade</span>
@@ -479,7 +506,6 @@ export const ChecklistTab: React.FC = () => {
               <span className="text-3xl font-black font-mono text-stone-900">{kpis.taxaGeral}%</span>
               <span className="text-xs text-stone-500 font-medium">({kpis.concluidos}/{kpis.total})</span>
             </div>
-            {/* Barra de Progresso */}
             <div className="w-full bg-stone-100 h-2 rounded-full mt-3 overflow-hidden">
               <div 
                 className={`h-full rounded-full transition-all duration-500 ${
@@ -588,19 +614,16 @@ export const ChecklistTab: React.FC = () => {
               const atingiuMeta = d.porcentagem >= 90;
               return (
                 <div key={idx} className="flex-1 flex flex-col items-center gap-2 group relative">
-                  {/* Tooltip flutuante no hover */}
                   <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-stone-900 text-white text-[10px] font-bold py-1 px-2 rounded-lg whitespace-nowrap z-10 pointer-events-none shadow-md">
                     {d.porcentagem}% ({d.qtd}/{d.total})
                   </div>
 
-                  {/* Porcentagem no topo da barra */}
                   <span className={`text-[11px] font-black font-mono ${
                     atingiuMeta ? 'text-emerald-700' : 'text-amber-700'
                   }`}>
                     {d.porcentagem}%
                   </span>
 
-                  {/* Barra Vertical */}
                   <div className="w-full bg-stone-100 rounded-t-xl h-32 flex items-end overflow-hidden">
                     <div 
                       className={`w-full rounded-t-xl transition-all duration-500 ${
@@ -612,7 +635,6 @@ export const ChecklistTab: React.FC = () => {
                     />
                   </div>
 
-                  {/* Rótulo do Dia */}
                   <div className="text-center">
                     <span className="block text-[11px] font-black text-stone-800">{d.label}</span>
                     <span className="block text-[9px] text-stone-400 font-bold">{d.diaSemana}</span>
@@ -623,7 +645,7 @@ export const ChecklistTab: React.FC = () => {
           </div>
         </div>
 
-        {/* Gráfico 2: Desempenho por Setor & Categoria */}
+        {/* Gráfico 2: Desempenho por Setor */}
         <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="text-sm font-black text-stone-900 uppercase tracking-wider flex items-center gap-2 mb-1">
@@ -652,15 +674,13 @@ export const ChecklistTab: React.FC = () => {
 
           <div className="mt-5 pt-4 border-t border-stone-100 flex items-center justify-between text-xs">
             <span className="text-stone-500 font-medium">Ciclo Atual</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleReiniciarCiclo('diario')}
-                className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-              >
-                Reiniciar Diário
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => handleReiniciarCiclo('diario')}
+              className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+            >
+              Reiniciar Diário
+            </button>
           </div>
         </div>
 
@@ -679,7 +699,7 @@ export const ChecklistTab: React.FC = () => {
               type="text"
               value={busca}
               onChange={e => setBusca(e.target.value)}
-              placeholder="Buscar atividade por título, responsável ou instrução..."
+              placeholder="Buscar atividade por título, responsável..."
               className="w-full pl-10 pr-8 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs font-medium text-stone-900 focus:border-amber-600 focus:bg-white outline-none transition-all"
             />
             {busca && (
@@ -745,7 +765,6 @@ export const ChecklistTab: React.FC = () => {
         {/* Segunda Linha de Filtros: Categorias e Status */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-stone-100 text-xs">
           
-          {/* Filtro por Categoria */}
           <div className="flex items-center gap-1.5 overflow-x-auto">
             <span className="text-stone-400 font-bold uppercase text-[10px] mr-1">Categoria:</span>
             <button
@@ -775,7 +794,6 @@ export const ChecklistTab: React.FC = () => {
             ))}
           </div>
 
-          {/* Filtro por Status */}
           <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl">
             <button
               type="button"
@@ -831,10 +849,8 @@ export const ChecklistTab: React.FC = () => {
                   isConcluido ? 'bg-emerald-50/20' : 'hover:bg-stone-50/60'
                 }`}
               >
-                {/* Lado Esquerdo: Checkbox e Textos */}
                 <div className="flex items-start gap-3.5 min-w-0 flex-1">
                   
-                  {/* Botão de Checkbox Interativo Grande */}
                   <button
                     type="button"
                     onClick={() => handleToggleClick(item)}
@@ -850,14 +866,12 @@ export const ChecklistTab: React.FC = () => {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
-                      {/* Badge da Categoria */}
                       {cat && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200">
                           {cat.nome}
                         </span>
                       )}
 
-                      {/* Badge Periodicidade */}
                       <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
                         item.periodicidade === 'diario'
                           ? 'bg-amber-100 text-amber-800'
@@ -868,7 +882,6 @@ export const ChecklistTab: React.FC = () => {
                         {item.periodicidade}
                       </span>
 
-                      {/* Badge Prioridade se Alta */}
                       {item.prioridade === 'alta' && (
                         <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-100 text-rose-800">
                           Alta Prioridade
@@ -876,21 +889,18 @@ export const ChecklistTab: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Título da Atividade */}
                     <h4 className={`text-sm sm:text-base font-bold text-stone-900 leading-snug ${
                       isConcluido ? 'line-through text-stone-400' : ''
                     }`}>
                       {item.titulo}
                     </h4>
 
-                    {/* Instruções Detalhadas se houver */}
                     {item.instrucoes && (
                       <p className="text-xs text-stone-500 mt-1 leading-relaxed">
                         {item.instrucoes}
                       </p>
                     )}
 
-                    {/* Registro de Baixa / Histórico */}
                     {isConcluido && (
                       <div className="mt-2 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200/60 px-3 py-1.5 rounded-xl inline-flex items-center gap-2">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -909,7 +919,6 @@ export const ChecklistTab: React.FC = () => {
 
                 </div>
 
-                {/* Lado Direito: Setor, Horário e Ações */}
                 <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 sm:gap-4 shrink-0">
                   <div className="text-right hidden sm:block">
                     <span className="text-xs font-bold text-stone-800 block">
@@ -923,10 +932,7 @@ export const ChecklistTab: React.FC = () => {
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => {
-                        setItemEmEdicao(item);
-                        setModalItemAberto(true);
-                      }}
+                      onClick={() => handleAbrirEditarItem(item)}
                       className="p-1.5 text-stone-400 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
                       title="Editar Atividade"
                     >
@@ -961,12 +967,17 @@ export const ChecklistTab: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* MODAL 1: CADASTRAR OU EDITAR ATIVIDADE                                    */}
+      {/* MODAL 1: CADASTRAR OU EDITAR ATIVIDADE (Z-INDEX ALTO E STATE CONTROLADO) */}
       {/* ========================================================================= */}
       {modalItemAberto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh]">
-            
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={() => setModalItemAberto(false)}
+        >
+          <div 
+            className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[92vh]"
+            onClick={e => e.stopPropagation()}
+          >
             <div className="bg-stone-900 text-white p-5 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-black">
@@ -976,42 +987,37 @@ export const ChecklistTab: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setModalItemAberto(false);
-                  setItemEmEdicao(null);
-                }}
-                className="text-stone-400 hover:text-white p-1"
+                onClick={() => setModalItemAberto(false)}
+                className="text-stone-400 hover:text-white p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSalvarItem} className="p-6 overflow-y-auto space-y-4">
-              
-              {/* Título da Atividade */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1.5">
                   Título da Atividade *
                 </label>
                 <input
                   type="text"
-                  name="titulo"
                   required
-                  defaultValue={itemEmEdicao?.titulo || ''}
+                  autoFocus
+                  value={tituloItem}
+                  onChange={e => setTituloItem(e.target.value)}
                   placeholder="Ex: Aferir temperatura da estufa de salgados (> 60°C)"
                   className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl text-sm font-medium text-stone-900 focus:border-amber-600 focus:bg-white outline-none"
                 />
               </div>
 
-              {/* Categoria */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1.5">
                   Categoria *
                 </label>
                 <select
-                  name="categoria_id"
                   required
-                  defaultValue={itemEmEdicao?.categoria_id || (categorias[0]?.id || '')}
+                  value={categoriaIdItem}
+                  onChange={e => setCategoriaIdItem(e.target.value)}
                   className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl text-sm font-medium text-stone-900 focus:border-amber-600 focus:bg-white outline-none"
                 >
                   {categorias.map(cat => (
@@ -1022,16 +1028,14 @@ export const ChecklistTab: React.FC = () => {
                 </select>
               </div>
 
-              {/* Grade de Configurações: Frequência, Turno, Prioridade */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1.5">
                     Frequência
                   </label>
                   <select
-                    name="periodicidade"
-                    defaultValue={itemEmEdicao?.periodicidade || 'diario'}
+                    value={periodicidadeItem}
+                    onChange={e => setPeriodicidadeItem(e.target.value as PeriodicidadeChecklist)}
                     className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-stone-800"
                   >
                     <option value="diario">Diária</option>
@@ -1045,8 +1049,8 @@ export const ChecklistTab: React.FC = () => {
                     Turno / Horário
                   </label>
                   <select
-                    name="turno"
-                    defaultValue={itemEmEdicao?.turno || 'manha'}
+                    value={turnoItem}
+                    onChange={e => setTurnoItem(e.target.value as TurnoChecklist)}
                     className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-stone-800"
                   >
                     <option value="abertura">Abertura</option>
@@ -1062,8 +1066,8 @@ export const ChecklistTab: React.FC = () => {
                     Prioridade
                   </label>
                   <select
-                    name="prioridade"
-                    defaultValue={itemEmEdicao?.prioridade || 'alta'}
+                    value={prioridadeItem}
+                    onChange={e => setPrioridadeItem(e.target.value as PrioridadeChecklist)}
                     className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-stone-800"
                   >
                     <option value="alta">Alta (Crítica)</option>
@@ -1071,46 +1075,39 @@ export const ChecklistTab: React.FC = () => {
                     <option value="baixa">Baixa</option>
                   </select>
                 </div>
-
               </div>
 
-              {/* Responsável / Cargo */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1.5">
                   Responsável / Setor
                 </label>
                 <input
                   type="text"
-                  name="responsavel"
-                  defaultValue={itemEmEdicao?.responsavel || ''}
+                  value={responsavelItem}
+                  onChange={e => setResponsavelItem(e.target.value)}
                   placeholder="Ex: Padeiro, Caixa, Cozinha, Limpeza, Gerente..."
                   className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium text-stone-900 focus:border-amber-600 focus:bg-white outline-none"
                 />
               </div>
 
-              {/* Instruções Operacionais */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1.5">
                   Instruções e Padrões da Panificadora (Opcional)
                 </label>
                 <textarea
-                  name="instrucoes"
                   rows={2}
-                  defaultValue={itemEmEdicao?.instrucoes || ''}
+                  value={instrucoesItem}
+                  onChange={e => setInstrucoesItem(e.target.value)}
                   placeholder="Detalhes de como executar, temperatura ideal ou cuidados especiais..."
                   className="w-full px-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium text-stone-900 focus:border-amber-600 focus:bg-white outline-none"
                 />
               </div>
 
-              {/* Botões */}
               <div className="pt-3 flex items-center justify-end gap-2 border-t border-stone-200">
                 <button
                   type="button"
-                  onClick={() => {
-                    setModalItemAberto(false);
-                    setItemEmEdicao(null);
-                  }}
-                  className="px-4 py-2.5 rounded-xl font-bold text-xs text-stone-600 hover:bg-stone-100"
+                  onClick={() => setModalItemAberto(false)}
+                  className="px-4 py-2.5 rounded-xl font-bold text-xs text-stone-600 hover:bg-stone-100 cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -1122,9 +1119,7 @@ export const ChecklistTab: React.FC = () => {
                   <span>{itemEmEdicao ? 'Salvar Alterações' : 'Cadastrar Atividade'}</span>
                 </button>
               </div>
-
             </form>
-
           </div>
         </div>
       )}
@@ -1133,9 +1128,14 @@ export const ChecklistTab: React.FC = () => {
       {/* MODAL 2: CONFIRMAR BAIXA COM OBSERVAÇÃO                                   */}
       {/* ========================================================================= */}
       {modalBaixaAberto && itemParaBaixa && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-stone-200 overflow-hidden">
-            
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={() => setModalBaixaAberto(false)}
+        >
+          <div 
+            className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-stone-200 overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
             <div className="bg-stone-900 text-white p-5 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
@@ -1149,14 +1149,13 @@ export const ChecklistTab: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setModalBaixaAberto(false)}
-                className="text-stone-400 hover:text-white p-1"
+                className="text-stone-400 hover:text-white p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 space-y-4">
-              
               <div className="bg-stone-50 p-3.5 rounded-2xl border border-stone-200/80">
                 <p className="text-xs text-stone-500 font-bold uppercase mb-1">Atividade:</p>
                 <p className="font-bold text-stone-900 text-sm">{itemParaBaixa.titulo}</p>
@@ -1169,6 +1168,7 @@ export const ChecklistTab: React.FC = () => {
                 <input
                   type="text"
                   required
+                  autoFocus
                   value={responsavelBaixa}
                   onChange={e => setResponsavelBaixa(e.target.value)}
                   placeholder="Nome do colaborador ou cargo..."
@@ -1193,7 +1193,7 @@ export const ChecklistTab: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setModalBaixaAberto(false)}
-                  className="flex-1 py-3 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs rounded-xl"
+                  className="flex-1 py-3 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs rounded-xl cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -1206,9 +1206,7 @@ export const ChecklistTab: React.FC = () => {
                   <span>Confirmar Baixa</span>
                 </button>
               </div>
-
             </div>
-
           </div>
         </div>
       )}
@@ -1217,9 +1215,14 @@ export const ChecklistTab: React.FC = () => {
       {/* MODAL 3: GERENCIAR CATEGORIAS DE CHECKLIST                                */}
       {/* ========================================================================= */}
       {modalCategoriasAberto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[85vh]">
-            
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={() => setModalCategoriasAberto(false)}
+        >
+          <div 
+            className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[88vh]"
+            onClick={e => e.stopPropagation()}
+          >
             <div className="bg-stone-900 text-white p-5 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-black">Categorias de Checklist</h3>
@@ -1228,15 +1231,13 @@ export const ChecklistTab: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setModalCategoriasAberto(false)}
-                className="text-stone-400 hover:text-white p-1"
+                className="text-stone-400 hover:text-white p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6">
-              
-              {/* Formulário de Nova Categoria */}
               <form onSubmit={handleSalvarCategoria} className="bg-stone-50 p-4 rounded-2xl border border-stone-200 space-y-3">
                 <h4 className="text-xs font-black uppercase tracking-wider text-stone-700">
                   + Adicionar Nova Categoria
@@ -1262,14 +1263,13 @@ export const ChecklistTab: React.FC = () => {
                 </div>
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="w-full py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Cadastrar Categoria</span>
                 </button>
               </form>
 
-              {/* Lista de Categorias Existentes */}
               <div>
                 <h4 className="text-xs font-black uppercase tracking-wider text-stone-500 mb-2">
                   Categorias Ativas ({categorias.length})
@@ -1289,6 +1289,7 @@ export const ChecklistTab: React.FC = () => {
                           if (confirm(`Deseja excluir a categoria "${cat.nome}"?`)) {
                             await deleteChecklistCategoria(cat.id);
                             mostrarSucesso('Categoria removida.');
+                            carregarTudo();
                           }
                         }}
                         className="text-stone-400 hover:text-rose-600 p-1.5 rounded-lg transition-colors cursor-pointer"
@@ -1300,17 +1301,150 @@ export const ChecklistTab: React.FC = () => {
                   ))}
                 </div>
               </div>
-
             </div>
 
             <div className="p-4 bg-stone-50 border-t border-stone-200">
               <button
                 type="button"
                 onClick={() => setModalCategoriasAberto(false)}
-                className="w-full py-3 bg-stone-800 hover:bg-stone-700 text-white rounded-xl font-bold text-xs"
+                className="w-full py-3 bg-stone-800 hover:bg-stone-700 text-white rounded-xl font-bold text-xs cursor-pointer"
               >
                 Concluir
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 4: IMPRESSÃO & AUDITORIA (PRANCHETA OPERACIONAL FORMATADA)          */}
+      {/* ========================================================================= */}
+      {modalImprimirAberto && (
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={() => setModalImprimirAberto(false)}
+        >
+          <div 
+            className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header do Modal */}
+            <div className="bg-stone-900 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Printer className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="text-base font-black">Prancheta de Auditoria & Boas Práticas</h3>
+                  <p className="text-xs text-stone-400">Layout formatado para fiscalização e prancheta da loja</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalImprimirAberto(false)}
+                className="text-stone-400 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Conteúdo Imprimível */}
+            <div className="p-6 overflow-y-auto space-y-4 bg-white text-stone-900 font-sans text-xs">
+              
+              {/* Cabeçalho da Empresa */}
+              <div className="border-b-2 border-stone-900 pb-3 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-black tracking-tight uppercase">Panificadora Moreira Sales</h2>
+                  <p className="text-[11px] text-stone-500">Controle Operacional de Higiene e Boas Práticas (ANVISA)</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold">Data: {new Date().toLocaleDateString('pt-BR')}</p>
+                  <p className="text-[10px] text-stone-500">Conformidade: {kpis.taxaGeral}% ({kpis.concluidos}/{kpis.total})</p>
+                </div>
+              </div>
+
+              {/* Tabela de Itens */}
+              <table className="w-full text-left border-collapse border border-stone-300">
+                <thead>
+                  <tr className="bg-stone-100 border-b border-stone-300 text-[10px] uppercase font-black text-stone-700">
+                    <th className="p-2 border-r border-stone-300 w-12 text-center">Status</th>
+                    <th className="p-2 border-r border-stone-300">Procedimento / Atividade</th>
+                    <th className="p-2 border-r border-stone-300 w-24">Frequência</th>
+                    <th className="p-2 border-r border-stone-300 w-24">Responsável</th>
+                    <th className="p-2 w-28">Visto / Horário</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-200">
+                  {itens.map((item, idx) => (
+                    <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-stone-50/50'}>
+                      <td className="p-2 border-r border-stone-200 text-center font-bold">
+                        {item.concluido ? '✓ OK' : '○ Pend.'}
+                      </td>
+                      <td className="p-2 border-r border-stone-200 font-medium">
+                        <div>{item.titulo}</div>
+                        {item.observacao && (
+                          <div className="text-[10px] text-stone-500 italic mt-0.5">
+                            Obs: {item.observacao}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-2 border-r border-stone-200 uppercase font-bold text-[10px]">
+                        {item.periodicidade}
+                      </td>
+                      <td className="p-2 border-r border-stone-200 text-[11px]">
+                        {item.responsavel || '-'}
+                      </td>
+                      <td className="p-2 text-[10px] font-mono">
+                        {item.concluido_em ? new Date(item.concluido_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '___:___'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Campo para Assinatura do Gerente */}
+              <div className="pt-6 grid grid-cols-2 gap-8 text-center text-[11px] text-stone-600">
+                <div>
+                  <div className="border-t border-stone-400 pt-1">
+                    Responsável Operacional / Turno
+                  </div>
+                </div>
+                <div>
+                  <div className="border-t border-stone-400 pt-1">
+                    Gerente Geral / Visto Final
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Rodapé com Botão Imprimir */}
+            <div className="p-4 bg-stone-50 border-t border-stone-200 flex items-center justify-between gap-3">
+              <span className="text-xs text-stone-500">
+                {itens.length} atividades listadas nesta folha
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalImprimirAberto(false)}
+                  className="px-4 py-2.5 rounded-xl font-bold text-xs text-stone-600 hover:bg-stone-200 cursor-pointer"
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      window.print();
+                    } catch (e) {
+                      console.warn('Erro ao disparar impressão:', e);
+                      alert('Dica: Use Ctrl+P no seu navegador para imprimir esta folha.');
+                    }
+                  }}
+                  className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-black text-xs flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimir Agora</span>
+                </button>
+              </div>
             </div>
 
           </div>
