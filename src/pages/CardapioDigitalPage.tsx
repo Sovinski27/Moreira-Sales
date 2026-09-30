@@ -27,7 +27,9 @@ import {
   fetchCompras,
   fetchMesasAbertas,
   saveMesaAberta,
-  identificarOuCadastrarCliente 
+  identificarOuCadastrarCliente,
+  getLocal,
+  STORAGE_KEYS
 } from '../services/db';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
 import { Footer } from '../components/Footer';
@@ -66,9 +68,9 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
   const [clientesList, setClientesList] = useState<Cliente[]>([]);
   const [clienteEncontradoNoPreenchimento, setClienteEncontradoNoPreenchimento] = useState<Cliente | null>(null);
 
-  // Produtos e categorias do cardápio
-  const [produtos, setProdutos] = useState<Produto[]>([]);
-  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  // Produtos e categorias do cardápio com hidratação instantânea
+  const [produtos, setProdutos] = useState<Produto[]>(() => getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []));
+  const [categorias, setCategorias] = useState<Categoria[]>(() => getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []));
   const [categoriaAtiva, setCategoriaAtiva] = useState<string>('todos');
   const [busca, setBusca] = useState('');
 

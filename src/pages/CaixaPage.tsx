@@ -3,7 +3,7 @@ import { useLoyalty } from '../context/LoyaltyContext';
 import { Cliente, Compra, Produto, Categoria, ItemCarrinho, MesaAberta, NotaFiscal, ConfiguracaoFiscal } from '../types';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
 import { buscarClientePorTelefone } from '../services/clientSearch';
-import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta, fetchPedidosCozinha, updatePedidoCozinhaStatus, INITIAL_CONFIG_FISCAL } from '../services/db';
+import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta, fetchPedidosCozinha, updatePedidoCozinhaStatus, INITIAL_CONFIG_FISCAL, getLocal, STORAGE_KEYS } from '../services/db';
 import { AwardModal } from '../components/AwardModal';
 import { ClienteProfileModal } from '../components/ClienteProfileModal';
 import { AlertModal } from '../components/AlertModal';
@@ -63,9 +63,13 @@ export const CaixaPage: React.FC = () => {
   const [mesaComandaModal, setMesaComandaModal] = useState<MesaAberta | null>(null);
   const [modalQrCodeAberto, setModalQrCodeAberto] = useState(false);
 
-  // Estados do Catálogo e Carrinho
-  const [produtos, setProdutos] = useState<Produto[]>([]);
-  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  // Estados do Catálogo e Carrinho com Hidratação Instantânea (Zero Delay)
+  const [produtos, setProdutos] = useState<Produto[]>(() => getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []));
+  const [categorias, setCategorias] = useState<Categoria[]>(() => getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []));
+  const [isCarregandoCatalogo, setIsCarregandoCatalogo] = useState(() => {
+    const cached = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+    return cached.length === 0;
+  });
   const [categoriaAtiva, setCategoriaAtiva] = useState<string | null>(null);
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
 
@@ -113,7 +117,13 @@ export const CaixaPage: React.FC = () => {
 
   // Carregamento do catálogo sincronizado em tempo real com o Painel do Dono
   const carregarCatalogo = useCallback(() => {
-    fetchProdutos().then(setProdutos);
+    fetchProdutos()
+      .then(prods => {
+        setProdutos(prods);
+        setIsCarregandoCatalogo(false);
+      })
+      .catch(() => setIsCarregandoCatalogo(false));
+
     fetchCategorias().then(cats => {
       setCategorias(cats);
       setCategoriaAtiva(prev => {
@@ -996,20 +1006,35 @@ export const CaixaPage: React.FC = () => {
           )}
 
           {produtos.length === 0 ? (
-            <div className="text-center py-12 px-6 bg-stone-50/50 rounded-2xl border border-dashed border-stone-200">
-              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
-                <Package className="w-6 h-6" />
+            isCarregandoCatalogo ? (
+              <div className="py-12 px-6 bg-stone-50/60 rounded-2xl border border-stone-200/80 text-center animate-pulse">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center mx-auto mb-3 text-amber-700">
+                  <Package className="w-6 h-6 animate-bounce" />
+                </div>
+                <h4 className="text-sm font-bold text-stone-700">Carregando catálogo do balcão...</h4>
+                <p className="text-xs text-stone-400 mt-1">Sincronizando produtos e preços em tempo real</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-6 max-w-md mx-auto opacity-40">
+                  <div className="h-20 bg-stone-200 rounded-xl" />
+                  <div className="h-20 bg-stone-200 rounded-xl" />
+                  <div className="h-20 bg-stone-200 rounded-xl" />
+                </div>
               </div>
-              <h4 className="text-base font-bold text-stone-800">
-                {categorias.length > 0 ? 'Categorias Criadas! Nenhum Produto Cadastrado Ainda' : 'Catálogo Vazio no Momento'}
-              </h4>
-              <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1 leading-relaxed">
-                {categorias.length > 0 
-                  ? 'Você já cadastrou categorias. Agora adicione produtos no Painel Dono > Catálogo para que eles apareçam aqui no balcão.'
-                  : 'O Frente de Caixa (PDV) exibe exclusivamente os produtos cadastrados no Painel Dono > Catálogo. Cadastre categorias e produtos para que apareçam aqui no balcão.'
-                }
-              </p>
-            </div>
+            ) : (
+              <div className="text-center py-12 px-6 bg-stone-50/50 rounded-2xl border border-dashed border-stone-200">
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                  <Package className="w-6 h-6" />
+                </div>
+                <h4 className="text-base font-bold text-stone-800">
+                  {categorias.length > 0 ? 'Categorias Criadas! Nenhum Produto Cadastrado Ainda' : 'Catálogo Vazio no Momento'}
+                </h4>
+                <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1 leading-relaxed">
+                  {categorias.length > 0 
+                    ? 'Você já cadastrou categorias. Agora adicione produtos no Painel Dono > Catálogo para que eles apareçam aqui no balcão.'
+                    : 'O Frente de Caixa (PDV) exibe exclusivamente os produtos cadastrados no Painel Dono > Catálogo. Cadastre categorias e produtos para que apareçam aqui no balcão.'
+                  }
+                </p>
+              </div>
+            )
           ) : produtosFiltradosPorBuscaOuCategoria.length === 0 ? (
             <div className="col-span-2 lg:col-span-3 text-center py-10 px-4 text-stone-500 text-sm">
               {termoBusca.trim() 
