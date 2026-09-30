@@ -140,6 +140,9 @@ export interface MesaAberta {
   cliente_nome?: string;
   cliente_telefone?: string;
   pedidos_ids?: string[];
+  itens?: any[];
+  status?: string;
+  aberto_em?: string;
 }
 
 export type PedidoCozinhaStatus = 'pendente' | 'preparando' | 'pronto' | 'entregue' | 'cancelado';

@@ -683,52 +683,156 @@ export async function deleteProduto(id: string): Promise<void> {
 }
 // --- MESAS ABERTAS ---
 export async function fetchMesasAbertas(): Promise<MesaAberta[]> {
+  let mesas: MesaAberta[] = [];
+
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase.from('mesas_abertas').select('*');
       if (!error && data) {
-        setLocal(STORAGE_KEYS.MESAS_ABERTAS, data);
-        return data as MesaAberta[];
+        mesas = data as MesaAberta[];
       }
     } catch (e) {
       console.warn('Falha ao buscar mesas abertas no Supabase:', e);
     }
   }
-  return getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
+
+  if (mesas.length === 0) {
+    mesas = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
+  }
+
+  // Sincronização inteligente com pedidos ativos da cozinha (KDS):
+  // Se houver pedido em preparo ou pendente para uma mesa, ela É OBRIGATORIAMENTE OCUPADA!
+  try {
+    const pedidos = await fetchPedidosCozinha();
+    const pedidosAtivos = pedidos.filter(p => p.status === 'pendente' || p.status === 'preparando' || p.status === 'pronto');
+    
+    for (const ped of pedidosAtivos) {
+      const mesaExistente = mesas.find(m => m.mesa_numero === ped.mesa_numero);
+      if (!mesaExistente) {
+        const novaMesa: MesaAberta = {
+          id: generateUuid(),
+          mesa_id: `mesa-${ped.mesa_numero}`,
+          mesa_numero: ped.mesa_numero,
+          cliente_nome: ped.cliente_nome || `Mesa ${ped.mesa_numero}`,
+          cliente_telefone: ped.cliente_telefone || '',
+          carrinho: (ped.itens || []).map(i => ({
+            id_temp: i.id_temp,
+            produto: {
+              id: i.produto_id,
+              categoria_id: '',
+              nome: i.nome,
+              preco: i.preco_unitario,
+              ativo: true
+            },
+            quantidade: i.quantidade,
+            subtotal: i.subtotal
+          })),
+          itens: ped.itens || [],
+          total: ped.total || 0,
+          status: 'ocupada',
+          criado_em: ped.criado_em || new Date().toISOString(),
+          aberto_em: ped.criado_em || new Date().toISOString()
+        };
+        mesas.push(novaMesa);
+        // Persistir no Supabase em segundo plano
+        saveMesaAberta(novaMesa);
+      }
+    }
+  } catch (crossErr) {
+    console.warn('Erro ao sincronizar mesas com pedidos ativos:', crossErr);
+  }
+
+  setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesas);
+  return mesas;
 }
 
 export async function saveMesaAberta(mesa: any): Promise<MesaAberta> {
+  const mesaId = (mesa.id && isUuid(mesa.id)) ? mesa.id : generateUuid();
+  const numMesa = typeof mesa.mesa_numero === 'number' ? mesa.mesa_numero : parseInt(mesa.mesa_numero, 10) || 1;
+
   const newMesa: MesaAberta = {
     ...mesa,
-    id: mesa.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'mesa-' + Date.now())
+    id: mesaId,
+    mesa_id: mesa.mesa_id || `mesa-${numMesa}`,
+    mesa_numero: numMesa,
+    cliente_nome: mesa.cliente_nome || `Mesa ${numMesa}`,
+    cliente_telefone: mesa.cliente_telefone || '',
+    carrinho: mesa.carrinho || [],
+    itens: mesa.itens || mesa.carrinho || [],
+    total: typeof mesa.total === 'number' ? mesa.total : 0,
+    status: 'ocupada',
+    aberto_em: mesa.aberto_em || new Date().toISOString(),
+    criado_em: mesa.criado_em || new Date().toISOString()
   };
 
+  // 1. Salvar no Supabase estritamente com as colunas válidas da tabela
   if (isSupabaseConfigured && supabase) {
     try {
-      await supabase.from('mesas_abertas').upsert(newMesa);
+      const payload = {
+        id: newMesa.id,
+        mesa_id: newMesa.mesa_id,
+        mesa_numero: newMesa.mesa_numero,
+        cliente_nome: newMesa.cliente_nome,
+        cliente_telefone: newMesa.cliente_telefone,
+        carrinho: newMesa.carrinho,
+        itens: newMesa.itens,
+        total: newMesa.total,
+        status: 'ocupada'
+      };
+
+      const { data, error } = await supabase
+        .from('mesas_abertas')
+        .upsert(payload)
+        .select()
+        .single();
+
+      if (!error && data) {
+        newMesa.id = data.id;
+      }
+      if (error) {
+        console.warn('Erro ao salvar mesa aberta no Supabase:', error.message);
+      }
     } catch (e) {
       console.warn('Falha ao salvar mesa aberta no Supabase:', e);
     }
   }
 
+  // 2. Salvar no localStorage
   const mesas = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
-  const updatedList = mesa.id 
-    ? mesas.map((m: MesaAberta) => m.id === mesa.id ? newMesa : m)
+  const exists = mesas.some((m: MesaAberta) => m.mesa_numero === newMesa.mesa_numero || m.id === newMesa.id);
+  const updatedList = exists 
+    ? mesas.map((m: MesaAberta) => (m.mesa_numero === newMesa.mesa_numero || m.id === newMesa.id) ? newMesa : m)
     : [...mesas, newMesa];
   setLocal(STORAGE_KEYS.MESAS_ABERTAS, updatedList);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('mesas_atualizadas'));
+  }
+
   return newMesa;
 }
 
 export async function deleteMesaAberta(id: string): Promise<void> {
   if (isSupabaseConfigured && supabase) {
     try {
-      await supabase.from('mesas_abertas').delete().eq('id', id);
+      if (isUuid(id)) {
+        await supabase.from('mesas_abertas').delete().eq('id', id);
+      } else {
+        const num = parseInt(id.replace(/\D/g, ''), 10);
+        if (!isNaN(num)) {
+          await supabase.from('mesas_abertas').delete().eq('mesa_numero', num);
+        }
+      }
     } catch (e) {
       console.warn('Falha ao deletar mesa aberta no Supabase:', e);
     }
   }
   const mesas = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
-  setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesas.filter((m: MesaAberta) => m.id !== id));
+  setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesas.filter((m: MesaAberta) => m.id !== id && m.mesa_id !== id));
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('mesas_atualizadas'));
+  }
 }
 
 // --- PEDIDOS DA COZINHA (KDS) ---
@@ -751,8 +855,9 @@ export async function fetchPedidosCozinha(): Promise<PedidoCozinha[]> {
 }
 
 export async function savePedidoCozinha(pedido: Partial<PedidoCozinha>): Promise<PedidoCozinha> {
+  const pedId = (pedido.id && isUuid(pedido.id)) ? pedido.id : generateUuid();
   const newPedido: PedidoCozinha = {
-    id: pedido.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'ped-' + Date.now()),
+    id: pedId,
     mesa_numero: pedido.mesa_numero || 1,
     cliente_nome: pedido.cliente_nome || 'Cliente',
     cliente_telefone: pedido.cliente_telefone || '',
@@ -767,7 +872,28 @@ export async function savePedidoCozinha(pedido: Partial<PedidoCozinha>): Promise
 
   if (isSupabaseConfigured && supabase) {
     try {
-      await supabase.from('pedidos_cozinha').upsert(newPedido);
+      const { data, error } = await supabase
+        .from('pedidos_cozinha')
+        .upsert({
+          id: newPedido.id,
+          mesa_numero: newPedido.mesa_numero,
+          cliente_nome: newPedido.cliente_nome,
+          cliente_telefone: newPedido.cliente_telefone,
+          itens: newPedido.itens,
+          total: newPedido.total,
+          status: newPedido.status,
+          observacoes: newPedido.observacoes,
+          alerta_silenciado: newPedido.alerta_silenciado
+        })
+        .select()
+        .single();
+      
+      if (!error && data) {
+        newPedido.id = data.id;
+      }
+      if (error) {
+        console.warn('Erro ao salvar pedido na cozinha:', error.message);
+      }
     } catch (e) {
       console.warn('Falha ao salvar pedido da cozinha no Supabase:', e);
     }
