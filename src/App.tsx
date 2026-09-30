@@ -6,6 +6,7 @@ import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminLoginPage } from './pages/AdminLoginPage';
 import { CozinhaPage } from './pages/CozinhaPage';
 import { CardapioDigitalPage } from './pages/CardapioDigitalPage';
+import { GarcomPage } from './pages/GarcomPage';
 import { Footer } from './components/Footer';
 import { isAdminSessionActive, logoutAdmin } from './services/adminAuth';
 
@@ -43,12 +44,27 @@ export const App: React.FC = () => {
     return params.get('modo') === 'cozinha';
   };
 
+  const isModoGarcomDireto = () => {
+    if (typeof window === 'undefined') return false;
+    const path = window.location.pathname.toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.toLowerCase();
+    return (
+      path.includes('garcom') ||
+      path.includes('atendente') ||
+      hash.includes('garcom') ||
+      params.get('modo') === 'garcom' ||
+      params.has('garcom')
+    );
+  };
+
   const [currentTab, setCurrentTab] = useState<TabType>(() => {
     if (isModoCozinhaDireto()) return 'cozinha';
+    if (isModoGarcomDireto()) return 'garcom';
     return 'caixa';
   });
 
-  // Atalhos de teclado exclusivos do Sistema Operacional (F1: Caixa, F2: Admin, F3: Cozinha KDS)
+  // Atalhos de teclado exclusivos do Sistema Operacional (F1: Caixa, F2: Admin, F3: Cozinha, F4: Garçom)
   useEffect(() => {
     if (isModoClienteDireto()) return; // Clientes no cardápio não possuem atalhos operacionais
 
@@ -62,6 +78,9 @@ export const App: React.FC = () => {
       } else if (e.key === 'F3') {
         e.preventDefault();
         setCurrentTab('cozinha');
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        setCurrentTab('garcom');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -97,13 +116,25 @@ export const App: React.FC = () => {
   }
 
   // =========================================================================
-  // 3. SISTEMA OPERACIONAL DA PANIFICADORA (CAIXA, COZINHA, PAINEL DO DONO)
+  // 3. COMANDA MÓVEL STANDALONE DEDICADA DO GARÇOM / ATENDENTE (CELULAR)
+  // =========================================================================
+  if (isModoGarcomDireto() && currentTab === 'garcom') {
+    return (
+      <LoyaltyProvider>
+        <GarcomPage isStandalone />
+      </LoyaltyProvider>
+    );
+  }
+
+  // =========================================================================
+  // 4. SISTEMA OPERACIONAL DA PANIFICADORA (CAIXA, COZINHA, GARÇOM, PAINEL DO DONO)
   // =========================================================================
   return (
     <LoyaltyProvider>
       <Layout currentTab={currentTab} setCurrentTab={setCurrentTab}>
         {currentTab === 'caixa' && <CaixaPage />}
         {currentTab === 'cozinha' && <CozinhaPage />}
+        {currentTab === 'garcom' && <GarcomPage onVoltarAoCaixa={() => setCurrentTab('caixa')} />}
         {currentTab === 'admin' && (
           isAdminAuthenticated ? (
             <AdminDashboard 

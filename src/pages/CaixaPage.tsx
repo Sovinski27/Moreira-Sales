@@ -44,6 +44,7 @@ import {
   Zap,
   Receipt,
   ShoppingBag,
+  UtensilsCrossed,
   X
 } from 'lucide-react';
 
@@ -62,6 +63,13 @@ export const CaixaPage: React.FC = () => {
   const [mesaSelecionada, setMesaSelecionada] = useState<MesaAberta | null>(null);
   const [mesaComandaModal, setMesaComandaModal] = useState<MesaAberta | null>(null);
   const [modalQrCodeAberto, setModalQrCodeAberto] = useState(false);
+
+  // Estados de Busca, Filtro e Abertura Rápida de Comandas
+  const [buscaComanda, setBuscaComanda] = useState('');
+  const [filtroComanda, setFiltroComanda] = useState<'todas' | 'ocupadas' | 'livres'>('todas');
+  const [modalNovaComandaCaixa, setModalNovaComandaCaixa] = useState(false);
+  const [numeroNovaComandaInput, setNumeroNovaComandaInput] = useState('');
+  const [nomeNovoClienteComanda, setNomeNovoClienteComanda] = useState('');
 
   // Estados do Catálogo e Carrinho com Hidratação Instantânea (Zero Delay)
   const [produtos, setProdutos] = useState<Produto[]>(() => getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []));
@@ -817,53 +825,203 @@ export const CaixaPage: React.FC = () => {
       </div>
 
       {modoCaixa === 'mesas' && !mesaSelecionada ? (
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-200">
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
-            {Array.from({ length: 30 }, (_, i) => i + 1).map(num => {
-              const mesa = mesasAbertas.find(m => m.mesa_numero === num);
-              // REGRA DO USUÁRIO: A mesa é considerada ocupada se constar aberta (login no cardápio ou abertura manual no caixa)
-              const isOcupada = !!mesa;
-              return (
+        <div className="space-y-5">
+          {/* 4 CARDS EXECUTIVOS (Estilo Painel Moderno do Bar/Restaurante) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+            
+            {/* Card 1: Comandas Ocupadas */}
+            <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200/80 shadow-2xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-black uppercase tracking-wider text-stone-500 block mb-1">
+                  Comandas Ocupadas
+                </span>
+                <span className="text-2xl sm:text-3xl font-black text-amber-900 font-mono">
+                  {mesasAbertas.length} <span className="text-sm text-stone-400 font-normal">/ 30</span>
+                </span>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-700 flex items-center justify-center shrink-0">
+                <UtensilsCrossed className="w-6 h-6" />
+              </div>
+            </div>
+
+            {/* Card 2: Comandas Livres */}
+            <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200/80 shadow-2xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-black uppercase tracking-wider text-stone-500 block mb-1">
+                  Comandas Livres
+                </span>
+                <span className="text-2xl sm:text-3xl font-black text-emerald-600 font-mono">
+                  {Math.max(0, 30 - mesasAbertas.length)}
+                </span>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+            </div>
+
+            {/* Card 3: Consumo em Aberto */}
+            <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200/80 shadow-2xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-black uppercase tracking-wider text-stone-500 block mb-1">
+                  Consumo em Aberto
+                </span>
+                <span className="text-2xl sm:text-3xl font-black text-stone-900 font-mono">
+                  R$ {mesasAbertas.reduce((acc, m) => acc + (m.total || 0), 0).toFixed(2)}
+                </span>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                <Banknote className="w-6 h-6" />
+              </div>
+            </div>
+
+            {/* Card 4: Ação Rápida */}
+            <div className="bg-white p-4 sm:p-5 rounded-3xl border border-stone-200/80 shadow-2xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-black uppercase tracking-wider text-stone-500 block mb-1">
+                  Ação Rápida
+                </span>
                 <button
-                  key={num}
-                  onClick={() => handleAbrirMesa(num)}
-                  className={`relative h-28 flex flex-col items-center justify-center rounded-2xl border-2 transition-all p-2 cursor-pointer ${
-                    isOcupada 
-                      ? 'bg-rose-50 border-rose-300 hover:border-rose-400 shadow-sm' 
-                      : 'bg-emerald-50 border-emerald-200 hover:border-emerald-300'
-                  }`}
+                  type="button"
+                  onClick={() => setModalNovaComandaCaixa(true)}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
                 >
-                  <span className={`text-2xl font-black ${isOcupada ? 'text-rose-700' : 'text-emerald-700'}`}>
-                    {num < 10 ? `0${num}` : num}
-                  </span>
-                  {isOcupada && mesa ? (
-                    <div className="flex flex-col items-center mt-1 w-full px-1">
-                      {mesa.cliente_nome && (
-                        <span className="text-[10px] text-amber-950 font-extrabold truncate max-w-full">
-                          {mesa.cliente_nome}
+                  <Plus className="w-4 h-4" />
+                  <span>+ Nova Comanda</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          {/* BARRA DE PESQUISA E FILTROS */}
+          <div className="bg-white p-3 sm:p-4 rounded-3xl border border-stone-200/80 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
+            {/* Input de Busca */}
+            <div className="relative w-full sm:w-80">
+              <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={buscaComanda}
+                onChange={e => setBuscaComanda(e.target.value)}
+                placeholder="Buscar comanda ou cliente (Ex: 01, Lucas)..."
+                className="w-full pl-10 pr-8 py-2.5 bg-stone-50 border border-stone-200 rounded-2xl text-xs font-medium text-stone-900 placeholder:text-stone-400 focus:outline-none focus:border-amber-600"
+              />
+              {buscaComanda && (
+                <button
+                  type="button"
+                  onClick={() => setBuscaComanda('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs font-bold cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Filtros de Pílulas */}
+            <div className="flex items-center gap-2 self-start sm:self-auto text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setFiltroComanda('todas')}
+                className={`px-3.5 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  filtroComanda === 'todas'
+                    ? 'bg-stone-900 text-white shadow-2xs'
+                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                }`}
+              >
+                Todas (30)
+              </button>
+              <button
+                type="button"
+                onClick={() => setFiltroComanda('ocupadas')}
+                className={`px-3.5 py-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
+                  filtroComanda === 'ocupadas'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200/60'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span>Ocupadas ({mesasAbertas.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFiltroComanda('livres')}
+                className={`px-3.5 py-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
+                  filtroComanda === 'livres'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200/60'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>Livres ({Math.max(0, 30 - mesasAbertas.length)})</span>
+              </button>
+            </div>
+          </div>
+
+          {/* GRADE DE COMANDAS / MESAS */}
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-200">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+              {Array.from({ length: 30 }, (_, i) => i + 1)
+                .filter(num => {
+                  const mesa = mesasAbertas.find(m => m.mesa_numero === num);
+                  const isOcupada = !!mesa;
+
+                  if (filtroComanda === 'ocupadas' && !isOcupada) return false;
+                  if (filtroComanda === 'livres' && isOcupada) return false;
+
+                  if (buscaComanda.trim()) {
+                    const termo = buscaComanda.trim().toLowerCase();
+                    const numStr = num.toString();
+                    const matchNum = numStr === termo || `comanda ${numStr}`.includes(termo) || `mesa ${numStr}`.includes(termo);
+                    const matchCliente = mesa?.cliente_nome && mesa.cliente_nome.toLowerCase().includes(termo);
+                    if (!matchNum && !matchCliente) return false;
+                  }
+
+                  return true;
+                })
+                .map(num => {
+                  const mesa = mesasAbertas.find(m => m.mesa_numero === num);
+                  const isOcupada = !!mesa;
+                  return (
+                    <button
+                      key={num}
+                      onClick={() => handleAbrirMesa(num)}
+                      className={`relative h-28 flex flex-col items-center justify-center rounded-2xl border-2 transition-all p-2 cursor-pointer ${
+                        isOcupada 
+                          ? 'bg-rose-50 border-rose-300 hover:border-rose-400 shadow-sm' 
+                          : 'bg-emerald-50 border-emerald-200 hover:border-emerald-300'
+                      }`}
+                    >
+                      <span className={`text-2xl font-black ${isOcupada ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        {num < 10 ? `0${num}` : num}
+                      </span>
+                      {isOcupada && mesa ? (
+                        <div className="flex flex-col items-center mt-1 w-full px-1">
+                          {mesa.cliente_nome && (
+                            <span className="text-[10px] text-amber-950 font-extrabold truncate max-w-full">
+                              {mesa.cliente_nome}
+                            </span>
+                          )}
+                          <span className="text-rose-900 font-black font-mono text-xs">
+                            {mesa.total > 0 ? `R$ ${mesa.total.toFixed(2)}` : 'Em atendimento'}
+                          </span>
+                          <span className="text-rose-600 font-mono text-[9px] font-bold mt-0.5 flex items-center gap-1">
+                            <Timer className="w-2.5 h-2.5" />
+                            {formatTempoPerm(mesa.criado_em)}
+                          </span>
+                          <span className="mt-1 text-[9px] font-black uppercase tracking-wider text-rose-800 bg-rose-200/80 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-2xs">
+                            <Receipt className="w-2.5 h-2.5" />
+                            Cobrar
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-emerald-700 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          Livre
                         </span>
                       )}
-                      <span className="text-rose-900 font-black font-mono text-xs">
-                        {mesa.total > 0 ? `R$ ${mesa.total.toFixed(2)}` : 'Em atendimento'}
-                      </span>
-                      <span className="text-rose-600 font-mono text-[9px] font-bold mt-0.5 flex items-center gap-1">
-                        <Timer className="w-2.5 h-2.5" />
-                        {formatTempoPerm(mesa.criado_em)}
-                      </span>
-                      <span className="mt-1 text-[9px] font-black uppercase tracking-wider text-rose-800 bg-rose-200/80 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-2xs">
-                        <Receipt className="w-2.5 h-2.5" />
-                        Cobrar
-                      </span>
-                    </div>
-                  ) : (
-                    <span className="text-emerald-700 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      Livre
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+                    </button>
+                  );
+                })}
+            </div>
           </div>
         </div>
       ) : (
@@ -1849,6 +2007,84 @@ export const CaixaPage: React.FC = () => {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE ABERTURA RÁPIDA DE COMANDA NO CAIXA */}
+      {modalNovaComandaCaixa && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-stone-200 overflow-hidden">
+            <div className="bg-stone-900 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-black">
+                  #
+                </div>
+                <div>
+                  <h3 className="text-base font-black">Abrir Comanda no Caixa</h3>
+                  <p className="text-xs text-stone-400">Informe o número da comanda do cliente</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalNovaComandaCaixa(false)}
+                className="text-stone-400 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const num = parseInt(numeroNovaComandaInput.replace(/\D/g, ''), 10);
+                if (isNaN(num) || num <= 0) return;
+                setModalNovaComandaCaixa(false);
+                setNumeroNovaComandaInput('');
+                setNomeNovoClienteComanda('');
+                handleAbrirMesa(num);
+              }}
+              className="p-6 space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">
+                  Número da Comanda *
+                </label>
+                <input
+                  type="tel"
+                  required
+                  autoFocus
+                  value={numeroNovaComandaInput}
+                  onChange={e => setNumeroNovaComandaInput(e.target.value.replace(/\D/g, ''))}
+                  placeholder="Ex: 1, 2, 15..."
+                  className="w-full text-center py-4 text-3xl font-black font-mono text-stone-900 bg-stone-50 border-2 border-stone-200 rounded-2xl focus:border-amber-600 focus:bg-white outline-none transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1.5">
+                  Nome do Cliente (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={nomeNovoClienteComanda}
+                  onChange={e => setNomeNovoClienteComanda(e.target.value)}
+                  placeholder="Ex: Carlos, Lucas..."
+                  className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl text-sm font-medium text-stone-900 focus:border-amber-600 focus:bg-white outline-none"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={!numeroNovaComandaInput || parseInt(numeroNovaComandaInput, 10) <= 0}
+                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Abrir Comanda e Faturar</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
