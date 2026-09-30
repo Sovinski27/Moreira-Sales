@@ -11,6 +11,7 @@ import { AlertModal } from '../components/AlertModal';
 import { BiReports } from '../components/BiReports';
 import { CmvDashboard } from '../components/CmvDashboard';
 import { GestaoFiscalTab } from '../components/GestaoFiscalTab';
+import { ChecklistTab } from '../components/ChecklistTab';
 import { fetchProdutos, fetchCategorias, saveProduto, saveCategoria, deleteProduto, deleteCategoria } from '../services/db';
 import { 
   Users,
@@ -43,6 +44,7 @@ import {
   Eye,
   EyeOff,
   Receipt,
+  CheckSquare,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -71,7 +73,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [clienteSelecionadoId, setClienteSelecionadoId] = useState<string | null>(null);
 
   // Abas do Painel
-  const [activeSubTab, setActiveSubTab] = useState<'ranking' | 'churn' | 'clientes' | 'config' | 'catalogo' | 'bi' | 'cmv' | 'fiscal'>('ranking');
+  const [activeSubTab, setActiveSubTab] = useState<'ranking' | 'churn' | 'clientes' | 'config' | 'catalogo' | 'bi' | 'cmv' | 'fiscal' | 'checklist'>('ranking');
   const tabsContainerRef = useRef<HTMLDivElement>(null);
 
   const scrollTabs = (direction: 'left' | 'right') => {
@@ -531,6 +533,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           >
             <Receipt className="w-4 h-4" />
             <span>Fiscal & NF-e</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('checklist')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+              activeSubTab === 'checklist'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+            }`}
+          >
+            <CheckSquare className="w-4 h-4" />
+            <span>Checklist Operacional</span>
           </button>
         </div>
 
@@ -1424,6 +1439,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       {/* CONTEÚDO DA ABA FISCAL & NF-E */}
       {activeSubTab === 'fiscal' && (
         <GestaoFiscalTab webhookUrlWhatsApp={config.webhook_whatsapp_url} />
+      )}
+
+      {/* CONTEÚDO DA ABA CHECKLIST OPERACIONAL */}
+      {activeSubTab === 'checklist' && (
+        <ChecklistTab />
       )}
       </div>
 

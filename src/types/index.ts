@@ -273,3 +273,47 @@ export interface NotaFiscal {
   enviada_whatsapp: boolean;
   criado_em: string;
 }
+
+// =========================================================================
+// MÓDULO CHECKLIST OPERACIONAL & ROTINAS
+// =========================================================================
+export type PeriodicidadeChecklist = 'diario' | 'semanal' | 'mensal';
+export type TurnoChecklist = 'abertura' | 'manha' | 'tarde' | 'fechamento' | 'livre';
+export type PrioridadeChecklist = 'alta' | 'media' | 'baixa';
+
+export interface CategoriaChecklist {
+  id: string;
+  nome: string;
+  descricao?: string;
+  cor?: string;
+}
+
+export interface ItemChecklist {
+  id: string;
+  titulo: string;
+  categoria_id: string;
+  periodicidade: PeriodicidadeChecklist;
+  turno?: TurnoChecklist;
+  responsavel?: string;
+  prioridade?: PrioridadeChecklist;
+  instrucoes?: string;
+  ativo: boolean;
+  concluido: boolean;
+  concluido_em?: string;
+  concluido_por?: string;
+  observacao?: string;
+  criado_em: string;
+}
+
+export interface RegistroHistoricoChecklist {
+  id: string;
+  data: string; // YYYY-MM-DD
+  item_id: string;
+  titulo: string;
+  categoria: string;
+  periodicidade: PeriodicidadeChecklist;
+  responsavel?: string;
+  concluido_em: string;
+  concluido_por: string;
+  observacao?: string;
+}
