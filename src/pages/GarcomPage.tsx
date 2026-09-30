@@ -247,18 +247,23 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
       <header className="bg-stone-900 text-white sticky top-0 z-30 shadow-md">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           
-          {/* Identidade e Botão Voltar (se embutido) */}
+          {/* Identidade e Botão Voltar */}
           <div className="flex items-center gap-2.5 min-w-0">
-            {onVoltarAoCaixa && (
-              <button 
-                type="button" 
-                onClick={onVoltarAoCaixa}
-                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="Voltar à Frente de Caixa"
-              >
-                <Store className="w-4 h-4" />
-              </button>
-            )}
+            <button 
+              type="button" 
+              onClick={() => {
+                if (onVoltarAoCaixa) {
+                  onVoltarAoCaixa();
+                } else {
+                  window.location.href = '/';
+                }
+              }}
+              className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+              title="Voltar à Frente de Caixa"
+            >
+              <Store className="w-4 h-4" />
+              <span className="hidden sm:inline">Voltar ao Caixa</span>
+            </button>
             <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shrink-0">
               <UtensilsCrossed className="w-4 h-4" />
             </div>
@@ -567,15 +572,19 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                   <p className="text-xs text-stone-400">Qual comanda você está entregando?</p>
                 </div>
               </div>
-              {comandaNumero && (
-                <button
-                  type="button"
-                  onClick={() => setModalTrocarComanda(false)}
-                  className="text-stone-400 hover:text-white p-1"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setModalTrocarComanda(false);
+                  if (!comandaNumero && onVoltarAoCaixa) {
+                    onVoltarAoCaixa();
+                  }
+                }}
+                className="text-stone-400 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
+                title="Fechar e Sair"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             <form onSubmit={handleSubmitSelecaoComanda} className="p-6 space-y-4">
@@ -665,15 +674,31 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                 </div>
               )}
 
-              {/* Botão de Confirmação */}
-              <div className="pt-2">
+              {/* Botões de Ação */}
+              <div className="pt-2 space-y-2.5">
                 <button
                   type="submit"
                   disabled={!comandaInput || parseInt(comandaInput, 10) <= 0}
-                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
+                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
                   <span>Confirmar e Atender Comanda</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalTrocarComanda(false);
+                    if (onVoltarAoCaixa) {
+                      onVoltarAoCaixa();
+                    } else {
+                      window.location.href = '/';
+                    }
+                  }}
+                  className="w-full py-3 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Store className="w-4 h-4" />
+                  <span>Sair desta Tela / Voltar ao Caixa</span>
                 </button>
               </div>
 
