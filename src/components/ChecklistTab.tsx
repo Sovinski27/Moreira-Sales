@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   CheckSquare, 
   CheckCircle2, 
@@ -967,9 +968,9 @@ export const ChecklistTab: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* MODAL 1: CADASTRAR OU EDITAR ATIVIDADE (Z-INDEX ALTO E STATE CONTROLADO) */}
+      {/* MODAL 1: CADASTRAR OU EDITAR ATIVIDADE (PORTAL DIRETO NO BODY)             */}
       {/* ========================================================================= */}
-      {modalItemAberto && (
+      {modalItemAberto && typeof document !== 'undefined' && createPortal(
         <div 
           className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
           onClick={() => setModalItemAberto(false)}
@@ -1121,13 +1122,14 @@ export const ChecklistTab: React.FC = () => {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ========================================================================= */}
       {/* MODAL 2: CONFIRMAR BAIXA COM OBSERVAÇÃO                                   */}
       {/* ========================================================================= */}
-      {modalBaixaAberto && itemParaBaixa && (
+      {modalBaixaAberto && itemParaBaixa && typeof document !== 'undefined' && createPortal(
         <div 
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
           onClick={() => setModalBaixaAberto(false)}
@@ -1208,13 +1210,14 @@ export const ChecklistTab: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ========================================================================= */}
       {/* MODAL 3: GERENCIAR CATEGORIAS DE CHECKLIST                                */}
       {/* ========================================================================= */}
-      {modalCategoriasAberto && (
+      {modalCategoriasAberto && typeof document !== 'undefined' && createPortal(
         <div 
           className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
           onClick={() => setModalCategoriasAberto(false)}
@@ -1313,13 +1316,14 @@ export const ChecklistTab: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ========================================================================= */}
       {/* MODAL 4: IMPRESSÃO & AUDITORIA (PRANCHETA OPERACIONAL FORMATADA)          */}
       {/* ========================================================================= */}
-      {modalImprimirAberto && (
+      {modalImprimirAberto && typeof document !== 'undefined' && createPortal(
         <div 
           className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
           onClick={() => setModalImprimirAberto(false)}
@@ -1448,7 +1452,8 @@ export const ChecklistTab: React.FC = () => {
             </div>
 
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>
