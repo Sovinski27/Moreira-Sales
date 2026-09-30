@@ -251,17 +251,19 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
 
   // Configurar larguras de colunas
   wsDRE.columns = [
-    { key: 'colA', width: 16 }, // Data da Venda
-    { key: 'colB', width: 20 }, // Forma de Pagamento
-    { key: 'colC', width: 22 }, // Faturamento Bruto
-    { key: 'colD', width: 22 }, // CMV (Insumos)
-    { key: 'colE', width: 22 }, // Custo Fixo Rateado
-    { key: 'colF', width: 24 }, // Lucro Líquido Real
-    { key: 'colG', width: 18 }, // Margem (%)
+    { key: 'colA', width: 14 }, // Data da Venda
+    { key: 'colB', width: 12 }, // Hora da Venda
+    { key: 'colC', width: 34 }, // Produtos Vendidos
+    { key: 'colD', width: 18 }, // Forma de Pagamento
+    { key: 'colE', width: 20 }, // Faturamento Bruto
+    { key: 'colF', width: 18 }, // CMV (Insumos)
+    { key: 'colG', width: 20 }, // Custo Fixo Rateado
+    { key: 'colH', width: 22 }, // Lucro Líquido Real
+    { key: 'colI', width: 16 }, // Margem (%)
   ];
 
   // 1. Banner Superior
-  wsDRE.mergeCells('A1:G1');
+  wsDRE.mergeCells('A1:I1');
   const cellA1 = wsDRE.getCell('A1');
   cellA1.value = 'PANIFICADORA MOREIRA SALES - RELATÓRIO EXECUTIVO DRE';
   cellA1.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -270,7 +272,7 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
   wsDRE.getRow(1).height = 36;
 
   // 2. Subtítulo com Metadata
-  wsDRE.mergeCells('A2:G2');
+  wsDRE.mergeCells('A2:I2');
   const cellA2 = wsDRE.getCell('A2');
   const dataHojeStr = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   cellA2.value = `Período Filtrado: ${filtroNome}  |  Gerado em: ${dataHojeStr}  |  Regra de Custo Fixo: ${custosConfig.tipo === 'mensal' ? `R$ ${custosConfig.valor.toFixed(2)}/mês` : `${custosConfig.valor}% das vendas`}`;
@@ -342,7 +344,7 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
 
   // 6. Linha de Título da Tabela Analítica
   const tableStartRow = 27;
-  wsDRE.mergeCells(`A${tableStartRow}:G${tableStartRow}`);
+  wsDRE.mergeCells(`A${tableStartRow}:I${tableStartRow}`);
   const tableTitleCell = wsDRE.getCell(`A${tableStartRow}`);
   tableTitleCell.value = 'DETALHAMENTO ANALÍTICO (VENDA A VENDA)';
   tableTitleCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF0F172A' } };
@@ -353,6 +355,8 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
   const headerRow = tableStartRow + 1;
   const headers = [
     'Data da Venda',
+    'Hora',
+    'Produtos Vendidos',
     'Forma de Pagamento',
     'Faturamento Bruto',
     'CMV (Insumos)',
@@ -369,7 +373,7 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
     cell.value = h;
     cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-    cell.alignment = { horizontal: i <= 1 ? 'center' : 'right', vertical: 'middle' };
+    cell.alignment = { horizontal: i <= 3 ? 'center' : 'right', vertical: 'middle' };
     cell.border = {
       top: { style: 'medium', color: { argb: 'FF0F172A' } },
       bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
@@ -400,13 +404,34 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
     const isZebra = idx % 2 === 1;
     const rowBgColor = isZebra ? 'FFF8FAFC' : 'FFFFFFFF';
 
-    // Data formatada
+    // 1. Data formatada
     const cellData = rowObj.getCell(1);
     cellData.value = v.data_compra || '-';
     cellData.alignment = { horizontal: 'center', vertical: 'middle' };
 
-    // Forma Pagamento
-    const cellForma = rowObj.getCell(2);
+    // 2. Hora formatada
+    let horaStr = '--:--';
+    if (v.criado_em) {
+      try {
+        const d = new Date(v.criado_em);
+        if (!isNaN(d.getTime())) {
+          horaStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+      } catch {
+        // fallback
+      }
+    }
+    const cellHora = rowObj.getCell(2);
+    cellHora.value = horaStr;
+    cellHora.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    // 3. Produtos Vendidos
+    const cellProds = rowObj.getCell(3);
+    cellProds.value = v.detalhes || 'Venda no Caixa (Geral)';
+    cellProds.alignment = { horizontal: 'left', vertical: 'middle' };
+
+    // 4. Forma Pagamento
+    const cellForma = rowObj.getCell(4);
     const pagMap: { [key: string]: string } = {
       'pix': 'PIX',
       'dinheiro': 'Dinheiro',
@@ -417,41 +442,41 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
     cellForma.value = pagMap[v.forma_pagamento || ''] || v.forma_pagamento || 'Não Identificado';
     cellForma.alignment = { horizontal: 'center', vertical: 'middle' };
 
-    // Faturamento
-    const cellFat = rowObj.getCell(3);
+    // 5. Faturamento
+    const cellFat = rowObj.getCell(5);
     cellFat.value = faturamento;
     cellFat.numFmt = 'R$ #,##0.00';
     cellFat.alignment = { horizontal: 'right', vertical: 'middle' };
 
-    // CMV
-    const cellCmv = rowObj.getCell(4);
+    // 6. CMV
+    const cellCmv = rowObj.getCell(6);
     cellCmv.value = custoVar;
     cellCmv.numFmt = 'R$ #,##0.00';
     cellCmv.font = { color: { argb: 'FFB91C1C' } };
     cellCmv.alignment = { horizontal: 'right', vertical: 'middle' };
 
-    // Custo Fixo
-    const cellFixo = rowObj.getCell(5);
+    // 7. Custo Fixo
+    const cellFixo = rowObj.getCell(7);
     cellFixo.value = custoFixoDaVenda;
     cellFixo.numFmt = 'R$ #,##0.00';
     cellFixo.font = { color: { argb: 'FFD97706' } };
     cellFixo.alignment = { horizontal: 'right', vertical: 'middle' };
 
-    // Lucro Líquido Real (Fórmula do Excel: Fat - CMV - CustoFixo)
-    const cellLucro = rowObj.getCell(6);
-    cellLucro.value = { formula: `C${currentRow}-D${currentRow}-E${currentRow}`, result: faturamento - custoVar - custoFixoDaVenda };
+    // 8. Lucro Líquido Real (Fórmula do Excel: Fat - CMV - CustoFixo)
+    const cellLucro = rowObj.getCell(8);
+    cellLucro.value = { formula: `E${currentRow}-F${currentRow}-G${currentRow}`, result: faturamento - custoVar - custoFixoDaVenda };
     cellLucro.numFmt = 'R$ #,##0.00';
     cellLucro.font = { bold: true, color: { argb: 'FF15803D' } };
     cellLucro.alignment = { horizontal: 'right', vertical: 'middle' };
 
-    // Margem Real % (Fórmula: Lucro / Fat)
-    const cellMargem = rowObj.getCell(7);
-    cellMargem.value = { formula: `IF(C${currentRow}>0, F${currentRow}/C${currentRow}, 0)`, result: faturamento > 0 ? (faturamento - custoVar - custoFixoDaVenda) / faturamento : 0 };
+    // 9. Margem Real % (Fórmula: Lucro / Fat)
+    const cellMargem = rowObj.getCell(9);
+    cellMargem.value = { formula: `IF(E${currentRow}>0, H${currentRow}/E${currentRow}, 0)`, result: faturamento > 0 ? (faturamento - custoVar - custoFixoDaVenda) / faturamento : 0 };
     cellMargem.numFmt = '0.0%';
     cellMargem.alignment = { horizontal: 'center', vertical: 'middle' };
 
     // Aplicar fundos e bordas leves
-    for (let c = 1; c <= 7; c++) {
+    for (let c = 1; c <= 9; c++) {
       const cObj = rowObj.getCell(c);
       cObj.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBgColor } };
       cObj.border = {
@@ -477,42 +502,48 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
   rowTotalObj.getCell(2).font = { bold: true, color: { argb: 'FF475569' } };
   rowTotalObj.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
 
+  rowTotalObj.getCell(3).value = '-';
+  rowTotalObj.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  rowTotalObj.getCell(4).value = '-';
+  rowTotalObj.getCell(4).alignment = { horizontal: 'center', vertical: 'middle' };
+
   // Soma Faturamento
-  const sumFat = rowTotalObj.getCell(3);
-  sumFat.value = { formula: `SUM(C${headerRow + 1}:C${totalRow - 1})`, result: totalReceita };
+  const sumFat = rowTotalObj.getCell(5);
+  sumFat.value = { formula: `SUM(E${headerRow + 1}:E${totalRow - 1})`, result: totalReceita };
   sumFat.numFmt = 'R$ #,##0.00';
   sumFat.font = { bold: true, color: { argb: 'FF1E293B' } };
   sumFat.alignment = { horizontal: 'right', vertical: 'middle' };
 
   // Soma CMV
-  const sumCmv = rowTotalObj.getCell(4);
-  sumCmv.value = { formula: `SUM(D${headerRow + 1}:D${totalRow - 1})`, result: totalCmv };
+  const sumCmv = rowTotalObj.getCell(6);
+  sumCmv.value = { formula: `SUM(F${headerRow + 1}:F${totalRow - 1})`, result: totalCmv };
   sumCmv.numFmt = 'R$ #,##0.00';
   sumCmv.font = { bold: true, color: { argb: 'FFB91C1C' } };
   sumCmv.alignment = { horizontal: 'right', vertical: 'middle' };
 
   // Soma Custo Fixo
-  const sumFixo = rowTotalObj.getCell(5);
-  sumFixo.value = { formula: `SUM(E${headerRow + 1}:E${totalRow - 1})`, result: totalCustoFixo };
+  const sumFixo = rowTotalObj.getCell(7);
+  sumFixo.value = { formula: `SUM(G${headerRow + 1}:G${totalRow - 1})`, result: totalCustoFixo };
   sumFixo.numFmt = 'R$ #,##0.00';
   sumFixo.font = { bold: true, color: { argb: 'FFD97706' } };
   sumFixo.alignment = { horizontal: 'right', vertical: 'middle' };
 
   // Soma Lucro
-  const sumLucro = rowTotalObj.getCell(6);
-  sumLucro.value = { formula: `SUM(F${headerRow + 1}:F${totalRow - 1})`, result: totalLucroLiquido };
+  const sumLucro = rowTotalObj.getCell(8);
+  sumLucro.value = { formula: `SUM(H${headerRow + 1}:H${totalRow - 1})`, result: totalLucroLiquido };
   sumLucro.numFmt = 'R$ #,##0.00';
   sumLucro.font = { bold: true, color: { argb: 'FF15803D' } };
   sumLucro.alignment = { horizontal: 'right', vertical: 'middle' };
 
   // Margem Média Consolidada
-  const sumMargem = rowTotalObj.getCell(7);
-  sumMargem.value = { formula: `IF(C${totalRow}>0, F${totalRow}/C${totalRow}, 0)`, result: margemLiquidaPct };
+  const sumMargem = rowTotalObj.getCell(9);
+  sumMargem.value = { formula: `IF(E${totalRow}>0, H${totalRow}/E${totalRow}, 0)`, result: margemLiquidaPct };
   sumMargem.numFmt = '0.0%';
   sumMargem.font = { bold: true, color: { argb: 'FF0F172A' } };
   sumMargem.alignment = { horizontal: 'center', vertical: 'middle' };
 
-  for (let c = 1; c <= 7; c++) {
+  for (let c = 1; c <= 9; c++) {
     const cObj = rowTotalObj.getCell(c);
     cObj.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
     cObj.border = {
@@ -708,7 +739,7 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
 export function exportarRelatorioCSVFormatado(vendas: Compra[], custosConfig: CustosFixosConfig, filtroNome: string): void {
   const BOM = '\uFEFF';
   const lines: string[] = [
-    'Data da Venda;Forma de Pagamento;Faturamento Bruto (R$);CMV Insumos (R$);Custo Fixo Rateado (R$);Lucro Líquido Real (R$);Margem Real (%)'
+    'Data da Venda;Hora;Produtos Vendidos;Forma de Pagamento;Faturamento Bruto (R$);CMV Insumos (R$);Custo Fixo Rateado (R$);Lucro Líquido Real (R$);Margem Real (%)'
   ];
 
   let diasNoFiltro = 30;
@@ -743,7 +774,21 @@ export function exportarRelatorioCSVFormatado(vendas: Compra[], custosConfig: Cu
     // No padrão brasileiro do Excel, decimais usam vírgula
     const fmt = (num: number) => num.toFixed(2).replace('.', ',');
 
-    lines.push(`${c.data_compra || ''};${c.forma_pagamento || 'Geral'};${fmt(faturamento)};${fmt(custoVar)};${fmt(custoFixoDaVenda)};${fmt(lucroLiquido)};${margem}%`);
+    let horaStr = '--:--';
+    if (c.criado_em) {
+      try {
+        const d = new Date(c.criado_em);
+        if (!isNaN(d.getTime())) {
+          horaStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+      } catch {
+        // fallback
+      }
+    }
+
+    const prodsStr = (c.detalhes || 'Venda no Caixa (Geral)').replace(/;/g, ',');
+
+    lines.push(`${c.data_compra || ''};${horaStr};${prodsStr};${c.forma_pagamento || 'Geral'};${fmt(faturamento)};${fmt(custoVar)};${fmt(custoFixoDaVenda)};${fmt(lucroLiquido)};${margem}%`);
   });
 
   const csvContent = BOM + lines.join('\r\n');

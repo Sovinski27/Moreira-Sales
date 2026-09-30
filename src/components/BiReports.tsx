@@ -3,7 +3,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend 
 } from 'recharts';
-import { Calendar, TrendingUp, Package, Users, Activity, BarChart2, Download, DollarSign, PieChart as PieChartIcon, ChevronDown, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { Calendar, TrendingUp, Package, Users, Activity, BarChart2, Download, DollarSign, PieChart as PieChartIcon, ChevronDown, FileSpreadsheet, Loader2, Clock, ShoppingBag } from 'lucide-react';
 import { useLoyalty } from '../context/LoyaltyContext';
 import { Compra } from '../types';
 import { 
@@ -391,10 +391,11 @@ export const BiReports: React.FC = () => {
 
           <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
              <div className="overflow-x-auto">
-                <table className="w-full text-left min-w-[600px]">
+                <table className="w-full text-left min-w-[800px]">
                   <thead>
                     <tr className="bg-stone-50 border-b border-stone-100 text-stone-500 text-sm">
-                      <th className="py-4 px-6 font-semibold">Data da Venda</th>
+                      <th className="py-4 px-6 font-semibold">Data & Hora</th>
+                      <th className="py-4 px-6 font-semibold">Produtos Vendidos</th>
                       <th className="py-4 px-6 font-semibold">Valor Bruto</th>
                       <th className="py-4 px-6 font-semibold text-red-500">CMV (Insumos)</th>
                       <th className="py-4 px-6 font-semibold text-orange-500">Custo Fixo (Rateio)</th>
@@ -423,19 +424,71 @@ export const BiReports: React.FC = () => {
                        }
                        const lucroLiquido = faturamento - custoVar - custoFixoDaVenda;
 
+                       // Formatação precisa da data e hora da venda
+                       let dataFormatada = c.data_compra || '';
+                       let horaFormatada = '--:--';
+                       if (c.criado_em) {
+                         try {
+                           const d = new Date(c.criado_em);
+                           if (!isNaN(d.getTime())) {
+                             dataFormatada = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                             horaFormatada = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                           }
+                         } catch {
+                           // fallback
+                         }
+                       } else if (c.data_compra && c.data_compra.includes('-')) {
+                         const pts = c.data_compra.split('-');
+                         if (pts.length === 3) dataFormatada = `${pts[2]}/${pts[1]}/${pts[0]}`;
+                       }
+
+                       // Extrair os produtos vendidos da venda
+                       const produtosVendidos = c.detalhes 
+                         ? c.detalhes.split(',').map(p => p.trim()).filter(Boolean)
+                         : ['Venda no Caixa (Geral)'];
+
                        return (
-                         <tr key={c.id} className="hover:bg-stone-50/50">
-                           <td className="py-4 px-6 text-stone-900">{c.data_compra}</td>
-                           <td className="py-4 px-6 font-medium">R$ {faturamento.toFixed(2)}</td>
-                           <td className="py-4 px-6 text-red-600">- R$ {custoVar.toFixed(2)}</td>
-                           <td className="py-4 px-6 text-orange-600">- R$ {custoFixoDaVenda.toFixed(2)}</td>
-                           <td className="py-4 px-6 font-black text-green-600">R$ {lucroLiquido.toFixed(2)}</td>
+                         <tr key={c.id} className="hover:bg-stone-50/60 transition-colors">
+                           <td className="py-4 px-6 text-stone-900 whitespace-nowrap">
+                             <div className="flex flex-col">
+                               <span className="font-bold text-stone-900 text-sm">{dataFormatada}</span>
+                               <span className="text-xs text-stone-500 font-mono flex items-center gap-1 mt-0.5 font-medium">
+                                 <Clock className="w-3.5 h-3.5 text-stone-400" />
+                                 {horaFormatada}
+                               </span>
+                             </div>
+                           </td>
+                           <td className="py-4 px-6 max-w-xs">
+                             <div className="flex flex-wrap gap-1.5">
+                               {produtosVendidos.map((prod, idx) => (
+                                 <span 
+                                   key={idx}
+                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-200/80 shadow-2xs"
+                                 >
+                                   <ShoppingBag className="w-3 h-3 text-amber-700 shrink-0" />
+                                   <span>{prod}</span>
+                                 </span>
+                               ))}
+                             </div>
+                           </td>
+                           <td className="py-4 px-6 font-bold text-stone-900 whitespace-nowrap">
+                             R$ {faturamento.toFixed(2)}
+                           </td>
+                           <td className="py-4 px-6 text-red-600 font-semibold whitespace-nowrap">
+                             - R$ {custoVar.toFixed(2)}
+                           </td>
+                           <td className="py-4 px-6 text-orange-600 font-semibold whitespace-nowrap">
+                             - R$ {custoFixoDaVenda.toFixed(2)}
+                           </td>
+                           <td className="py-4 px-6 font-black text-green-600 whitespace-nowrap">
+                             R$ {lucroLiquido.toFixed(2)}
+                           </td>
                          </tr>
-                       )
+                       );
                     })}
                     {filtered.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="py-8 text-center text-stone-500">Nenhuma venda encontrada no período.</td>
+                        <td colSpan={6} className="py-8 text-center text-stone-500">Nenhuma venda encontrada no período.</td>
                       </tr>
                     )}
                   </tbody>
