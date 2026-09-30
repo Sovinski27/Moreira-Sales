@@ -42,7 +42,9 @@ import {
   Save,
   Tag,
   Zap,
-  Receipt
+  Receipt,
+  ShoppingBag,
+  X
 } from 'lucide-react';
 
 export const CaixaPage: React.FC = () => {
@@ -58,6 +60,7 @@ export const CaixaPage: React.FC = () => {
   const [modoCaixa, setModoCaixa] = useState<'balcao' | 'mesas'>('balcao');
   const [mesasAbertas, setMesasAbertas] = useState<MesaAberta[]>([]);
   const [mesaSelecionada, setMesaSelecionada] = useState<MesaAberta | null>(null);
+  const [mesaComandaModal, setMesaComandaModal] = useState<MesaAberta | null>(null);
   const [modalQrCodeAberto, setModalQrCodeAberto] = useState(false);
 
   // Estados do Catálogo e Carrinho
@@ -540,42 +543,175 @@ export const CaixaPage: React.FC = () => {
     }
   };
 
+  const normalizarItensMesa = useCallback((mesa: MesaAberta, catalogo: Produto[]): ItemCarrinho[] => {
+    const listaRaw = (mesa.carrinho && mesa.carrinho.length > 0)
+      ? mesa.carrinho
+      : ((mesa.itens && mesa.itens.length > 0) ? mesa.itens : []);
+
+    if (!listaRaw || listaRaw.length === 0) return [];
+
+    return listaRaw.map((it: any, idx: number) => {
+      if (it.produto && typeof it.produto === 'object' && it.produto.nome) {
+        const prodDoCatalogo = catalogo.find(p => p.id === it.produto.id || p.nome.toLowerCase() === it.produto.nome.toLowerCase());
+        return {
+          id_temp: it.id_temp || `item-mesa-${Date.now()}-${idx}`,
+          produto: {
+            id: it.produto.id || prodDoCatalogo?.id || `prod-${idx}`,
+            categoria_id: it.produto.categoria_id || prodDoCatalogo?.categoria_id || '',
+            nome: it.produto.nome,
+            preco: Number(it.produto.preco) || (Number(it.subtotal) / (Number(it.quantidade) || 1)) || 0,
+            ativo: true,
+            controlar_estoque: Boolean(it.produto.controlar_estoque || prodDoCatalogo?.controlar_estoque),
+            estoque_atual: it.produto.estoque_atual ?? prodDoCatalogo?.estoque_atual
+          },
+          quantidade: Number(it.quantidade) || 1,
+          subtotal: Number(it.subtotal) || ((Number(it.quantidade) || 1) * (Number(it.produto.preco) || 0))
+        };
+      }
+
+      const nome = it.nome || 'Produto';
+      const prodDoCatalogo = catalogo.find(p => (it.produto_id && p.id === it.produto_id) || p.nome.toLowerCase() === nome.toLowerCase());
+      const preco = Number(it.preco_unitario) || Number(it.preco) || prodDoCatalogo?.preco || (Number(it.subtotal) / (Number(it.quantidade) || 1)) || 0;
+      const qtd = Number(it.quantidade) || 1;
+      const subtotal = Number(it.subtotal) || (qtd * preco);
+
+      return {
+        id_temp: it.id_temp || `item-mesa-${Date.now()}-${idx}`,
+        produto: {
+          id: it.produto_id || prodDoCatalogo?.id || `prod-${idx}`,
+          categoria_id: prodDoCatalogo?.categoria_id || '',
+          nome: nome,
+          preco: preco,
+          ativo: true,
+          controlar_estoque: Boolean(prodDoCatalogo?.controlar_estoque),
+          estoque_atual: prodDoCatalogo?.estoque_atual
+        },
+        quantidade: qtd,
+        subtotal: subtotal
+      };
+    });
+  }, []);
+
+  const iniciarAtendimentoMesa = (numero: number) => {
+    setMesaSelecionada({
+      id: `mesa-${numero}`,
+      mesa_id: numero.toString(),
+      mesa_numero: numero,
+      criado_em: new Date().toISOString(),
+      carrinho: [],
+      total: 0
+    });
+    setCarrinho([]);
+    setClienteEncontrado(null);
+    setTelefoneInput('');
+    setNomeNovoCliente('');
+    setMesaComandaModal(null);
+  };
+
+  const puxarComandaParaFaturar = (mesa: MesaAberta) => {
+    const itensNormalizados = normalizarItensMesa(mesa, produtos);
+    setMesaSelecionada(mesa);
+    setCarrinho(itensNormalizados);
+
+    // Auto-selecionar o cliente da mesa no caixa para fidelidade e histórico!
+    let cli: Cliente | null = null;
+    if (mesa.cliente_id) {
+      cli = clientes.find(c => c.id === mesa.cliente_id) || null;
+    }
+    if (!cli && mesa.cliente_nome) {
+      cli = clientes.find(c => c.nome.trim().toLowerCase() === mesa.cliente_nome!.trim().toLowerCase()) || null;
+    }
+    if (cli) {
+      setClienteEncontrado(cli);
+      setTelefoneInput(cli.whatsapp ? formatPhoneDisplay(cli.whatsapp) : '');
+      setIsNovoCliente(false);
+    } else if (mesa.cliente_telefone) {
+      setTelefoneInput(formatPhoneDisplay(mesa.cliente_telefone));
+    } else if (mesa.cliente_nome) {
+      setNomeNovoCliente(mesa.cliente_nome);
+    }
+
+    setMesaComandaModal(null);
+    setSucessoMensagem(`Comanda da Mesa ${mesa.mesa_numero < 10 ? `0${mesa.mesa_numero}` : mesa.mesa_numero} puxada para faturar! Selecione a forma de pagamento.`);
+    setTimeout(() => setSucessoMensagem(null), 4000);
+  };
+
+  const cobrarComandaDireto = async (mesa: MesaAberta, forma: 'dinheiro' | 'pix' | 'cartao_debito' | 'cartao_credito') => {
+    if (isProcessando) return;
+    try {
+      setIsProcessando(true);
+      const itensNormalizados = normalizarItensMesa(mesa, produtos);
+      const total = mesa.total || itensNormalizados.reduce((acc, i) => acc + (i.subtotal || 0), 0);
+      const detalhesCompra = itensNormalizados.map(i => `${i.quantidade}x ${i.produto.nome}`).join(', ') || 'Consumo Mesa';
+
+      let cliParaVenda: Cliente | null = null;
+      if (mesa.cliente_id) {
+        cliParaVenda = clientes.find(c => c.id === mesa.cliente_id) || null;
+      }
+      if (!cliParaVenda && mesa.cliente_nome) {
+        cliParaVenda = clientes.find(c => c.nome.trim().toLowerCase() === mesa.cliente_nome!.trim().toLowerCase()) || null;
+      }
+
+      let compraRegistrada: Compra | null = null;
+      if (cliParaVenda) {
+        const res = await registrarNovaCompra(cliParaVenda.id, total, detalhesCompra, itensNormalizados, forma);
+        compraRegistrada = res.compra;
+      } else {
+        const res = await cadastrarERegistrarCompra(
+          mesa.cliente_nome || `Mesa ${mesa.mesa_numero}`,
+          mesa.cliente_telefone || '0',
+          total,
+          detalhesCompra,
+          null,
+          null,
+          `Consumo Mesa ${mesa.mesa_numero}`,
+          itensNormalizados,
+          forma
+        );
+        compraRegistrada = res.compra;
+      }
+
+      if (configFiscal.emissao_automatica_pdv && compraRegistrada) {
+        try {
+          const nota = await emitirNotaFiscal(
+            compraRegistrada,
+            itensNormalizados,
+            { nome: mesa.cliente_nome || 'Consumidor', whatsapp: mesa.cliente_telefone }
+          );
+          setModalNfe({ aberto: true, nota });
+        } catch (e) {
+          console.warn('Emissão fiscal automática pendente:', e);
+        }
+      }
+
+      await deleteMesaAberta(mesa.id);
+      setMesasAbertas(prev => prev.filter(m => m.id !== mesa.id && m.mesa_numero !== mesa.mesa_numero));
+
+      const peds = await fetchPedidosCozinha();
+      const daMesa = peds.filter(p => p.mesa_numero === mesa.mesa_numero && p.status !== 'cancelado');
+      for (const ped of daMesa) {
+        await updatePedidoCozinhaStatus(ped.id, 'entregue');
+      }
+
+      setMesaComandaModal(null);
+      setMesaSelecionada(null);
+      setCarrinho([]);
+      setSucessoMensagem(`Pagamento da Mesa ${mesa.mesa_numero < 10 ? `0${mesa.mesa_numero}` : mesa.mesa_numero} (${forma.toUpperCase()}) de R$ ${total.toFixed(2)} recebido com sucesso! Mesa liberada.`);
+      setTimeout(() => setSucessoMensagem(null), 4000);
+    } catch (err) {
+      console.error('Erro ao cobrar comanda direto:', err);
+      setAlertConfig({ isOpen: true, title: 'Erro', message: 'Houve uma falha ao receber o pagamento da mesa.' });
+    } finally {
+      setIsProcessando(false);
+    }
+  };
+
   const handleAbrirMesa = (numero: number) => {
     const mesaAtual = mesasAbertas.find(m => m.mesa_numero === numero);
     if (mesaAtual) {
-      setMesaSelecionada(mesaAtual);
-      setCarrinho(mesaAtual.carrinho || []);
-
-      // Auto-selecionar o cliente da mesa no caixa para fidelidade e histórico!
-      let cli: Cliente | null = null;
-      if (mesaAtual.cliente_id) {
-        cli = clientes.find(c => c.id === mesaAtual.cliente_id) || null;
-      }
-      if (!cli && mesaAtual.cliente_nome) {
-        cli = clientes.find(c => c.nome.trim().toLowerCase() === mesaAtual.cliente_nome!.trim().toLowerCase()) || null;
-      }
-      if (cli) {
-        setClienteEncontrado(cli);
-        setTelefoneInput(cli.whatsapp ? formatPhoneDisplay(cli.whatsapp) : '');
-        setIsNovoCliente(false);
-      } else if (mesaAtual.cliente_telefone) {
-        setTelefoneInput(formatPhoneDisplay(mesaAtual.cliente_telefone));
-      } else if (mesaAtual.cliente_nome) {
-        setNomeNovoCliente(mesaAtual.cliente_nome);
-      }
+      setMesaComandaModal(mesaAtual);
     } else {
-      setMesaSelecionada({
-        id: `mesa-${numero}`,
-        mesa_id: numero.toString(),
-        mesa_numero: numero,
-        criado_em: new Date().toISOString(),
-        carrinho: [],
-        total: 0
-      });
-      setCarrinho([]);
-      setClienteEncontrado(null);
-      setTelefoneInput('');
-      setNomeNovoCliente('');
+      iniciarAtendimentoMesa(numero);
     }
   };
 
@@ -703,6 +839,10 @@ export const CaixaPage: React.FC = () => {
                       <span className="text-rose-600 font-mono text-[9px] font-bold mt-0.5 flex items-center gap-1">
                         <Timer className="w-2.5 h-2.5" />
                         {formatTempoPerm(mesa.criado_em)}
+                      </span>
+                      <span className="mt-1 text-[9px] font-black uppercase tracking-wider text-rose-800 bg-rose-200/80 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-2xs">
+                        <Receipt className="w-2.5 h-2.5" />
+                        Cobrar
                       </span>
                     </div>
                   ) : (
@@ -1518,6 +1658,175 @@ export const CaixaPage: React.FC = () => {
         webhookUrlWhatsApp={config.webhook_whatsapp_url}
         onClose={() => setModalNfe({ aberto: false, nota: null })}
       />
+
+      {/* MODAL DE COMANDA DA MESA (PUXAR PARA FATURAR E COBRAR) */}
+      {mesaComandaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh]">
+            
+            {/* Header */}
+            <div className="bg-gradient-to-r from-stone-900 to-stone-800 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-black text-xl">
+                  {mesaComandaModal.mesa_numero < 10 ? `0${mesaComandaModal.mesa_numero}` : mesaComandaModal.mesa_numero}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-black">Comanda Mesa {mesaComandaModal.mesa_numero}</h2>
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+                      Ocupada
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-300 flex items-center gap-2 mt-0.5">
+                    <span>Cliente: <strong className="text-white">{mesaComandaModal.cliente_nome || 'Consumidor'}</strong></span>
+                    {mesaComandaModal.cliente_telefone && (
+                      <span className="font-mono text-stone-400">• {formatPhoneDisplay(mesaComandaModal.cliente_telefone)}</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setMesaComandaModal(null)}
+                className="text-stone-400 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Conteúdo da Comanda */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+              
+              {/* Resumo de Tempo e Consumo */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-stone-50 p-3.5 rounded-2xl border border-stone-200">
+                  <span className="text-xs text-stone-500 font-medium flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-stone-400" />
+                    Tempo na mesa
+                  </span>
+                  <span className="text-base font-black font-mono text-stone-800 mt-1 block">
+                    {formatTempoPerm(mesaComandaModal.criado_em)}
+                  </span>
+                </div>
+                <div className="bg-amber-50 p-3.5 rounded-2xl border border-amber-200">
+                  <span className="text-xs text-amber-700 font-medium flex items-center gap-1">
+                    <Receipt className="w-3.5 h-3.5 text-amber-600" />
+                    Total a pagar
+                  </span>
+                  <span className="text-2xl font-black font-mono text-amber-900 mt-0.5 block">
+                    R$ {(mesaComandaModal.total || 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Lista dos Itens da Comanda */}
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2.5 flex items-center gap-1.5">
+                  <ShoppingBag className="w-4 h-4 text-stone-400" />
+                  Itens Consumidos pelo Cliente
+                </h3>
+                <div className="bg-stone-50 rounded-2xl border border-stone-200 divide-y divide-stone-200/70 overflow-hidden">
+                  {normalizarItensMesa(mesaComandaModal, produtos).map((item, idx) => (
+                    <div key={idx} className="p-3.5 flex items-center justify-between hover:bg-stone-100/50 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <span className="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 font-bold font-mono text-xs flex items-center justify-center shrink-0">
+                          {item.quantidade}x
+                        </span>
+                        <div>
+                          <p className="font-bold text-stone-900 text-sm">{item.produto.nome}</p>
+                          <p className="text-xs text-stone-500 font-mono">R$ {item.produto.preco.toFixed(2)} un.</p>
+                        </div>
+                      </div>
+                      <span className="font-black font-mono text-stone-900 text-sm">
+                        R$ {item.subtotal.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                  {normalizarItensMesa(mesaComandaModal, produtos).length === 0 && (
+                    <div className="p-6 text-center text-stone-400 text-sm">
+                      Nenhum item lançado ainda nesta comanda.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Ações de Cobrança Rápida Direta */}
+              <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-200/80">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-800 block mb-2.5">
+                  ⚡ Cobrança Rápida Direta (1 Clique):
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => cobrarComandaDireto(mesaComandaModal, 'pix')}
+                    disabled={isProcessando}
+                    className="py-2.5 px-3 bg-white hover:bg-emerald-600 hover:text-white border border-emerald-300 text-emerald-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs cursor-pointer active:scale-95"
+                  >
+                    <span>⚡ PIX</span>
+                  </button>
+                  <button
+                    onClick={() => cobrarComandaDireto(mesaComandaModal, 'dinheiro')}
+                    disabled={isProcessando}
+                    className="py-2.5 px-3 bg-white hover:bg-emerald-600 hover:text-white border border-emerald-300 text-emerald-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs cursor-pointer active:scale-95"
+                  >
+                    <span>💵 Dinheiro</span>
+                  </button>
+                  <button
+                    onClick={() => cobrarComandaDireto(mesaComandaModal, 'cartao_debito')}
+                    disabled={isProcessando}
+                    className="py-2.5 px-3 bg-white hover:bg-emerald-600 hover:text-white border border-emerald-300 text-emerald-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs cursor-pointer active:scale-95"
+                  >
+                    <span>💳 Cartão</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer com o Botão Principal "Puxar Comanda para Faturar no Caixa" */}
+            <div className="p-4 bg-stone-50 border-t border-stone-200 flex flex-col sm:flex-row items-center gap-2">
+              <button
+                type="button"
+                onClick={() => puxarComandaParaFaturar(mesaComandaModal)}
+                className="w-full sm:flex-1 py-4 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl font-black text-base flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
+              >
+                <Receipt className="w-5 h-5" />
+                <span>Puxar Comanda e Faturar no Caixa</span>
+                <ArrowRight className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  puxarComandaParaFaturar(mesaComandaModal);
+                }}
+                className="w-full sm:w-auto py-3.5 px-4 bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 rounded-2xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                title="Adicionar mais itens no pedido da mesa"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Itens</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Deseja realmente desocupar e liberar a Mesa ${mesaComandaModal.mesa_numero} sem cobrança?`)) {
+                    deleteMesaAberta(mesaComandaModal.id).then(() => {
+                      setMesasAbertas(prev => prev.filter(m => m.id !== mesaComandaModal.id));
+                      setMesaComandaModal(null);
+                      setSucessoMensagem(`Mesa ${mesaComandaModal.mesa_numero} liberada.`);
+                      setTimeout(() => setSucessoMensagem(null), 3000);
+                    });
+                  }
+                }}
+                className="w-full sm:w-auto py-3.5 px-3 text-rose-600 hover:bg-rose-50 rounded-2xl font-bold text-xs transition-colors cursor-pointer"
+              >
+                Liberar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };
