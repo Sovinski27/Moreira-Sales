@@ -15,7 +15,8 @@ import {
   PedidoCozinhaStatus,
   ItemPedidoCozinha,
   ConfiguracaoFiscal,
-  NotaFiscal
+  NotaFiscal,
+  ReceitaMetadata
 } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { 
@@ -40,6 +41,7 @@ export const STORAGE_KEYS = {
   FORNECEDORES: 'panificadora_fornecedores',
   INSUMOS: 'panificadora_insumos',
   FICHAS_TECNICAS: 'panificadora_fichas_tecnicas',
+  RECEITAS_METADATA: 'panificadora_receitas_metadados',
   HISTORICO_COMPRAS: 'panificadora_historico_compras',
   CUSTOS_FIXOS: 'panificadora_custos_fixos',
   PEDIDOS_COZINHA: 'panificadora_pedidos_cozinha',
@@ -391,7 +393,47 @@ export async function registerCompra(
   let custo_total = 0;
   
   if (carrinho && carrinho.length > 0) {
-    custo_total = carrinho.reduce((acc, item) => acc + ((item.produto.custo || 0) * item.quantidade), 0);
+    const fichasDb = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+    const insumosDb = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+    let insumosUpdated = false;
+    let newInsumos = [...insumosDb];
+
+    custo_total = carrinho.reduce((acc, item) => {
+      let unitCusto = (item.produto && item.produto.custo !== undefined && item.produto.custo > 0)
+        ? item.produto.custo
+        : calcularCustoUnitarioProduto(item.produto.id, fichasDb, insumosDb, item.produto);
+
+      // Baixa automática proporcional de insumos consumidos pela receita da venda
+      const fichasProd = fichasDb.filter(f => f.produto_id === item.produto.id);
+      if (fichasProd.length > 0) {
+        const rend = fichasProd[0]?.rendimento_unidades && fichasProd[0].rendimento_unidades > 0 ? fichasProd[0].rendimento_unidades : 1;
+        fichasProd.forEach(f => {
+          if (f.insumo_id && f.quantidade_utilizada > 0) {
+            const ins = newInsumos.find(i => i.id === f.insumo_id);
+            const qtdBase = converterParaUnidadeBase(f.quantidade_utilizada, f.unidade_medida, ins?.unidade_medida);
+            const consumoUnidade = qtdBase / rend;
+            const consumoTotalVenda = consumoUnidade * item.quantidade;
+            const idxIns = newInsumos.findIndex(i => i.id === f.insumo_id);
+            if (idxIns >= 0) {
+              insumosUpdated = true;
+              const insItem = newInsumos[idxIns];
+              const novoEstoque = Math.max(0, (insItem.quantidade_estoque || 0) - consumoTotalVenda);
+              newInsumos[idxIns] = { ...insItem, quantidade_estoque: Number(novoEstoque.toFixed(4)) };
+            }
+          }
+        });
+      }
+
+      return acc + (unitCusto * item.quantidade);
+    }, 0);
+
+    if (insumosUpdated) {
+      setLocal(STORAGE_KEYS.INSUMOS, newInsumos);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('insumos_atualizados'));
+      }
+    }
+
     const produtosDb = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
     let produtosUpdated = false;
     const newProdutos = produtosDb.map(p => {
@@ -582,8 +624,119 @@ export async function deleteCategoria(id: string): Promise<void> {
   }
 }
 
-export async function fetchProdutos(): Promise<Produto[]> {
+// ============================================================================
+// CÁLCULO DE CUSTO REAL DE PRODUÇÃO E CONVERSÕES DE UNIDADES (CMV / FICHAS)
+// ============================================================================
+
+export function converterParaUnidadeBase(
+  quantidade: number,
+  unidadeOrigem?: 'g' | 'kg' | 'ml' | 'l' | 'un',
+  unidadeBaseInsumo: 'g' | 'kg' | 'ml' | 'l' | 'un' = 'kg'
+): number {
+  const qtd = Number(quantidade) || 0;
+  if (qtd <= 0) return 0;
+
+  // Se a unidade de origem não foi definida explicitamente:
+  if (!unidadeOrigem || unidadeOrigem === unidadeBaseInsumo) {
+    // Heurística de proteção caso a receita tenha sido informada em gramas (ex: 500) para insumo em kg
+    if (unidadeBaseInsumo === 'kg' && qtd >= 20) {
+      return qtd / 1000;
+    }
+    if (unidadeBaseInsumo === 'l' && qtd >= 50) {
+      return qtd / 1000;
+    }
+    return qtd;
+  }
+
+  // Conversões de Massa (Peso)
+  if (unidadeBaseInsumo === 'kg' && unidadeOrigem === 'g') return qtd / 1000;
+  if (unidadeBaseInsumo === 'g' && unidadeOrigem === 'kg') return qtd * 1000;
+
+  // Conversões de Volume (Líquido)
+  if (unidadeBaseInsumo === 'l' && unidadeOrigem === 'ml') return qtd / 1000;
+  if (unidadeBaseInsumo === 'ml' && unidadeOrigem === 'l') return qtd * 1000;
+
+  return qtd;
+}
+
+export function calcularCustoUnitarioProduto(
+  produtoId: string,
+  fichas: FichaTecnica[],
+  insumos: Insumo[],
+  produtoBase?: Produto | null
+): number {
+  const fichasProd = fichas.filter(f => f.produto_id === produtoId);
+  if (fichasProd.length === 0) {
+    return Number(produtoBase?.custo) || 0;
+  }
+
+  const rendimento = (fichasProd[0]?.rendimento_unidades && fichasProd[0].rendimento_unidades > 0)
+    ? Number(fichasProd[0].rendimento_unidades)
+    : 1;
+
+  let custoBateladaTotal = 0;
+  let possuiInsumoOuCustoValido = false;
+
+  fichasProd.forEach(f => {
+    if (f.insumo_id) {
+      const ins = insumos.find(i => i.id === f.insumo_id);
+      if (ins) {
+        const qtdBase = converterParaUnidadeBase(
+          f.quantidade_utilizada,
+          f.unidade_medida,
+          ins.unidade_medida
+        );
+        custoBateladaTotal += (Number(ins.preco_custo) || 0) * qtdBase;
+        possuiInsumoOuCustoValido = true;
+      }
+    }
+    if (f.custo_direto && f.custo_direto > 0) {
+      custoBateladaTotal += Number(f.custo_direto) * rendimento;
+      possuiInsumoOuCustoValido = true;
+    }
+  });
+
+  if (!possuiInsumoOuCustoValido && produtoBase?.custo !== undefined && produtoBase.custo > 0) {
+    return produtoBase.custo;
+  }
+
+  const custoUnitario = rendimento > 0 ? (custoBateladaTotal / rendimento) : 0;
+  return Number(custoUnitario.toFixed(2));
+}
+
+export function recalcularTodosCustosProdutos(): Produto[] {
   const localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+  const fichas = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+  const insumos = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+
+  let houveAlteracao = false;
+  const sincronizados = localProds.map(p => {
+    const temFicha = fichas.some(f => f.produto_id === p.id);
+    if (!temFicha) return p;
+
+    const custoCalculado = calcularCustoUnitarioProduto(p.id, fichas, insumos, p);
+    if (p.custo !== custoCalculado) {
+      houveAlteracao = true;
+      return { ...p, custo: custoCalculado };
+    }
+    return p;
+  });
+
+  if (houveAlteracao) {
+    setLocal(STORAGE_KEYS.PRODUTOS, sincronizados);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('produtos_atualizados'));
+      window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
+    }
+  }
+
+  return sincronizados;
+}
+
+export async function fetchProdutos(): Promise<Produto[]> {
+  let localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+  const fichas = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+  const insumos = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
 
   if (isSupabaseConfigured && supabase) {
     try {
@@ -593,26 +746,50 @@ export async function fetchProdutos(): Promise<Produto[]> {
         .order('nome');
 
       if (!error && data) {
-        setLocal(STORAGE_KEYS.PRODUTOS, data);
-        return data as Produto[];
+        localProds = data.map((prod: any) => {
+          const localItem = localProds.find(lp => lp.id === prod.id);
+          return {
+            ...prod,
+            custo: prod.custo !== undefined && prod.custo !== null ? Number(prod.custo) : (localItem?.custo || 0)
+          };
+        });
       }
     } catch (e) {
       console.warn('Falha ao buscar produtos no Supabase:', e);
     }
   }
 
-  return localProds;
+  // Garantir que a matemática real das fichas técnicas e insumos seja aplicada a todos os produtos
+  const produtosComCustoReal = localProds.map(p => {
+    const temFicha = fichas.some(f => f.produto_id === p.id);
+    if (temFicha) {
+      const custoReal = calcularCustoUnitarioProduto(p.id, fichas, insumos, p);
+      return { ...p, custo: custoReal };
+    }
+    return p;
+  });
+
+  setLocal(STORAGE_KEYS.PRODUTOS, produtosComCustoReal);
+  return produtosComCustoReal;
 }
 
 export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }): Promise<Produto> {
   const prodId = (produto.id && isUuid(produto.id)) ? produto.id : generateUuid();
   const catId = (produto.categoria_id && isUuid(produto.categoria_id)) ? produto.categoria_id : null;
 
+  const fichas = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+  const insumos = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+  const temFicha = fichas.some(f => f.produto_id === prodId);
+  const custoCalculado = temFicha 
+    ? calcularCustoUnitarioProduto(prodId, fichas, insumos, produto as any)
+    : (produto.custo !== undefined ? Number(produto.custo) : 0);
+
   const newProduto: Produto = {
     ...produto,
     ativo: produto.ativo !== false,
     id: prodId,
-    categoria_id: catId || produto.categoria_id
+    categoria_id: catId || produto.categoria_id,
+    custo: custoCalculado
   };
 
   // 1. Salvar na nuvem do Supabase com colunas compatíveis com o banco (UUID e colunas existentes)
@@ -639,6 +816,18 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
       }
       if (error) {
         console.warn('Erro ao salvar produto no Supabase:', error.message);
+      }
+
+      // Se informou custo no produto e NÃO possui receita cadastrada, salvar custo direto em fichas_tecnicas
+      if (!temFicha && newProduto.custo !== undefined && Number(newProduto.custo) > 0) {
+        await supabase.from('fichas_tecnicas').upsert({
+          id: 'ficha-' + prodId,
+          produto_id: prodId,
+          nome: 'Custo Direto - ' + newProduto.nome,
+          rendimento_unidades: 1,
+          custo_mao_obra: Number(newProduto.custo),
+          insumos: []
+        });
       }
     } catch (e) {
       console.warn('Falha ao salvar produto no Supabase:', e);
@@ -1114,30 +1303,56 @@ export async function criarPedidoCardapio(params: {
 
 // --- CMV ---
 export async function fetchFornecedores(): Promise<Fornecedor[]> {
+  const localList = getLocal<Fornecedor[]>(STORAGE_KEYS.FORNECEDORES, []);
+
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('fornecedores')
         .select('*')
         .order('nome_empresa');
-      if (!error && data) return data as Fornecedor[];
+      if (!error && data) {
+        const mapped: Fornecedor[] = data.map((f: any) => ({
+          id: f.id,
+          nome_empresa: f.nome_empresa || f.nome || '',
+          contato_whatsapp: f.contato_whatsapp || f.contato || f.telefone || '',
+          cnpj: f.cnpj || undefined,
+          cidade: f.cidade || undefined
+        }));
+        setLocal(STORAGE_KEYS.FORNECEDORES, mapped);
+        return mapped;
+      }
     } catch (e) {
       console.warn('Falha ao buscar fornecedores no Supabase, usando local:', e);
     }
   }
-  const v = localStorage.getItem(STORAGE_KEYS.FORNECEDORES);
-  return v ? JSON.parse(v) : [];
+  return localList;
 }
 
-export async function saveFornecedor(f: Fornecedor): Promise<Fornecedor> {
-  const id = f.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'forn-' + Date.now());
-  const newF: Fornecedor = { ...f, id };
+export async function saveFornecedor(f: Partial<Fornecedor> & { nome_empresa: string }): Promise<Fornecedor> {
+  const id = (f.id && isUuid(f.id)) ? f.id : (f.id || generateUuid());
+  const newF: Fornecedor = { 
+    id,
+    nome_empresa: f.nome_empresa.trim(),
+    contato_whatsapp: f.contato_whatsapp?.trim() || '',
+    cnpj: f.cnpj?.trim() || undefined,
+    cidade: f.cidade?.trim() || undefined
+  };
 
+  // 1. Gravar imediatamente no LocalStorage
+  const list = getLocal<Fornecedor[]>(STORAGE_KEYS.FORNECEDORES, []);
+  const exists = list.some(x => x.id === newF.id);
+  const updated = exists ? list.map(x => x.id === newF.id ? newF : x) : [...list, newF];
+  setLocal(STORAGE_KEYS.FORNECEDORES, updated);
+
+  // 2. Sincronizar com Supabase
   if (isSupabaseConfigured && supabase) {
     try {
       await supabase.from('fornecedores').upsert({
         id: newF.id,
+        nome: newF.nome_empresa,
         nome_empresa: newF.nome_empresa,
+        contato: newF.contato_whatsapp,
         contato_whatsapp: newF.contato_whatsapp,
         cnpj: newF.cnpj || null,
         cidade: newF.cidade || null,
@@ -1147,14 +1362,14 @@ export async function saveFornecedor(f: Fornecedor): Promise<Fornecedor> {
     }
   }
 
-  const list = await fetchFornecedores();
-  const exists = list.some(x => x.id === newF.id);
-  const updated = exists ? list.map(x => x.id === newF.id ? newF : x) : [...list, newF];
-  localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(updated));
   return newF;
 }
 
 export async function deleteFornecedor(id: string): Promise<void> {
+  const list = getLocal<Fornecedor[]>(STORAGE_KEYS.FORNECEDORES, []);
+  const updated = list.filter(x => x.id !== id);
+  setLocal(STORAGE_KEYS.FORNECEDORES, updated);
+
   if (isSupabaseConfigured && supabase) {
     try {
       await supabase.from('fornecedores').delete().eq('id', id);
@@ -1162,46 +1377,85 @@ export async function deleteFornecedor(id: string): Promise<void> {
       console.warn('Falha ao excluir fornecedor no Supabase:', e);
     }
   }
-  const list = await fetchFornecedores();
-  localStorage.setItem(STORAGE_KEYS.FORNECEDORES, JSON.stringify(list.filter(x => x.id !== id)));
 }
 
 export async function fetchInsumos(): Promise<Insumo[]> {
+  const localList = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('insumos')
         .select('*')
         .order('nome');
-      if (!error && data) return data as Insumo[];
+      if (!error && data) {
+        const mapped: Insumo[] = data.map((item: any) => ({
+          id: item.id,
+          nome: item.nome,
+          unidade_medida: item.unidade_medida || 'kg',
+          preco_custo: Number(item.preco_custo ?? item.custo_unitario) || 0,
+          quantidade_estoque: Number(item.quantidade_estoque ?? item.estoque_atual) || 0,
+          estoque_minimo: Number(item.estoque_minimo) || 0,
+          fornecedor_id: item.fornecedor_id || ''
+        }));
+        setLocal(STORAGE_KEYS.INSUMOS, mapped);
+        return mapped;
+      }
     } catch (e) {
       console.warn('Falha ao buscar insumos no Supabase, usando local:', e);
     }
   }
-  const v = localStorage.getItem(STORAGE_KEYS.INSUMOS);
-  return v ? JSON.parse(v) : [];
+  return localList;
 }
 
-export async function saveInsumo(i: Insumo): Promise<Insumo> {
-  const id = i.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'insumo-' + Date.now());
-  const newI: Insumo = { ...i, id };
+export async function saveInsumo(i: Partial<Insumo> & { nome: string }): Promise<Insumo> {
+  const id = (i.id && isUuid(i.id)) ? i.id : (i.id || generateUuid());
+  const newI: Insumo = { 
+    id,
+    nome: i.nome.trim(),
+    unidade_medida: i.unidade_medida || 'kg',
+    preco_custo: Number(i.preco_custo) || 0,
+    quantidade_estoque: Number(i.quantidade_estoque) || 0,
+    estoque_minimo: Number(i.estoque_minimo) || 0,
+    fornecedor_id: i.fornecedor_id?.trim() || ''
+  };
 
+  // 1. Gravar imediatamente no LocalStorage
+  const list = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+  const exists = list.some(x => x.id === newI.id);
+  const updated = exists ? list.map(x => x.id === newI.id ? newI : x) : [...list, newI];
+  setLocal(STORAGE_KEYS.INSUMOS, updated);
+
+  // Recalcular custos de produção de todos os produtos que utilizam insumos
+  recalcularTodosCustosProdutos();
+
+  // 2. Sincronizar com Supabase
   if (isSupabaseConfigured && supabase) {
     try {
-      await supabase.from('insumos').upsert(newI);
+      await supabase.from('insumos').upsert({
+        id: newI.id,
+        nome: newI.nome,
+        unidade_medida: newI.unidade_medida,
+        preco_custo: newI.preco_custo,
+        custo_unitario: newI.preco_custo,
+        quantidade_estoque: newI.quantidade_estoque,
+        estoque_atual: newI.quantidade_estoque,
+        estoque_minimo: newI.estoque_minimo,
+        fornecedor_id: newI.fornecedor_id || null
+      });
     } catch (e) {
       console.warn('Falha ao salvar insumo no Supabase:', e);
     }
   }
 
-  const list = await fetchInsumos();
-  const exists = list.some(x => x.id === newI.id);
-  const updated = exists ? list.map(x => x.id === newI.id ? newI : x) : [...list, newI];
-  localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(updated));
   return newI;
 }
 
 export async function deleteInsumo(id: string): Promise<void> {
+  const list = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+  const updated = list.filter(x => x.id !== id);
+  setLocal(STORAGE_KEYS.INSUMOS, updated);
+
   if (isSupabaseConfigured && supabase) {
     try {
       await supabase.from('insumos').delete().eq('id', id);
@@ -1209,55 +1463,419 @@ export async function deleteInsumo(id: string): Promise<void> {
       console.warn('Falha ao excluir insumo no Supabase:', e);
     }
   }
-  const list = await fetchInsumos();
-  localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(list.filter(x => x.id !== id)));
 }
 
 export async function fetchFichasTecnicas(): Promise<FichaTecnica[]> {
+  const localList = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('fichas_tecnicas')
         .select('*');
-      if (!error && data) return data as FichaTecnica[];
+      if (!error && data) {
+        const result: FichaTecnica[] = [];
+        data.forEach((row: any) => {
+          const rendimento = Number(row.rendimento_unidades) > 0 ? Number(row.rendimento_unidades) : 1;
+          const custoDiretoOuMaoObra = Number(row.custo_mao_obra ?? row.custo_direto) || 0;
+
+          if (Array.isArray(row.insumos) && row.insumos.length > 0) {
+            row.insumos.forEach((ing: any, idx: number) => {
+              if (ing.insumo_id && Number(ing.quantidade_utilizada) > 0) {
+                const unidadeEscolhida = ing.unidade_medida || ing.unidade_utilizada || undefined;
+                const qtdOriginal = ing.quantidade_original !== undefined 
+                  ? Number(ing.quantidade_original) 
+                  : Number(ing.quantidade_utilizada);
+
+                result.push({
+                  id: `${row.id || 'ficha'}-${idx}`,
+                  produto_id: row.produto_id,
+                  insumo_id: ing.insumo_id,
+                  quantidade_utilizada: Number(ing.quantidade_utilizada) || 0,
+                  rendimento_unidades: rendimento,
+                  custo_direto: custoDiretoOuMaoObra,
+                  unidade_medida: unidadeEscolhida,
+                  quantidade_original: qtdOriginal
+                });
+              }
+            });
+          } else if (row.produto_id) {
+            // Ficha de custo direto (sem insumos vinculados ou item de revenda)
+            result.push({
+              id: row.id || `ficha-${row.produto_id}`,
+              produto_id: row.produto_id,
+              insumo_id: '',
+              quantidade_utilizada: 0,
+              rendimento_unidades: rendimento,
+              custo_direto: custoDiretoOuMaoObra
+            });
+          }
+        });
+
+        // Garantir que receitas salvas localmente não sejam perdidas se ainda não sincronizadas
+        const prodsNoSupabase = new Set(result.map(x => x.produto_id));
+        localList.forEach(localItem => {
+          if (!prodsNoSupabase.has(localItem.produto_id)) {
+            result.push(localItem);
+          }
+        });
+
+        setLocal(STORAGE_KEYS.FICHAS_TECNICAS, result);
+        return result;
+      }
     } catch (e) {
       console.warn('Falha ao buscar fichas no Supabase, usando local:', e);
     }
   }
-  const v = localStorage.getItem(STORAGE_KEYS.FICHAS_TECNICAS);
-  return v ? JSON.parse(v) : [];
+
+  return localList;
 }
 
-export async function saveFichaTecnica(f: FichaTecnica): Promise<FichaTecnica> {
-  const id = f.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'ficha-' + Date.now());
-  const newF: FichaTecnica = { ...f, id };
+export async function saveCustoDiretoProduto(produtoId: string, custoDireto: number): Promise<FichaTecnica[]> {
+  const custoNum = Math.max(0, Number(custoDireto) || 0);
+  const currentList = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+  const semEsseProduto = currentList.filter(x => x.produto_id !== produtoId);
+
+  const novoItem: FichaTecnica = {
+    id: `ficha-${produtoId}`,
+    produto_id: produtoId,
+    insumo_id: '',
+    quantidade_utilizada: 0,
+    rendimento_unidades: 1,
+    custo_direto: custoNum
+  };
+
+  const atualizado = [...semEsseProduto, novoItem];
+  setLocal(STORAGE_KEYS.FICHAS_TECNICAS, atualizado);
+
+  // Também atualizar cache local de produtos para consistência
+  const prods = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+  if (prods.some(p => p.id === produtoId)) {
+    const updatedProds = prods.map(p => p.id === produtoId ? { ...p, custo: custoNum } : p);
+    setLocal(STORAGE_KEYS.PRODUTOS, updatedProds);
+  }
 
   if (isSupabaseConfigured && supabase) {
     try {
-      await supabase.from('fichas_tecnicas').upsert(newF);
+      await supabase.from('fichas_tecnicas').upsert({
+        id: 'ficha-' + produtoId,
+        produto_id: produtoId,
+        nome: 'Custo Direto',
+        rendimento_unidades: 1,
+        custo_mao_obra: custoNum,
+        insumos: []
+      });
+    } catch (e) {
+      console.warn('Falha ao salvar custo direto no Supabase:', e);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
+    window.dispatchEvent(new CustomEvent('produtos_atualizados'));
+  }
+
+  return atualizado;
+}
+
+export async function saveFichaTecnica(f: FichaTecnica): Promise<FichaTecnica> {
+  const id = (f.id && isUuid(f.id)) ? f.id : (f.id || generateUuid());
+  const rendimentoLimpo = (f.rendimento_unidades && f.rendimento_unidades > 0) ? Number(f.rendimento_unidades) : 1;
+  const newF: FichaTecnica = { 
+    id,
+    produto_id: f.produto_id,
+    insumo_id: f.insumo_id,
+    quantidade_utilizada: Number(f.quantidade_utilizada) || 0,
+    rendimento_unidades: rendimentoLimpo
+  };
+
+  // 1. Gravar imediatamente no LocalStorage
+  const list = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+  const exists = list.some(x => x.id === newF.id || (x.produto_id === newF.produto_id && x.insumo_id === newF.insumo_id));
+  const updated = exists 
+    ? list.map(x => (x.id === newF.id || (x.produto_id === newF.produto_id && x.insumo_id === newF.insumo_id)) ? newF : x) 
+    : [...list, newF];
+  setLocal(STORAGE_KEYS.FICHAS_TECNICAS, updated);
+
+  // 2. Sincronizar com Supabase no formato { id, produto_id, rendimento_unidades, insumos }
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const todosInsumosProduto = updated.filter(x => x.produto_id === newF.produto_id);
+      await supabase.from('fichas_tecnicas').upsert({
+        id: 'ficha-' + newF.produto_id,
+        produto_id: newF.produto_id,
+        rendimento_unidades: rendimentoLimpo,
+        insumos: todosInsumosProduto.map(x => ({
+          insumo_id: x.insumo_id,
+          quantidade_utilizada: x.quantidade_utilizada
+        }))
+      });
     } catch (e) {
       console.warn('Falha ao salvar ficha no Supabase:', e);
     }
   }
 
-  const list = await fetchFichasTecnicas();
-  const exists = list.some(x => x.id === newF.id);
-  const updated = exists ? list.map(x => x.id === newF.id ? newF : x) : [...list, newF];
-  localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(updated));
   return newF;
 }
 
-export async function deleteFichaTecnica(id: string): Promise<void> {
+// ==========================================
+// METADADOS E FICHA TÉCNICA OFICIAL (MOREIRA SALES)
+// ==========================================
+
+export async function fetchReceitasMetadata(): Promise<Record<string, ReceitaMetadata>> {
+  const localMap = getLocal<Record<string, ReceitaMetadata>>(STORAGE_KEYS.RECEITAS_METADATA, {});
+
   if (isSupabaseConfigured && supabase) {
     try {
-      await supabase.from('fichas_tecnicas').delete().eq('id', id);
+      const { data, error } = await supabase.from('fichas_tecnicas').select('*');
+      if (!error && data) {
+        data.forEach((row: any) => {
+          if (row.produto_id) {
+            localMap[row.produto_id] = {
+              produto_id: row.produto_id,
+              responsavel: row.responsavel || row.nome_responsavel || localMap[row.produto_id]?.responsavel || '',
+              codigo: row.codigo || localMap[row.produto_id]?.codigo || '',
+              data: row.data_ficha || row.data || localMap[row.produto_id]?.data || '',
+              rendimento_cru: row.rendimento_cru || localMap[row.produto_id]?.rendimento_cru || '',
+              rendimento_assado: row.rendimento_assado || localMap[row.produto_id]?.rendimento_assado || '',
+              rendimento_total: row.rendimento_total || localMap[row.produto_id]?.rendimento_total || '',
+              quebra: row.quebra || localMap[row.produto_id]?.quebra || '',
+              tipo_unidade: row.tipo_unidade || localMap[row.produto_id]?.tipo_unidade || 'unidade',
+              peso_por_unidade: row.peso_por_unidade || localMap[row.produto_id]?.peso_por_unidade || '',
+              tempo_preparo: row.tempo_preparo || localMap[row.produto_id]?.tempo_preparo || '',
+              modo_preparo: row.modo_preparo || localMap[row.produto_id]?.modo_preparo || '',
+              observacoes: row.observacoes || localMap[row.produto_id]?.observacoes || ''
+            };
+          }
+        });
+        setLocal(STORAGE_KEYS.RECEITAS_METADATA, localMap);
+      }
     } catch (e) {
-      console.warn('Falha ao excluir ficha no Supabase:', e);
+      console.warn('Falha ao buscar metadados de receitas no Supabase:', e);
     }
   }
-  const list = await fetchFichasTecnicas();
-  localStorage.setItem(STORAGE_KEYS.FICHAS_TECNICAS, JSON.stringify(list.filter(x => x.id !== id)));
+
+  return localMap;
 }
+
+export async function saveReceitaMetadata(meta: ReceitaMetadata): Promise<void> {
+  const localMap = getLocal<Record<string, ReceitaMetadata>>(STORAGE_KEYS.RECEITAS_METADATA, {});
+  localMap[meta.produto_id] = {
+    ...localMap[meta.produto_id],
+    ...meta
+  };
+  setLocal(STORAGE_KEYS.RECEITAS_METADATA, localMap);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('fichas_atualizadas'));
+  }
+}
+
+export async function saveReceitaCompleta(
+  produtoId: string, 
+  ingredientes: Array<{ 
+    insumo_id: string; 
+    quantidade_utilizada: number; 
+    unidade_medida?: 'g' | 'kg' | 'ml' | 'l' | 'un';
+    quantidade_original?: number;
+  }>,
+  rendimento: number = 1,
+  metadata?: Partial<ReceitaMetadata>
+): Promise<FichaTecnica[]> {
+  const rendimentoLimpo = (rendimento && rendimento > 0) ? Number(rendimento) : 1;
+  const currentList = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+  const semEsseProduto = currentList.filter(x => x.produto_id !== produtoId);
+  const insumos = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+  
+  const novosItens: FichaTecnica[] = ingredientes
+    .filter(ing => ing.insumo_id && (Number(ing.quantidade_original ?? ing.quantidade_utilizada) > 0))
+    .map((ing) => {
+      const ins = insumos.find(i => i.id === ing.insumo_id);
+      const qtdDigitada = Number(ing.quantidade_original ?? ing.quantidade_utilizada);
+      const unidadeEscolhida = ing.unidade_medida || ins?.unidade_medida || 'un';
+      const qtdNormalizadaBase = converterParaUnidadeBase(qtdDigitada, unidadeEscolhida, ins?.unidade_medida);
+
+      return {
+        id: generateUuid(),
+        produto_id: produtoId,
+        insumo_id: ing.insumo_id,
+        quantidade_utilizada: qtdNormalizadaBase,
+        rendimento_unidades: rendimentoLimpo,
+        unidade_medida: unidadeEscolhida,
+        quantidade_original: qtdDigitada
+      };
+    });
+  
+  const atualizado = [...semEsseProduto, ...novosItens];
+  setLocal(STORAGE_KEYS.FICHAS_TECNICAS, atualizado);
+
+  // Se foram informados metadados da Ficha Técnica Moreira Sales, salvar também
+  if (metadata) {
+    const metaCompleto: ReceitaMetadata = {
+      produto_id: produtoId,
+      responsavel: metadata.responsavel || '',
+      codigo: metadata.codigo || '',
+      data: metadata.data || '',
+      rendimento_cru: metadata.rendimento_cru || '',
+      rendimento_assado: metadata.rendimento_assado || '',
+      rendimento_total: metadata.rendimento_total || `${rendimentoLimpo} ${metadata.tipo_unidade || 'unidades'}`,
+      quebra: metadata.quebra || '',
+      tipo_unidade: metadata.tipo_unidade || 'unidade',
+      peso_por_unidade: metadata.peso_por_unidade || '',
+      tempo_preparo: metadata.tempo_preparo || '',
+      modo_preparo: metadata.modo_preparo || '',
+      observacoes: metadata.observacoes || ''
+    };
+    await saveReceitaMetadata(metaCompleto);
+  }
+
+  // 1. Recalcular o custo unitário real de produção do produto com matemática exata
+  const custoUnitarioCalculado = calcularCustoUnitarioProduto(produtoId, atualizado, insumos);
+
+  // 2. Atualizar imediatamente o produto no cache local
+  const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+  const prodExiste = produtos.find(p => p.id === produtoId);
+  if (prodExiste) {
+    const updatedProdutos = produtos.map(p => p.id === produtoId ? { ...p, custo: custoUnitarioCalculado } : p);
+    setLocal(STORAGE_KEYS.PRODUTOS, updatedProdutos);
+  }
+
+  // 3. Sincronizar receita no Supabase utilizando rigorosamente as colunas existentes no banco
+  if (isSupabaseConfigured && supabase) {
+    try {
+      if (novosItens.length === 0) {
+        await supabase.from('fichas_tecnicas').delete().eq('produto_id', produtoId);
+      } else {
+        const nomeReceita = prodExiste ? `Receita - ${prodExiste.nome}` : `Receita - ${produtoId}`;
+        const insumosPayload = novosItens.map(x => ({
+          insumo_id: x.insumo_id,
+          quantidade_utilizada: x.quantidade_utilizada,
+          unidade_utilizada: x.unidade_medida,
+          unidade_medida: x.unidade_medida,
+          quantidade_original: x.quantidade_original
+        }));
+
+        const { error: upsertError } = await supabase.from('fichas_tecnicas').upsert({
+          id: 'ficha-' + produtoId,
+          produto_id: produtoId,
+          nome: nomeReceita,
+          rendimento_unidades: rendimentoLimpo,
+          tempo_preparo_minutos: 0,
+          custo_mao_obra: custoUnitarioCalculado,
+          margem_lucro_desejada: 100,
+          insumos: insumosPayload
+        });
+
+        if (upsertError) {
+          console.warn('Erro ao salvar receita no Supabase:', upsertError.message);
+        }
+      }
+    } catch (e) {
+      console.warn('Falha ao salvar receita completa no Supabase:', e);
+    }
+  }
+
+  // 4. Emitir eventos de atualização para que toda a UI reaja instantaneamente
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('produtos_atualizados'));
+    window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
+    window.dispatchEvent(new CustomEvent('fichas_atualizadas'));
+  }
+
+  return atualizado;
+}
+
+export async function deleteReceitaCompleta(produtoId: string): Promise<void> {
+  const currentList = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+  const atualizado = currentList.filter(x => x.produto_id !== produtoId);
+  setLocal(STORAGE_KEYS.FICHAS_TECNICAS, atualizado);
+
+  // Limpar metadados associados à receita
+  const currentMeta = getLocal<Record<string, ReceitaMetadata>>(STORAGE_KEYS.RECEITAS_METADATA, {});
+  if (currentMeta[produtoId]) {
+    delete currentMeta[produtoId];
+    setLocal(STORAGE_KEYS.RECEITAS_METADATA, currentMeta);
+  }
+
+  // Zerar o custo de produção do produto desvinculado no cache local
+  const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+  const prodExiste = produtos.find(p => p.id === produtoId);
+  if (prodExiste) {
+    const updatedProdutos = produtos.map(p => p.id === produtoId ? { ...p, custo: 0 } : p);
+    setLocal(STORAGE_KEYS.PRODUTOS, updatedProdutos);
+  }
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('fichas_tecnicas').delete().eq('produto_id', produtoId);
+    } catch (e) {
+      console.warn('Falha ao excluir receita completa no Supabase:', e);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('produtos_atualizados'));
+    window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
+    window.dispatchEvent(new CustomEvent('fichas_atualizadas'));
+  }
+}
+
+export async function deleteFichaTecnica(id: string): Promise<void> {
+  const list = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
+  const target = list.find(x => x.id === id);
+  const updated = list.filter(x => x.id !== id);
+  setLocal(STORAGE_KEYS.FICHAS_TECNICAS, updated);
+
+  if (target) {
+    const insumos = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+    const novoCusto = calcularCustoUnitarioProduto(target.produto_id, updated, insumos);
+    const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+    const updatedProdutos = produtos.map(p => p.id === target.produto_id ? { ...p, custo: novoCusto } : p);
+    setLocal(STORAGE_KEYS.PRODUTOS, updatedProdutos);
+  }
+
+  if (target && isSupabaseConfigured && supabase) {
+    try {
+      const restantes = updated.filter(x => x.produto_id === target.produto_id);
+      if (restantes.length === 0) {
+        await supabase.from('fichas_tecnicas').delete().eq('produto_id', target.produto_id);
+      } else {
+        const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+        const prod = produtos.find(p => p.id === target.produto_id);
+        const nomeReceita = prod ? `Receita - ${prod.nome}` : `Receita - ${target.produto_id}`;
+        const rendimento = restantes[0]?.rendimento_unidades || 1;
+        const insumos = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+        const novoCusto = calcularCustoUnitarioProduto(target.produto_id, updated, insumos);
+
+        await supabase.from('fichas_tecnicas').upsert({
+          id: 'ficha-' + target.produto_id,
+          produto_id: target.produto_id,
+          nome: nomeReceita,
+          rendimento_unidades: rendimento,
+          tempo_preparo_minutos: 0,
+          custo_mao_obra: novoCusto,
+          margem_lucro_desejada: 100,
+          insumos: restantes.map(x => ({
+            insumo_id: x.insumo_id,
+            quantidade_utilizada: x.quantidade_utilizada,
+            unidade_medida: x.unidade_medida,
+            unidade_utilizada: x.unidade_medida,
+            quantidade_original: x.quantidade_original
+          }))
+        });
+      }
+    } catch (e) {
+      console.warn('Falha ao atualizar ficha no Supabase:', e);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('produtos_atualizados'));
+    window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
+    window.dispatchEvent(new CustomEvent('fichas_atualizadas'));
+  }
+}
+
 export async function registrarCompraInsumo(insumoId: string, quantidade: number, valorTotalPago: number): Promise<void> {
   const insumos = await fetchInsumos();
   const insumo = insumos.find(i => i.id === insumoId);
@@ -1269,6 +1887,9 @@ export async function registrarCompraInsumo(insumoId: string, quantidade: number
     quantidade_estoque: (insumo.quantidade_estoque||0) + quantidade
   });
   
+  // Recalcular custos de produção de todos os produtos com receitas
+  recalcularTodosCustosProdutos();
+
   const getLocal = (k: string, d: any) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; };
   const historico = getLocal('panificadora_historico_compras_insumos', []);
   const novoRegistro = {

@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useLoyalty } from '../context/LoyaltyContext';
 import { Cliente, ClienteResumoMensal } from '../types';
 import { formatPhoneDisplay, getWhatsAppUrl } from '../services/whatsapp';
@@ -112,9 +113,17 @@ export const ClienteProfileModal: React.FC<ClienteProfileModalProps> = ({ client
     return Object.entries(grupos).sort(([a], [b]) => b.localeCompare(a));
   }, [comprasCliente]);
 
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center sm:items-start justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl my-auto sm:my-8 animate-scaleUp flex flex-col overflow-hidden max-h-[90vh]">
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[100] flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl my-auto animate-scaleUp flex flex-col overflow-hidden max-h-[92vh] border border-stone-100">
 
         {/* HEADER */}
         <div className="bg-gradient-to-br from-amber-600 via-amber-700 to-orange-800 text-white p-6 relative shrink-0">
@@ -404,6 +413,7 @@ export const ClienteProfileModal: React.FC<ClienteProfileModalProps> = ({ client
         message={alertConfig.message}
         onClose={() => setAlertConfig({ ...alertConfig, isOpen: false })}
       />
-    </div>
+    </div>,
+    document.body
   );
 };

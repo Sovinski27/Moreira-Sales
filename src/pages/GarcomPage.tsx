@@ -83,12 +83,16 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
     window.addEventListener('mesas_atualizadas', recarregarDados);
     window.addEventListener('pedidos_cozinha_atualizados', recarregarDados);
     window.addEventListener('novo_pedido_cozinha', recarregarDados);
+    window.addEventListener('catalogo_atualizado', recarregarDados);
+    window.addEventListener('produtos_atualizados', recarregarDados);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('mesas_atualizadas', recarregarDados);
       window.removeEventListener('pedidos_cozinha_atualizados', recarregarDados);
       window.removeEventListener('novo_pedido_cozinha', recarregarDados);
+      window.removeEventListener('catalogo_atualizado', recarregarDados);
+      window.removeEventListener('produtos_atualizados', recarregarDados);
     };
   }, [recarregarDados]);
 

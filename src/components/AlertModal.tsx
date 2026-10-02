@@ -1,5 +1,6 @@
-import React from 'react';
-import { X, Info } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Info } from 'lucide-react';
 
 interface AlertModalProps {
   isOpen: boolean;
@@ -9,11 +10,20 @@ interface AlertModalProps {
 }
 
 export const AlertModal: React.FC<AlertModalProps> = ({ isOpen, title = 'Aviso', message, onClose }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 overflow-y-auto p-4 flex items-center justify-center animate-fadeIn"
+      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[100] p-4 flex items-center justify-center animate-fadeIn"
       onClick={onClose}
     >
       <div 
@@ -21,7 +31,7 @@ export const AlertModal: React.FC<AlertModalProps> = ({ isOpen, title = 'Aviso',
         onClick={e => e.stopPropagation()}
       >
         <div className="bg-stone-50 p-6 text-center border-b border-stone-100">
-          <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 bg-blue-50 text-blue-600">
+          <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 bg-amber-50 text-amber-600">
             <Info className="w-6 h-6" />
           </div>
           <h3 className="text-xl font-black text-stone-900 mb-2">{title}</h3>
@@ -32,12 +42,13 @@ export const AlertModal: React.FC<AlertModalProps> = ({ isOpen, title = 'Aviso',
           <button
             type="button"
             onClick={onClose}
-            className="w-full px-4 py-3 bg-stone-100 hover:bg-stone-200 text-stone-900 font-bold rounded-xl transition-colors"
+            className="w-full px-4 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl transition-colors cursor-pointer"
           >
             Entendi
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

@@ -1,5 +1,6 @@
-import React from 'react';
-import { X, AlertTriangle } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle } from 'lucide-react';
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -22,11 +23,20 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   onConfirm,
   onClose
 }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 overflow-y-auto p-4 flex items-center justify-center animate-fadeIn"
+      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[100] p-4 flex items-center justify-center animate-fadeIn"
       onClick={onClose}
     >
       <div 
@@ -45,7 +55,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-3 bg-white border border-stone-200 hover:bg-stone-100 text-stone-700 font-bold rounded-xl transition-colors"
+            className="flex-1 px-4 py-3 bg-white border border-stone-200 hover:bg-stone-100 text-stone-700 font-bold rounded-xl transition-colors cursor-pointer text-sm"
           >
             {cancelText}
           </button>
@@ -55,7 +65,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
               onConfirm();
               onClose();
             }}
-            className={`flex-1 px-4 py-3 text-white font-bold rounded-xl transition-colors ${
+            className={`flex-1 px-4 py-3 text-white font-bold rounded-xl transition-colors cursor-pointer text-sm ${
               isDestructive 
                 ? 'bg-rose-600 hover:bg-rose-700' 
                 : 'bg-amber-600 hover:bg-amber-700'
@@ -65,6 +75,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

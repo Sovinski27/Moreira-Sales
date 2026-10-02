@@ -109,11 +109,31 @@ export interface Insumo {
   fornecedor_id: string;
 }
 
+export interface ReceitaMetadata {
+  produto_id: string;
+  responsavel?: string; // ex: "Marlene"
+  codigo?: string; // ex: "FT-001"
+  data?: string; // ex: "25/09/2026"
+  rendimento_cru?: string; // ex: "1200g" ou "1.2 kg"
+  rendimento_assado?: string; // ex: "1000g" ou "1.0 kg"
+  rendimento_total?: string; // ex: "10 pedaços"
+  quebra?: string; // ex: "16.7%"
+  tipo_unidade?: string; // ex: "pedaço", "pão", "fatia", "unidade"
+  peso_por_unidade?: string; // ex: "100g"
+  tempo_preparo?: string; // ex: "10 minutos"
+  modo_preparo?: string; // Instruções passo a passo
+  observacoes?: string;
+}
+
 export interface FichaTecnica {
   id: string;
   produto_id: string;
   insumo_id: string;
   quantidade_utilizada: number;
+  rendimento_unidades?: number;
+  custo_direto?: number;
+  unidade_medida?: 'g' | 'kg' | 'ml' | 'l' | 'un';
+  quantidade_original?: number;
 }
 
 export interface HistoricoCompraInsumo {

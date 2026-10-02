@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Categoria } from '../types';
 import { X, Save } from 'lucide-react';
 
@@ -20,6 +21,15 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
   const [ordem, setOrdem] = useState(0);
 
   useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
     if (isOpen) {
       if (categoria) {
         setNome(categoria.nome);
@@ -35,9 +45,9 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 z-50 overflow-y-auto p-3 sm:p-4 flex items-center justify-center bg-stone-900/80 backdrop-blur-xs animate-fadeIn"
+      className="fixed inset-0 z-[100] p-3 sm:p-4 flex items-center justify-center bg-stone-900/80 backdrop-blur-xs animate-fadeIn"
       onClick={onClose}
     >
       <div 
@@ -50,7 +60,7 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
           </h3>
           <button
             onClick={onClose}
-            className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors"
+            className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors cursor-pointer"
           >
             <X className="w-6 h-6" />
           </button>
@@ -68,6 +78,7 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
             <input
               type="text"
               required
+              autoFocus
               value={nome}
               onChange={e => setNome(e.target.value)}
               className="w-full px-4 py-3 bg-stone-50 border border-stone-300 rounded-xl focus:border-amber-600 outline-none"
@@ -106,13 +117,13 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-3 px-4 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-xl transition-colors"
+              className="flex-1 py-3 px-4 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-xl transition-colors cursor-pointer text-sm"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="flex-1 py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
+              className="flex-1 py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer text-sm"
             >
               <Save className="w-5 h-5" />
               Salvar
@@ -120,6 +131,7 @@ export const CategoriaModal: React.FC<CategoriaModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

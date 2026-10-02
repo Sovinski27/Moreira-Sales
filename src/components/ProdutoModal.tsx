@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Save, Box, Tag, Plus, Check, FolderTree } from 'lucide-react';
 import { Produto, Categoria } from '../types';
 import { fetchCategorias, saveCategoria } from '../services/db';
@@ -140,9 +141,20 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
     });
   };
 
-  return (
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return createPortal(
     <div 
-      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 overflow-y-auto p-3 sm:p-4 flex items-center justify-center animate-fadeIn"
+      className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[100] p-3 sm:p-4 flex items-center justify-center animate-fadeIn"
       onClick={onClose}
     >
       <div 
@@ -301,16 +313,29 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1.5">
-                Preço Custo
-              </label>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider">
+                  Preço Custo
+                </label>
+                {produto?.custo !== undefined && produto.custo > 0 && (
+                  <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-1.5 py-0.5 rounded">
+                    Receita ativa
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 value={custo}
                 onChange={e => setCusto(e.target.value.replace(/[^0-9.,]/g, ''))}
-                placeholder="Opcional"
+                placeholder="R$ 0.00"
                 className="w-full px-4 py-3 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:border-stone-600 outline-none font-mono font-medium text-stone-600"
               />
+              <p className="text-[10px] text-stone-400 mt-1">
+                Calculado automaticamente via Ficha Técnica ou digite manual.
+              </p>
+              <p className="text-[10px] text-amber-700 bg-amber-50/80 p-1.5 rounded-lg border border-amber-200/60 mt-1.5 font-medium">
+                Dica: Você também pode cadastrar bolos, tortas e salgados com receita completa na aba <strong>CMV & Fichas Técnicas</strong>.
+              </p>
             </div>
           </div>
 
@@ -368,6 +393,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

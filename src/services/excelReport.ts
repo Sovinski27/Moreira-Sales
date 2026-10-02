@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { Compra, Produto, Insumo, FichaTecnica, Fornecedor, CustosFixosConfig } from '../types';
+import { converterParaUnidadeBase } from './db';
 
 /**
  * Desenha um gráfico executivo de barras e pizza em Canvas e retorna em formato base64 PNG.
@@ -601,11 +602,21 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
       custo = prod.custo || 0;
       nomesInsumos.push('Custo base cadastrado');
     } else {
+      const rendimento = fichasProd[0]?.rendimento_unidades && fichasProd[0].rendimento_unidades > 0 
+        ? fichasProd[0].rendimento_unidades 
+        : 1;
+
       fichasProd.forEach(f => {
         const ins = insumos.find(i => i.id === f.insumo_id);
         if (ins) {
-          custo += (ins.preco_custo * f.quantidade_utilizada);
-          nomesInsumos.push(`${ins.nome} (${f.quantidade_utilizada} ${ins.unidade_medida})`);
+          const qtdUnitaria = f.quantidade_utilizada / rendimento;
+          const qtdBaseUnitaria = converterParaUnidadeBase(qtdUnitaria, f.unidade_medida, ins.unidade_medida);
+          custo += (ins.preco_custo * qtdBaseUnitaria);
+          nomesInsumos.push(`${ins.nome} (${qtdUnitaria < 1 ? qtdUnitaria.toFixed(3) : qtdUnitaria.toFixed(2)} ${f.unidade_medida || ins.unidade_medida}/un)`);
+        }
+        if (f.custo_direto && f.custo_direto > 0) {
+          custo += f.custo_direto;
+          nomesInsumos.push(`Custo Direto (R$ ${f.custo_direto.toFixed(2)}/un)`);
         }
       });
     }
