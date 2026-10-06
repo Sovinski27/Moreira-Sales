@@ -1017,7 +1017,11 @@ export async function deleteMesaAberta(id: string): Promise<void> {
     }
   }
   const mesas = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
-  setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesas.filter((m: MesaAberta) => m.id !== id && m.mesa_id !== id));
+  const parsedNum = parseInt(id.replace(/\D/g, ''), 10);
+  setLocal(
+    STORAGE_KEYS.MESAS_ABERTAS, 
+    mesas.filter((m: MesaAberta) => m.id !== id && m.mesa_id !== id && (isNaN(parsedNum) || m.mesa_numero !== parsedNum))
+  );
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('mesas_atualizadas'));
@@ -1362,6 +1366,10 @@ export async function saveFornecedor(f: Partial<Fornecedor> & { nome_empresa: st
     }
   }
 
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('fornecedores_atualizados'));
+  }
+
   return newF;
 }
 
@@ -1369,6 +1377,10 @@ export async function deleteFornecedor(id: string): Promise<void> {
   const list = getLocal<Fornecedor[]>(STORAGE_KEYS.FORNECEDORES, []);
   const updated = list.filter(x => x.id !== id);
   setLocal(STORAGE_KEYS.FORNECEDORES, updated);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('fornecedores_atualizados'));
+  }
 
   if (isSupabaseConfigured && supabase) {
     try {

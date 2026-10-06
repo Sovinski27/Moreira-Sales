@@ -412,9 +412,29 @@ export async function enviarDanfeWhatsApp(
  * Imprime o DANFE NFC-e térmico ou formato A4 com cabeçalho oficial e QR Code nativo SVG
  */
 export async function imprimirDanfeCupomFiscal(nota: NotaFiscal, emitente?: ConfiguracaoFiscal | null): Promise<void> {
-  const janela = window.open('', '_blank', 'width=440,height=780');
+  let janela: Window | null = null;
+  let iframeElement: HTMLIFrameElement | null = null;
+
+  try {
+    janela = window.open('', '_blank', 'width=440,height=780');
+  } catch {
+    janela = null;
+  }
+
   if (!janela) {
-    alert('Por favor, permita pop-ups para imprimir o cupom fiscal.');
+    iframeElement = document.createElement('iframe');
+    iframeElement.style.position = 'fixed';
+    iframeElement.style.right = '0';
+    iframeElement.style.bottom = '0';
+    iframeElement.style.width = '0';
+    iframeElement.style.height = '0';
+    iframeElement.style.border = '0';
+    document.body.appendChild(iframeElement);
+    janela = iframeElement.contentWindow;
+  }
+
+  if (!janela) {
+    console.warn('Não foi possível inicializar a impressão do cupom fiscal.');
     return;
   }
 

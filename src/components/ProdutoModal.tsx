@@ -40,6 +40,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
   const [mostrarCriarCategoria, setMostrarCriarCategoria] = useState(false);
   const [novaCategoriaNome, setNovaCategoriaNome] = useState('');
   const [salvandoCategoria, setSalvandoCategoria] = useState(false);
+  const [erroValidacao, setErroValidacao] = useState<string | null>(null);
 
   // Referência para controlar o estado de abertura e impedir que re-renderizações externas apaguem a digitação do usuário
   const prevIsOpenRef = useRef(false);
@@ -124,13 +125,22 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
       setCategoriaId(targetCatId);
     }
 
-    if (!nome.trim() || isNaN(precoNum) || !targetCatId) {
-      if (!targetCatId) {
-        alert('Por favor, selecione ou crie uma categoria para vincular a este produto.');
-      }
+    if (!nome.trim()) {
+      setErroValidacao('Por favor, informe o nome do produto.');
+      return;
+    }
+
+    if (isNaN(precoNum) || precoNum < 0) {
+      setErroValidacao('Por favor, informe um preço de venda válido.');
+      return;
+    }
+
+    if (!targetCatId) {
+      setErroValidacao('Por favor, selecione ou crie uma categoria para vincular a este produto.');
       return;
     }
     
+    setErroValidacao(null);
     onSave({ 
       nome: nome.trim(), 
       preco: precoNum,
@@ -178,6 +188,13 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
         </div>
         
         <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto">
+          {erroValidacao && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 animate-fadeIn">
+              <span className="w-2 h-2 rounded-full bg-rose-600 shrink-0" />
+              <span>{erroValidacao}</span>
+            </div>
+          )}
+
           {/* NOME DO PRODUTO */}
           <div>
             <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1.5">

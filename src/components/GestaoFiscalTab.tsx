@@ -52,6 +52,13 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
     telefone: ''
   });
   const [emitindoTeste, setEmitindoTeste] = useState(false);
+  const [feedbackMsg, setFeedbackMsg] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
+  const [erroWhats, setErroWhats] = useState<string | null>(null);
+
+  const mostrarFeedback = (tipo: 'sucesso' | 'erro', texto: string) => {
+    setFeedbackMsg({ tipo, texto });
+    setTimeout(() => setFeedbackMsg(null), 4000);
+  };
 
   // Carregar dados
   const carregarDados = async () => {
@@ -90,7 +97,7 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
       setTimeout(() => setMensagemSalvo(false), 3000);
     } catch (err) {
       console.error('Erro ao salvar configuração fiscal:', err);
-      alert('Erro ao salvar configurações fiscais.');
+      mostrarFeedback('erro', 'Erro ao salvar configurações fiscais.');
     } finally {
       setSalvando(false);
     }
@@ -127,10 +134,10 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
       });
 
       setNotas(prev => [novaNota, ...prev]);
-      alert(`Nota Fiscal NFC-e Nº ${novaNota.numero} gerada com sucesso! Você pode visualizar o comprovante no histórico abaixo.`);
+      mostrarFeedback('sucesso', `Nota Fiscal NFC-e Nº ${novaNota.numero} gerada com sucesso! Você pode visualizar o comprovante no histórico abaixo.`);
     } catch (e) {
       console.error('Erro ao emitir nota de teste:', e);
-      alert('Erro ao emitir nota fiscal de teste.');
+      mostrarFeedback('erro', 'Erro ao emitir nota fiscal de teste.');
     } finally {
       setEmitindoTeste(false);
     }
@@ -146,9 +153,10 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
     if (!modalEnvioWhats.nota) return;
     const digits = cleanPhone(modalEnvioWhats.telefone);
     if (!digits || digits.length < 10) {
-      alert('Informe um número de WhatsApp válido com DDD.');
+      setErroWhats('Informe um número de WhatsApp válido com DDD (mínimo 10 dígitos).');
       return;
     }
+    setErroWhats(null);
 
     try {
       const res = await enviarDanfeWhatsApp(
@@ -160,9 +168,10 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
       window.open(res.urlWhatsApp, '_blank');
       setModalEnvioWhats({ isOpen: false, nota: null, telefone: '' });
       carregarDados();
+      mostrarFeedback('sucesso', 'Mensagem enviada com sucesso no WhatsApp!');
     } catch (e) {
       console.error('Erro ao enviar DANFE pelo WhatsApp:', e);
-      alert('Erro ao disparar mensagem.');
+      setErroWhats('Erro ao disparar mensagem. Verifique a conexão.');
     }
   };
 
@@ -226,6 +235,15 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
           <span>{emitindoTeste ? 'Emitindo...' : 'Emitir Nota de Teste'}</span>
         </button>
       </div>
+
+      {/* FEEDBACK TOAST */}
+      {feedbackMsg && (
+        <div className={`p-4 rounded-2xl shadow-lg flex items-center gap-2.5 animate-fadeIn text-white font-bold text-sm ${
+          feedbackMsg.tipo === 'sucesso' ? 'bg-emerald-600' : 'bg-rose-600'
+        }`}>
+          <span>{feedbackMsg.texto}</span>
+        </div>
+      )}
 
       {/* GUIA EXPLICATIVO: NOTA REAL VS HOMOLOGAÇÃO */}
       <div className={`p-5 sm:p-6 rounded-3xl border ${
@@ -696,7 +714,7 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
 
       {/* MODAL RÁPIDO DE REENVIO WHATSAPP */}
       {modalEnvioWhats.isOpen && modalEnvioWhats.nota && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs animate-fadeIn">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-stone-200 space-y-4">
             <div className="flex items-center justify-between border-b border-stone-100 pb-3">
               <div className="flex items-center gap-2 text-emerald-800 font-black">
@@ -705,12 +723,18 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
               </div>
               <button
                 type="button"
-                onClick={() => setModalEnvioWhats({ isOpen: false, nota: null, telefone: '' })}
+                onClick={() => { setModalEnvioWhats({ isOpen: false, nota: null, telefone: '' }); setErroWhats(null); }}
                 className="text-stone-400 hover:text-stone-600"
               >
                 ✕
               </button>
             </div>
+
+            {erroWhats && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl animate-fadeIn">
+                {erroWhats}
+              </div>
+            )}
 
             <p className="text-xs text-stone-600">
               Informe o WhatsApp do cliente para enviar o comprovante da <strong>NFC-e Nº {modalEnvioWhats.nota.numero}</strong>:
@@ -719,7 +743,7 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
             <input
               type="tel"
               value={modalEnvioWhats.telefone}
-              onChange={e => setModalEnvioWhats({ ...modalEnvioWhats, telefone: e.target.value })}
+              onChange={e => { setModalEnvioWhats({ ...modalEnvioWhats, telefone: e.target.value }); setErroWhats(null); }}
               placeholder="(44) 99876-5432"
               className="w-full px-4 py-3 bg-stone-50 border border-stone-300 rounded-xl text-sm font-mono font-bold focus:border-emerald-600 outline-none"
               autoFocus
@@ -728,7 +752,7 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setModalEnvioWhats({ isOpen: false, nota: null, telefone: '' })}
+                onClick={() => { setModalEnvioWhats({ isOpen: false, nota: null, telefone: '' }); setErroWhats(null); }}
                 className="px-4 py-2 text-xs font-bold text-stone-600 hover:bg-stone-100 rounded-xl"
               >
                 Cancelar
@@ -736,7 +760,7 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
               <button
                 type="button"
                 onClick={handleConfirmarEnvioWhats}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5"
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>Disparar WhatsApp</span>

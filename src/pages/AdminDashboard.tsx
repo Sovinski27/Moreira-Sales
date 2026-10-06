@@ -178,12 +178,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     window.addEventListener('catalogo_atualizado', recarregarCatalogoAdmin);
     window.addEventListener('categorias_atualizadas', recarregarCatalogoAdmin);
     window.addEventListener('produtos_atualizados', recarregarCatalogoAdmin);
+    window.addEventListener('fichas_atualizadas', recarregarCatalogoAdmin);
     window.addEventListener('storage', recarregarCatalogoAdmin);
 
     return () => {
       window.removeEventListener('catalogo_atualizado', recarregarCatalogoAdmin);
       window.removeEventListener('categorias_atualizadas', recarregarCatalogoAdmin);
       window.removeEventListener('produtos_atualizados', recarregarCatalogoAdmin);
+      window.removeEventListener('fichas_atualizadas', recarregarCatalogoAdmin);
       window.removeEventListener('storage', recarregarCatalogoAdmin);
     };
   }, [recarregarCatalogoAdmin]);

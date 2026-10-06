@@ -7,7 +7,8 @@ import {
   Search, 
   ShoppingBag, 
   Check, 
-  CheckCircle2, 
+  CheckCircle2,
+  AlertCircle, 
   Clock, 
   User, 
   Coffee, 
@@ -68,6 +69,7 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
   // Status de Envio e Notificações
   const [enviando, setEnviando] = useState<boolean>(false);
   const [sucessoMsg, setSucessoMsg] = useState<string | null>(null);
+  const [erroMsg, setErroMsg] = useState<string | null>(null);
 
   // Carregar produtos, categorias e comandas
   const recarregarDados = useCallback(() => {
@@ -218,7 +220,8 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
       recarregarDados();
     } catch (err) {
       console.error('Erro ao enviar pedido do garçom:', err);
-      alert('Erro ao enviar pedido. Verifique a conexão e tente novamente.');
+      setErroMsg('Erro ao enviar pedido. Verifique a conexão e tente novamente.');
+      setTimeout(() => setErroMsg(null), 4000);
     } finally {
       setEnviando(false);
     }
@@ -360,6 +363,14 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-md bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 animate-bounce">
           <CheckCircle2 className="w-6 h-6 shrink-0" />
           <p className="text-xs sm:text-sm font-black">{sucessoMsg}</p>
+        </div>
+      )}
+
+      {/* ALERTA DE ERRO FLUTUANTE */}
+      {erroMsg && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-md bg-rose-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 animate-fadeIn">
+          <AlertCircle className="w-6 h-6 shrink-0" />
+          <p className="text-xs sm:text-sm font-black">{erroMsg}</p>
         </div>
       )}
 

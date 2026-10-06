@@ -5,7 +5,8 @@ import {
   CheckCircle2, 
   Clock, 
   Calendar, 
-  AlertTriangle, 
+  AlertTriangle,
+  AlertCircle, 
   TrendingUp, 
   Plus, 
   Search, 
@@ -96,8 +97,10 @@ export const ChecklistTab: React.FC = () => {
   const [responsavelBaixa, setResponsavelBaixa] = useState('Administrador');
   const [observacaoBaixa, setObservacaoBaixa] = useState('');
 
-  // Feedback de Sucesso
+  // Feedback de Sucesso e Erro
   const [sucessoMsg, setSucessoMsg] = useState<string | null>(null);
+  const [erroMsg, setErroMsg] = useState<string | null>(null);
+  const [erroFormItem, setErroFormItem] = useState<string | null>(null);
 
   // Carregar Dados do Banco / Cache
   const carregarTudo = useCallback(async () => {
@@ -126,6 +129,11 @@ export const ChecklistTab: React.FC = () => {
   const mostrarSucesso = (msg: string) => {
     setSucessoMsg(msg);
     setTimeout(() => setSucessoMsg(null), 3500);
+  };
+
+  const mostrarErro = (msg: string) => {
+    setErroMsg(msg);
+    setTimeout(() => setErroMsg(null), 4000);
   };
 
   // =========================================================================
@@ -305,9 +313,10 @@ export const ChecklistTab: React.FC = () => {
   const handleSalvarItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tituloItem.trim()) {
-      alert('Por favor, informe o título da atividade.');
+      setErroFormItem('Por favor, informe o título da atividade.');
       return;
     }
+    setErroFormItem(null);
 
     const targetCatId = categoriaIdItem || categorias[0]?.id || 'cat-abertura';
 
@@ -400,7 +409,7 @@ export const ChecklistTab: React.FC = () => {
       mostrarSucesso('Planilha CSV de auditoria exportada com sucesso!');
     } catch (e) {
       console.error('Erro ao exportar CSV:', e);
-      alert('Erro ao exportar CSV. Verifique as permissões de download do navegador.');
+      mostrarErro('Erro ao exportar CSV. Verifique as permissões de download do navegador.');
     }
   };
 
@@ -484,6 +493,14 @@ export const ChecklistTab: React.FC = () => {
         <div className="p-4 bg-emerald-600 text-white rounded-2xl shadow-lg flex items-center gap-2.5 animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 shrink-0" />
           <span className="font-bold text-sm">{sucessoMsg}</span>
+        </div>
+      )}
+
+      {/* FEEDBACK DE ERRO TOAST */}
+      {erroMsg && (
+        <div className="p-4 bg-rose-600 text-white rounded-2xl shadow-lg flex items-center gap-2.5 animate-fadeIn">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span className="font-bold text-sm">{erroMsg}</span>
         </div>
       )}
 
@@ -996,6 +1013,13 @@ export const ChecklistTab: React.FC = () => {
             </div>
 
             <form onSubmit={handleSalvarItem} className="p-6 overflow-y-auto space-y-4">
+              {erroFormItem && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 animate-fadeIn">
+                  <span className="w-2 h-2 rounded-full bg-rose-600 shrink-0" />
+                  <span>{erroFormItem}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1.5">
                   Título da Atividade *
@@ -1440,7 +1464,7 @@ export const ChecklistTab: React.FC = () => {
                       window.print();
                     } catch (e) {
                       console.warn('Erro ao disparar impressão:', e);
-                      alert('Dica: Use Ctrl+P no seu navegador para imprimir esta folha.');
+                      mostrarErro('Dica: Use Ctrl+P no seu navegador para imprimir esta folha.');
                     }
                   }}
                   className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-black text-xs flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"

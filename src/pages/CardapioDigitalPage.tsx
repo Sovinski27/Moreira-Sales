@@ -79,6 +79,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
   const [modalCarrinhoAberto, setModalCarrinhoAberto] = useState(false);
   const [observacoesGerais, setObservacoesGerais] = useState('');
   const [enviandoPedido, setEnviandoPedido] = useState(false);
+  const [erroEnvio, setErroEnvio] = useState<string | null>(null);
 
   // Observação para item específico
   const [itemParaObservacao, setItemParaObservacao] = useState<{ produto: Produto; observacao: string } | null>(null);
@@ -391,11 +392,12 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
       setUltimoPedidoEnviado(novoPedido);
       setCarrinho([]);
       setObservacoesGerais('');
+      setErroEnvio(null);
       setModalCarrinhoAberto(false);
       await atualizarPedidosMesa();
     } catch (err) {
       console.error('Erro ao enviar pedido para a cozinha:', err);
-      alert('Não foi possível enviar o pedido para a cozinha. Tente novamente.');
+      setErroEnvio('Não foi possível enviar o pedido para a cozinha. Verifique a conexão e tente novamente.');
     } finally {
       setEnviandoPedido(false);
     }
@@ -1006,6 +1008,13 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
 
             {/* Footer do Carrinho com CTA de Envio */}
             <div className="p-4 sm:p-5 bg-stone-50 border-t border-stone-200 space-y-3 shrink-0 pb-safe">
+              {erroEnvio && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 animate-fadeIn">
+                  <span className="w-2 h-2 rounded-full bg-rose-600 shrink-0" />
+                  <span>{erroEnvio}</span>
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <span className="text-sm font-bold text-stone-600">Total do Pedido:</span>
                 <span className="text-2xl font-black font-mono text-stone-900">

@@ -42,6 +42,7 @@ export const ModalEmissaoNfe: React.FC<ModalEmissaoNfeProps> = ({
   const [telefoneDestino, setTelefoneDestino] = useState('');
   const [enviandoWhats, setEnviandoWhats] = useState(false);
   const [whatsEnviadoSucesso, setWhatsEnviadoSucesso] = useState(false);
+  const [erroWhats, setErroWhats] = useState<string | null>(null);
 
   useEffect(() => {
     if (nota) {
@@ -69,9 +70,10 @@ export const ModalEmissaoNfe: React.FC<ModalEmissaoNfeProps> = ({
   const handleEnviarWhatsApp = async () => {
     const digits = cleanPhone(telefoneDestino);
     if (!digits || digits.length < 10) {
-      alert('Por favor, informe o WhatsApp do cliente com DDD (mínimo 10 dígitos).');
+      setErroWhats('Por favor, informe o WhatsApp do cliente com DDD (mínimo 10 dígitos).');
       return;
     }
+    setErroWhats(null);
 
     setEnviandoWhats(true);
     try {
@@ -88,14 +90,14 @@ export const ModalEmissaoNfe: React.FC<ModalEmissaoNfeProps> = ({
       window.open(res.urlWhatsApp, '_blank');
     } catch (e) {
       console.error('Erro ao enviar DANFE via WhatsApp:', e);
-      alert('Erro ao enviar mensagem pelo WhatsApp.');
+      setErroWhats('Erro ao enviar mensagem pelo WhatsApp. Verifique a conexão.');
     } finally {
       setEnviandoWhats(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/70 backdrop-blur-xs animate-fadeIn">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-900/70 backdrop-blur-xs animate-fadeIn">
       <div 
         className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh]"
         onClick={e => e.stopPropagation()}
@@ -224,6 +226,12 @@ export const ModalEmissaoNfe: React.FC<ModalEmissaoNfeProps> = ({
                 <span>{enviandoWhats ? 'Enviando...' : 'Enviar'}</span>
               </button>
             </div>
+
+            {erroWhats && (
+              <p className="text-xs font-bold text-rose-600 flex items-center gap-1 mt-1 animate-fadeIn">
+                <span>✕ {erroWhats}</span>
+              </p>
+            )}
 
             {whatsEnviadoSucesso && (
               <p className="text-xs font-bold text-emerald-800 flex items-center gap-1 mt-1">

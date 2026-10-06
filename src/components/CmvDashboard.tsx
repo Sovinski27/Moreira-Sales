@@ -209,6 +209,26 @@ export const CmvDashboard: React.FC = () => {
 
   useEffect(() => {
     loadData();
+
+    const handleAtualizacao = () => {
+      loadData();
+    };
+
+    window.addEventListener('produtos_atualizados', handleAtualizacao);
+    window.addEventListener('catalogo_atualizado', handleAtualizacao);
+    window.addEventListener('fichas_atualizadas', handleAtualizacao);
+    window.addEventListener('insumos_atualizados', handleAtualizacao);
+    window.addEventListener('fornecedores_atualizados', handleAtualizacao);
+    window.addEventListener('storage', handleAtualizacao);
+
+    return () => {
+      window.removeEventListener('produtos_atualizados', handleAtualizacao);
+      window.removeEventListener('catalogo_atualizado', handleAtualizacao);
+      window.removeEventListener('fichas_atualizadas', handleAtualizacao);
+      window.removeEventListener('insumos_atualizados', handleAtualizacao);
+      window.removeEventListener('fornecedores_atualizados', handleAtualizacao);
+      window.removeEventListener('storage', handleAtualizacao);
+    };
   }, []);
 
   const handleExportarExcel = async () => {

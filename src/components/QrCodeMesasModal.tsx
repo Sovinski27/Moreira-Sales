@@ -190,14 +190,15 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
                   <span>Abrir Cardápio Online na Vercel (Mesa {mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada})</span>
                 </a>
 
-                <button
-                  type="button"
-                  onClick={() => window.open(`/cardapio?mesa=${mesaSelecionada}`, '_blank')}
+                <a
+                  href={`/cardapio?mesa=${mesaSelecionada}`}
+                  target="_blank"
+                  rel="noreferrer"
                   className="w-full py-2.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   <span>Testar Cardápio Neste Navegador (Aba Local)</span>
-                </button>
+                </a>
               </div>
             </div>
 
