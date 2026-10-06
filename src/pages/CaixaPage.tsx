@@ -43,6 +43,8 @@ import {
   Tag,
   Zap,
   Receipt,
+  ChevronLeft,
+  ChevronRight,
   ShoppingBag,
   UtensilsCrossed,
   X
@@ -81,11 +83,24 @@ export const CaixaPage: React.FC = () => {
   const [categoriaAtiva, setCategoriaAtiva] = useState<string | null>(null);
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
 
+  // Controle de Visualização e Paginação do Catálogo (UI/UX sem descida infinita)
+  const [modoExibicaoCatalogo, setModoExibicaoCatalogo] = useState<'scroll' | 'paginacao'>('scroll');
+  const [paginaCatalogo, setPaginaCatalogo] = useState(1);
+  const ITENS_POR_PAGINA = 12;
+  const catalogoScrollRef = useRef<HTMLDivElement>(null);
+
   // Busca de Produtos e Lançamento Manual
   const [termoBusca, setTermoBusca] = useState('');
   const [valorPersonalizado, setValorPersonalizado] = useState('');
   const buscaInputRef = useRef<HTMLInputElement>(null);
   const valorInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setPaginaCatalogo(1);
+    if (catalogoScrollRef.current) {
+      catalogoScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [categoriaAtiva, termoBusca]);
 
   // Estados da busca no caixa
   const [telefoneInput, setTelefoneInput] = useState('');
@@ -437,6 +452,16 @@ export const CaixaPage: React.FC = () => {
     }
     return produtos.filter(p => p.ativo !== false && p.categoria_id === categoriaAtiva);
   }, [termoBusca, produtos, categoriaAtiva]);
+
+  const totalItensCatalogo = produtosFiltradosPorBuscaOuCategoria.length;
+  const totalPaginasCatalogo = Math.max(1, Math.ceil(totalItensCatalogo / ITENS_POR_PAGINA));
+  const produtosExibidos = useMemo(() => {
+    if (modoExibicaoCatalogo === 'scroll') {
+      return produtosFiltradosPorBuscaOuCategoria;
+    }
+    const inicio = (paginaCatalogo - 1) * ITENS_POR_PAGINA;
+    return produtosFiltradosPorBuscaOuCategoria.slice(inicio, inicio + ITENS_POR_PAGINA);
+  }, [produtosFiltradosPorBuscaOuCategoria, modoExibicaoCatalogo, paginaCatalogo]);
 
   const handleBuscaProdutoSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -1117,9 +1142,9 @@ export const CaixaPage: React.FC = () => {
           ))}
         </div>
 
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-200">
+        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-stone-200 flex flex-col">
           {categorias.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-3.5 border-b border-stone-100 mb-4 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-stone-50 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-200 hover:[&::-webkit-scrollbar-thumb]:bg-stone-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+            <div className="flex gap-2 overflow-x-auto pb-3.5 border-b border-stone-100 mb-3 shrink-0 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-stone-50 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-200 hover:[&::-webkit-scrollbar-thumb]:bg-stone-300 [&::-webkit-scrollbar-thumb]:rounded-full">
               <button
                 type="button"
                 onClick={() => {
@@ -1163,6 +1188,55 @@ export const CaixaPage: React.FC = () => {
             </div>
           )}
 
+          {/* BARRA DE STATUS E MODO DE VISUALIZAÇÃO DO CATÁLOGO */}
+          {produtos.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1 text-xs font-semibold text-stone-500 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-stone-700 font-bold">
+                  {termoBusca.trim()
+                    ? `Busca: "${termoBusca}" (${totalItensCatalogo})`
+                    : categoriaAtiva === 'todos' || !categoriaAtiva
+                    ? `Todos os Produtos (${totalItensCatalogo})`
+                    : `${categorias.find(c => c.id === categoriaAtiva)?.nome || 'Categoria'} (${totalItensCatalogo})`}
+                </span>
+                {modoExibicaoCatalogo === 'paginacao' && totalPaginasCatalogo > 1 && (
+                  <span className="text-[11px] font-mono text-stone-400">
+                    • Pág. {paginaCatalogo} de {totalPaginasCatalogo}
+                  </span>
+                )}
+              </div>
+
+              {totalItensCatalogo > 6 && (
+                <div className="flex items-center gap-1 bg-stone-100 p-0.5 rounded-xl border border-stone-200/80">
+                  <button
+                    type="button"
+                    onClick={() => setModoExibicaoCatalogo('scroll')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      modoExibicaoCatalogo === 'scroll'
+                        ? 'bg-white text-stone-900 shadow-xs'
+                        : 'text-stone-500 hover:text-stone-800'
+                    }`}
+                    title="Exibe a grade com rolagem interna suave"
+                  >
+                    Rolagem
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModoExibicaoCatalogo('paginacao')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      modoExibicaoCatalogo === 'paginacao'
+                        ? 'bg-white text-stone-900 shadow-xs'
+                        : 'text-stone-500 hover:text-stone-800'
+                    }`}
+                    title="Exibe 12 produtos por página para evitar rolagem"
+                  >
+                    Páginas (12)
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {produtos.length === 0 ? (
             isCarregandoCatalogo ? (
               <div className="py-12 px-6 bg-stone-50/60 rounded-2xl border border-stone-200/80 text-center animate-pulse">
@@ -1200,48 +1274,115 @@ export const CaixaPage: React.FC = () => {
                 : 'Nenhum produto cadastrado nesta categoria ainda.'}
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" role="list" aria-label="Lista de Produtos">
-              {produtosFiltradosPorBuscaOuCategoria.map((produto: Produto) => {
-                const qtdNoCarrinho = carrinho.find(item => item.produto.id === produto.id)?.quantidade || 0;
-                const semEstoque = produto.controlar_estoque && (produto.estoque_atual === undefined || produto.estoque_atual - qtdNoCarrinho <= 0);
-                const catDoProduto = categorias.find(c => c.id === produto.categoria_id);
-                
-                return (
+            <div
+              ref={catalogoScrollRef}
+              className={`overflow-y-auto pr-1.5 scroll-smooth [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-stone-100 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300 hover:[&::-webkit-scrollbar-thumb]:bg-stone-400 [&::-webkit-scrollbar-thumb]:rounded-full ${
+                modoExibicaoCatalogo === 'scroll'
+                  ? 'max-h-[500px] sm:max-h-[540px]'
+                  : 'min-h-[360px]'
+              }`}
+            >
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" role="list" aria-label="Lista de Produtos">
+                {produtosExibidos.map((produto: Produto) => {
+                  const qtdNoCarrinho = carrinho.find(item => item.produto.id === produto.id)?.quantidade || 0;
+                  const semEstoque = produto.controlar_estoque && (produto.estoque_atual === undefined || produto.estoque_atual - qtdNoCarrinho <= 0);
+                  const catDoProduto = categorias.find(c => c.id === produto.categoria_id);
+                  
+                  return (
+                    <button
+                      key={produto.id}
+                      disabled={semEstoque}
+                      onClick={() => !semEstoque && adicionarAoCarrinho(produto)}
+                      aria-label={`Adicionar ${produto.nome} por R$ ${produto.preco.toFixed(2)}${semEstoque ? ' - Esgotado' : ''}`}
+                      className={`relative overflow-hidden flex flex-col items-center justify-center text-center h-28 sm:h-32 p-3 rounded-2xl border transition-all outline-none ${
+                        semEstoque 
+                          ? 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed' 
+                          : 'bg-stone-50 border-stone-200 hover:border-amber-400 hover:shadow-lg hover:-translate-y-1 focus:ring-4 focus:ring-amber-500/20 focus:border-amber-500 active:scale-95 cursor-pointer'
+                      }`}
+                    >
+                      {semEstoque && (
+                        <div className="absolute top-0 inset-x-0 bg-rose-500 text-white text-[10px] font-bold tracking-widest uppercase py-0.5 shadow-sm">
+                          Esgotado
+                        </div>
+                      )}
+                      {catDoProduto && (
+                        <span className="text-[10px] font-bold text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded-full border border-amber-200/50 mb-1 max-w-[95%] truncate">
+                          {catDoProduto.nome}
+                        </span>
+                      )}
+                      <span className={`font-bold leading-tight line-clamp-2 ${semEstoque ? 'text-stone-500' : 'text-stone-800'}`}>
+                        {produto.nome}
+                      </span>
+                      <span className={`font-mono font-black text-base sm:text-lg mt-0.5 ${semEstoque ? 'text-stone-400' : 'text-amber-700'}`}>
+                        R$ {produto.preco.toFixed(2)}
+                      </span>
+                      {produto.controlar_estoque && !semEstoque && produto.estoque_atual !== undefined && (
+                        <span className="text-[10px] text-stone-400 font-medium absolute bottom-1.5">
+                          {produto.estoque_atual - qtdNoCarrinho} em estoque
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* CONTROLES DE PAGINAÇÃO OU ROLAGEM */}
+          {modoExibicaoCatalogo === 'paginacao' && totalPaginasCatalogo > 1 && (
+            <div className="flex items-center justify-between pt-3 mt-3 border-t border-stone-100 shrink-0">
+              <button
+                type="button"
+                disabled={paginaCatalogo <= 1}
+                onClick={() => {
+                  setPaginaCatalogo(p => Math.max(1, p - 1));
+                  if (catalogoScrollRef.current) catalogoScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 disabled:opacity-30 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span className="hidden sm:inline">Anterior</span>
+              </button>
+
+              <div className="flex items-center gap-1 overflow-x-auto max-w-[200px] sm:max-w-none">
+                {Array.from({ length: totalPaginasCatalogo }, (_, i) => i + 1).map(num => (
                   <button
-                    key={produto.id}
-                    disabled={semEstoque}
-                    onClick={() => !semEstoque && adicionarAoCarrinho(produto)}
-                    aria-label={`Adicionar ${produto.nome} por R$ ${produto.preco.toFixed(2)}${semEstoque ? ' - Esgotado' : ''}`}
-                    className={`relative overflow-hidden flex flex-col items-center justify-center text-center h-28 sm:h-32 p-3 rounded-2xl border transition-all outline-none ${
-                      semEstoque 
-                        ? 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed' 
-                        : 'bg-stone-50 border-stone-200 hover:border-amber-400 hover:shadow-lg hover:-translate-y-1 focus:ring-4 focus:ring-amber-500/20 focus:border-amber-500 active:scale-95 cursor-pointer'
+                    key={num}
+                    type="button"
+                    onClick={() => {
+                      setPaginaCatalogo(num);
+                      if (catalogoScrollRef.current) catalogoScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className={`w-7 h-7 rounded-lg text-xs font-bold font-mono transition-all cursor-pointer ${
+                      paginaCatalogo === num
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-stone-50 text-stone-600 hover:bg-stone-100'
                     }`}
                   >
-                    {semEstoque && (
-                      <div className="absolute top-0 inset-x-0 bg-rose-500 text-white text-[10px] font-bold tracking-widest uppercase py-0.5 shadow-sm">
-                        Esgotado
-                      </div>
-                    )}
-                    {catDoProduto && (
-                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded-full border border-amber-200/50 mb-1 max-w-[95%] truncate">
-                        {catDoProduto.nome}
-                      </span>
-                    )}
-                    <span className={`font-bold leading-tight line-clamp-2 ${semEstoque ? 'text-stone-500' : 'text-stone-800'}`}>
-                      {produto.nome}
-                    </span>
-                    <span className={`font-mono font-black text-base sm:text-lg mt-0.5 ${semEstoque ? 'text-stone-400' : 'text-amber-700'}`}>
-                      R$ {produto.preco.toFixed(2)}
-                    </span>
-                    {produto.controlar_estoque && !semEstoque && produto.estoque_atual !== undefined && (
-                      <span className="text-[10px] text-stone-400 font-medium absolute bottom-1.5">
-                        {produto.estoque_atual - qtdNoCarrinho} em estoque
-                      </span>
-                    )}
+                    {num}
                   </button>
-                );
-              })}
+                ))}
+              </div>
+
+              <button
+                type="button"
+                disabled={paginaCatalogo >= totalPaginasCatalogo}
+                onClick={() => {
+                  setPaginaCatalogo(p => Math.min(totalPaginasCatalogo, p + 1));
+                  if (catalogoScrollRef.current) catalogoScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 disabled:opacity-30 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer"
+              >
+                <span className="hidden sm:inline">Próxima</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {modoExibicaoCatalogo === 'scroll' && totalItensCatalogo > 9 && (
+            <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-stone-100 text-[11px] text-stone-400 font-medium shrink-0">
+              <span>{totalItensCatalogo} produtos no catálogo</span>
+              <span>Role a área acima para ver todos</span>
             </div>
           )}
         </div>
