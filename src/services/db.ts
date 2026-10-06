@@ -1456,6 +1456,15 @@ export async function deleteInsumo(id: string): Promise<void> {
   const updated = list.filter(x => x.id !== id);
   setLocal(STORAGE_KEYS.INSUMOS, updated);
 
+  // Recalcular custos de todos os produtos pós-exclusão
+  recalcularTodosCustosProdutos();
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('insumos_atualizados'));
+    window.dispatchEvent(new CustomEvent('fichas_atualizadas'));
+    window.dispatchEvent(new CustomEvent('produtos_atualizados'));
+  }
+
   if (isSupabaseConfigured && supabase) {
     try {
       await supabase.from('insumos').delete().eq('id', id);

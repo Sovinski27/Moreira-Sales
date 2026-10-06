@@ -116,7 +116,13 @@ export const CmvDashboard: React.FC = () => {
 
   // Modais de Diálogo
   const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: 'Aviso', message: '' });
-  const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: 'Confirmação', message: '', onConfirm: () => {} });
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    isDestructive?: boolean;
+    onConfirm: () => void | Promise<void>;
+  }>({ isOpen: false, title: 'Confirmação', message: '', isDestructive: false, onConfirm: () => {} });
   const [exportando, setExportando] = useState(false);
 
   // Modal Compra de Insumo
@@ -1151,10 +1157,16 @@ export const CmvDashboard: React.FC = () => {
                                 isOpen: true,
                                 title: 'Excluir Insumo',
                                 message: `Tem certeza que deseja remover o insumo "${i.nome}"?`,
+                                isDestructive: true,
                                 onConfirm: async () => {
-                                  await deleteInsumo(i.id);
-                                  await loadData();
-                                  showToast(`Insumo "${i.nome}" excluído.`);
+                                  try {
+                                    await deleteInsumo(i.id);
+                                    await loadData();
+                                    showToast(`Insumo "${i.nome}" excluído com sucesso.`);
+                                  } catch (err) {
+                                    console.error('Erro ao excluir insumo:', err);
+                                    showToast(`Erro ao excluir insumo.`);
+                                  }
                                 }
                               });
                             }}
@@ -1264,10 +1276,16 @@ export const CmvDashboard: React.FC = () => {
                             isOpen: true,
                             title: 'Excluir Fornecedor',
                             message: `Tem certeza que deseja remover o fornecedor "${f.nome_empresa}"?`,
+                            isDestructive: true,
                             onConfirm: async () => {
-                              await deleteFornecedor(f.id);
-                              await loadData();
-                              showToast(`Fornecedor "${f.nome_empresa}" excluído.`);
+                              try {
+                                await deleteFornecedor(f.id);
+                                await loadData();
+                                showToast(`Fornecedor "${f.nome_empresa}" excluído com sucesso.`);
+                              } catch (err) {
+                                console.error('Erro ao excluir fornecedor:', err);
+                                showToast(`Erro ao excluir fornecedor.`);
+                              }
                             }
                           });
                         }}
@@ -1373,10 +1391,16 @@ export const CmvDashboard: React.FC = () => {
                               isOpen: true,
                               title: 'Excluir Toda a Receita',
                               message: `Deseja remover todos os ingredientes da receita de "${p.nome}"?`,
+                              isDestructive: true,
                               onConfirm: async () => {
-                                await deleteReceitaCompleta(p.id);
-                                await loadData();
-                                showToast(`Receita de "${p.nome}" removida.`);
+                                try {
+                                  await deleteReceitaCompleta(p.id);
+                                  await loadData();
+                                  showToast(`Receita de "${p.nome}" removida com sucesso.`);
+                                } catch (err) {
+                                  console.error('Erro ao excluir receita:', err);
+                                  showToast(`Erro ao excluir receita.`);
+                                }
                               }
                             });
                           }}
@@ -1433,10 +1457,16 @@ export const CmvDashboard: React.FC = () => {
                                     isOpen: true,
                                     title: 'Remover Ingrediente',
                                     message: `Remover este ingrediente da receita?`,
+                                    isDestructive: true,
                                     onConfirm: async () => {
-                                      await deleteFichaTecnica(f.id);
-                                      await loadData();
-                                      showToast('Ingrediente removido da receita.');
+                                      try {
+                                        await deleteFichaTecnica(f.id);
+                                        await loadData();
+                                        showToast('Ingrediente removido da receita com sucesso.');
+                                      } catch (err) {
+                                        console.error('Erro ao remover ingrediente:', err);
+                                        showToast('Erro ao remover ingrediente.');
+                                      }
                                     }
                                   });
                                 }}
@@ -2348,30 +2378,25 @@ export const CmvDashboard: React.FC = () => {
         document.body
       )}
 
-      {/* DIÁLOGOS GERAIS COM PORTAL E Z-INDEX ALTO */}
-      {alertConfig.isOpen && createPortal(
-        <div className="fixed inset-0 z-[100]">
-          <AlertModal 
-            isOpen={alertConfig.isOpen} 
-            title={alertConfig.title} 
-            message={alertConfig.message} 
-            onClose={() => setAlertConfig({ ...alertConfig, isOpen: false })} 
-          />
-        </div>,
-        document.body
+      {/* DIÁLOGOS GERAIS COM PORTAL NATIVO */}
+      {alertConfig.isOpen && (
+        <AlertModal 
+          isOpen={alertConfig.isOpen} 
+          title={alertConfig.title} 
+          message={alertConfig.message} 
+          onClose={() => setAlertConfig({ ...alertConfig, isOpen: false })} 
+        />
       )}
 
-      {confirmConfig.isOpen && createPortal(
-        <div className="fixed inset-0 z-[100]">
-          <ConfirmModal 
-            isOpen={confirmConfig.isOpen} 
-            title={confirmConfig.title} 
-            message={confirmConfig.message} 
-            onConfirm={confirmConfig.onConfirm} 
-            onClose={() => setConfirmConfig({ ...confirmConfig, isOpen: false })} 
-          />
-        </div>,
-        document.body
+      {confirmConfig.isOpen && (
+        <ConfirmModal 
+          isOpen={confirmConfig.isOpen} 
+          title={confirmConfig.title} 
+          message={confirmConfig.message} 
+          isDestructive={confirmConfig.isDestructive}
+          onConfirm={confirmConfig.onConfirm} 
+          onClose={() => setConfirmConfig({ ...confirmConfig, isOpen: false })} 
+        />
       )}
     </div>
   );
