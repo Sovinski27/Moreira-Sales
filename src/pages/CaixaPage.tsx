@@ -3,10 +3,11 @@ import { useLoyalty } from '../context/LoyaltyContext';
 import { Cliente, Compra, Produto, Categoria, ItemCarrinho, MesaAberta, NotaFiscal, ConfiguracaoFiscal, PedidoOnline } from '../types';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
 import { buscarClientePorTelefone } from '../services/clientSearch';
-import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta, fetchPedidosCozinha, updatePedidoCozinhaStatus, fetchPedidosOnline, INITIAL_CONFIG_FISCAL, getLocal, STORAGE_KEYS } from '../services/db';
+import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta, liberarMesaTotal, fetchPedidosCozinha, updatePedidoCozinhaStatus, fetchPedidosOnline, INITIAL_CONFIG_FISCAL, getLocal, STORAGE_KEYS } from '../services/db';
 import { AwardModal } from '../components/AwardModal';
 import { ClienteProfileModal } from '../components/ClienteProfileModal';
 import { AlertModal } from '../components/AlertModal';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { QrCodeMesasModal } from '../components/QrCodeMesasModal';
 import { ModalEmissaoNfe } from '../components/ModalEmissaoNfe';
 import { ModalComandaOnlineCaixa } from '../components/ModalComandaOnlineCaixa';
@@ -68,6 +69,7 @@ export const CaixaPage: React.FC = () => {
   const [mesasAbertas, setMesasAbertas] = useState<MesaAberta[]>([]);
   const [mesaSelecionada, setMesaSelecionada] = useState<MesaAberta | null>(null);
   const [mesaComandaModal, setMesaComandaModal] = useState<MesaAberta | null>(null);
+  const [mesaParaLiberarConfirm, setMesaParaLiberarConfirm] = useState<MesaAberta | null>(null);
   const [modalQrCodeAberto, setModalQrCodeAberto] = useState(false);
 
   // Estados de Busca, Filtro e Abertura Rápida de Comandas
@@ -428,7 +430,7 @@ export const CaixaPage: React.FC = () => {
       // REGRA DO USUÁRIO: Ao fechar pagamento da mesa, ela é liberada (sinal verde) e os pedidos da cozinha são concluídos
       if (mesaSelecionada) {
         try {
-          await deleteMesaAberta(mesaSelecionada.id);
+          await liberarMesaTotal(mesaSelecionada.id, mesaSelecionada.mesa_numero);
           setMesasAbertas(prev => prev.filter(m => m.id !== mesaSelecionada.id && m.mesa_numero !== mesaSelecionada.mesa_numero));
           
           const peds = await fetchPedidosCozinha();
@@ -578,8 +580,9 @@ export const CaixaPage: React.FC = () => {
       setIsProcessando(true);
       
       if (carrinho.length === 0) {
-        await deleteMesaAberta(mesaSelecionada.id);
-        setMesasAbertas(prev => prev.filter(m => m.id !== mesaSelecionada.id));
+        await liberarMesaTotal(mesaSelecionada.id, mesaSelecionada.mesa_numero);
+        setMesasAbertas(prev => prev.filter(m => m.id !== mesaSelecionada.id && m.mesa_numero !== mesaSelecionada.mesa_numero));
+        setMesaSelecionada(null);
         setSucessoMensagem(`Mesa ${mesaSelecionada.mesa_numero} liberada com sucesso!`);
       } else {
         const novaMesa = {
@@ -751,7 +754,7 @@ export const CaixaPage: React.FC = () => {
         }
       }
 
-      await deleteMesaAberta(mesa.id);
+      await liberarMesaTotal(mesa.id, mesa.mesa_numero);
       setMesasAbertas(prev => prev.filter(m => m.id !== mesa.id && m.mesa_numero !== mesa.mesa_numero));
 
       const peds = await fetchPedidosCozinha();
@@ -2059,8 +2062,8 @@ export const CaixaPage: React.FC = () => {
                       e.preventDefault();
                       const success = await handleConfirmarCompra(e);
                       if (success && mesaSelecionada) {
-                        await deleteMesaAberta(mesaSelecionada.id);
-                        setMesasAbertas(prev => prev.filter(m => m.id !== mesaSelecionada.id));
+                        await liberarMesaTotal(mesaSelecionada.id, mesaSelecionada.mesa_numero);
+                        setMesasAbertas(prev => prev.filter(m => m.id !== mesaSelecionada.id && m.mesa_numero !== mesaSelecionada.mesa_numero));
                         setMesaSelecionada(null);
                         setModoCaixa('mesas');
                       }
@@ -2082,8 +2085,8 @@ export const CaixaPage: React.FC = () => {
                       e.preventDefault();
                       const success = await handleConfirmarCompra(undefined, true);
                       if (success && mesaSelecionada) {
-                        await deleteMesaAberta(mesaSelecionada.id);
-                        setMesasAbertas(prev => prev.filter(m => m.id !== mesaSelecionada.id));
+                        await liberarMesaTotal(mesaSelecionada.id, mesaSelecionada.mesa_numero);
+                        setMesasAbertas(prev => prev.filter(m => m.id !== mesaSelecionada.id && m.mesa_numero !== mesaSelecionada.mesa_numero));
                         setMesaSelecionada(null);
                         setModoCaixa('mesas');
                       }
@@ -2338,24 +2341,45 @@ export const CaixaPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  if (confirm(`Deseja realmente desocupar e liberar a Mesa ${mesaComandaModal.mesa_numero} sem cobrança?`)) {
-                    deleteMesaAberta(mesaComandaModal.id).then(() => {
-                      setMesasAbertas(prev => prev.filter(m => m.id !== mesaComandaModal.id));
-                      setMesaComandaModal(null);
-                      setSucessoMensagem(`Mesa ${mesaComandaModal.mesa_numero} liberada.`);
-                      setTimeout(() => setSucessoMensagem(null), 3000);
-                    });
-                  }
+                  setMesaParaLiberarConfirm(mesaComandaModal);
                 }}
-                className="w-full sm:w-auto py-3.5 px-3 text-rose-600 hover:bg-rose-50 rounded-2xl font-bold text-xs transition-colors cursor-pointer"
+                className="w-full sm:w-auto py-3.5 px-4 text-rose-600 hover:bg-rose-50 rounded-2xl font-bold text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 border border-rose-200"
+                title="Encerrar atendimento e desocupar a mesa"
               >
-                Liberar
+                <Trash2 className="w-4 h-4 text-rose-500" />
+                <span>Liberar Mesa</span>
               </button>
             </div>
 
           </div>
         </div>
       )}
+
+      {/* CONFIRMAÇÃO PARA LIBERAR MESA / ENCERRAR ATENDIMENTO */}
+      <ConfirmModal
+        isOpen={!!mesaParaLiberarConfirm}
+        title={mesaParaLiberarConfirm ? `Liberar Mesa ${mesaParaLiberarConfirm.mesa_numero < 10 ? `0${mesaParaLiberarConfirm.mesa_numero}` : mesaParaLiberarConfirm.mesa_numero}?` : ''}
+        message={mesaParaLiberarConfirm ? `Deseja realmente encerrar o atendimento da Mesa ${mesaParaLiberarConfirm.mesa_numero} (${mesaParaLiberarConfirm.cliente_nome || 'Consumidor'}) e desocupar a mesa? Ela ficará livre imediatamente no sistema.` : ''}
+        confirmText="Sim, Liberar Mesa"
+        cancelText="Voltar"
+        isDestructive={true}
+        onClose={() => setMesaParaLiberarConfirm(null)}
+        onConfirm={async () => {
+          if (!mesaParaLiberarConfirm) return;
+          const num = mesaParaLiberarConfirm.mesa_numero;
+          const id = mesaParaLiberarConfirm.id;
+          await liberarMesaTotal(id, num);
+          setMesasAbertas(prev => prev.filter(m => m.id !== id && m.mesa_numero !== num));
+          if (mesaSelecionada && (mesaSelecionada.id === id || mesaSelecionada.mesa_numero === num)) {
+            setMesaSelecionada(null);
+            setCarrinho([]);
+          }
+          setMesaComandaModal(null);
+          setMesaParaLiberarConfirm(null);
+          setSucessoMensagem(`Mesa ${num < 10 ? `0${num}` : num} liberada com sucesso! Atendimento encerrado.`);
+          setTimeout(() => setSucessoMensagem(null), 4000);
+        }}
+      />
 
       {/* MODAL DE ABERTURA RÁPIDA DE COMANDA NO CAIXA */}
       {modalNovaComandaCaixa && (

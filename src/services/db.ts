@@ -1033,31 +1033,90 @@ export async function saveMesaAberta(mesa: any): Promise<MesaAberta> {
   return newMesa;
 }
 
-export async function deleteMesaAberta(id: string): Promise<void> {
+export async function liberarMesaTotal(id: string, mesaNumero?: number): Promise<void> {
+  // 1. Descobrir o número exato da mesa
+  let num = mesaNumero;
+  const mesasAtuais = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
+  if (!num) {
+    const mesaEncontrada = mesasAtuais.find(m => m.id === id || m.mesa_id === id);
+    if (mesaEncontrada) {
+      num = mesaEncontrada.mesa_numero;
+    } else if (!isUuid(id)) {
+      const parsed = parseInt(id.replace(/\D/g, ''), 10);
+      if (!isNaN(parsed) && parsed > 0 && parsed < 1000) {
+        num = parsed;
+      }
+    }
+  }
+
+  // 2. Deletar do Supabase (mesas_abertas e concluir pedidos_cozinha da mesa)
   if (isSupabaseConfigured && supabase) {
     try {
       if (isUuid(id)) {
         await supabase.from('mesas_abertas').delete().eq('id', id);
-      } else {
-        const num = parseInt(id.replace(/\D/g, ''), 10);
-        if (!isNaN(num)) {
-          await supabase.from('mesas_abertas').delete().eq('mesa_numero', num);
-        }
+      }
+      if (num) {
+        await supabase.from('mesas_abertas').delete().eq('mesa_numero', num);
       }
     } catch (e) {
       console.warn('Falha ao deletar mesa aberta no Supabase:', e);
     }
-  }
-  const mesas = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
-  const parsedNum = parseInt(id.replace(/\D/g, ''), 10);
-  setLocal(
-    STORAGE_KEYS.MESAS_ABERTAS, 
-    mesas.filter((m: MesaAberta) => m.id !== id && m.mesa_id !== id && (isNaN(parsedNum) || m.mesa_numero !== parsedNum))
-  );
 
+    if (num) {
+      try {
+        await supabase
+          .from('pedidos_cozinha')
+          .update({ 
+            status: 'entregue', 
+            alerta_silenciado: true, 
+            atualizado_em: new Date().toISOString() 
+          })
+          .eq('mesa_numero', num)
+          .in('status', ['pendente', 'preparando', 'pronto']);
+      } catch (errKds) {
+        console.warn('Falha ao finalizar pedidos da cozinha no Supabase:', errKds);
+      }
+    }
+  }
+
+  // 3. Deletar mesa do localStorage
+  const mesasRestantes = mesasAtuais.filter((m: MesaAberta) => {
+    if (m.id === id || m.mesa_id === id) return false;
+    if (num && m.mesa_numero === num) return false;
+    return true;
+  });
+  setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesasRestantes);
+
+  // 4. Concluir pedidos da cozinha no localStorage para essa mesa não ser ressuscitada
+  if (num) {
+    const pedidosLocais = getLocal<PedidoCozinha[]>(STORAGE_KEYS.PEDIDOS_COZINHA, []);
+    let alterou = false;
+    const pedidosAtualizados = pedidosLocais.map(p => {
+      if (p.mesa_numero === num && (p.status === 'pendente' || p.status === 'preparando' || p.status === 'pronto')) {
+        alterou = true;
+        return {
+          ...p,
+          status: 'entregue' as const,
+          alerta_silenciado: true,
+          atualizado_em: new Date().toISOString()
+        };
+      }
+      return p;
+    });
+    if (alterou) {
+      setLocal(STORAGE_KEYS.PEDIDOS_COZINHA, pedidosAtualizados);
+    }
+  }
+
+  // 5. Notificar todas as páginas e componentes
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('mesas_atualizadas'));
+    window.dispatchEvent(new CustomEvent('pedidos_cozinha_atualizados'));
   }
+}
+
+export async function deleteMesaAberta(id: string, mesaNumero?: number): Promise<void> {
+  return liberarMesaTotal(id, mesaNumero);
 }
 
 // --- PEDIDOS DA COZINHA (KDS) ---
