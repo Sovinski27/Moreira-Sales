@@ -149,6 +149,42 @@ export interface Mesa {
   numero: number;
 }
 
+export interface PedidoOnlineEndereco {
+  rua: string;
+  numero: string;
+  bairro: string;
+  complemento?: string;
+  ponto_referencia?: string;
+}
+
+export type FormaPagamentoOnline = 'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro';
+
+export interface PedidoOnlineDetalhes {
+  tipo: 'retirada' | 'entrega';
+  endereco?: PedidoOnlineEndereco;
+  forma_pagamento: FormaPagamentoOnline;
+  troco_para?: string;
+  mensagem_whatsapp?: string;
+}
+
+export interface PedidoOnline {
+  id: string;
+  numero_pedido: number;
+  cliente_nome: string; // Nome e sobrenome obrigatório
+  cliente_telefone: string;
+  cliente_whatsapp?: string;
+  tipo: 'retirada' | 'entrega';
+  endereco?: PedidoOnlineEndereco;
+  forma_pagamento: FormaPagamentoOnline;
+  troco_para?: string;
+  itens: ItemPedidoCozinha[];
+  total: number;
+  observacoes?: string;
+  status: 'pendente' | 'em_preparo' | 'pronto' | 'saiu_para_entrega' | 'entregue' | 'pago' | 'cancelado';
+  criado_em: string;
+  mensagem_whatsapp?: string;
+}
+
 export interface MesaAberta {
   id: string;
   mesa_id: string;
@@ -163,6 +199,8 @@ export interface MesaAberta {
   itens?: any[];
   status?: string;
   aberto_em?: string;
+  is_online?: boolean;
+  online_detalhes?: PedidoOnlineDetalhes;
 }
 
 export type PedidoCozinhaStatus = 'pendente' | 'preparando' | 'pronto' | 'entregue' | 'cancelado';
@@ -190,6 +228,7 @@ export interface PedidoCozinha {
   atualizado_em?: string;
   observacoes?: string;
   alerta_silenciado?: boolean;
+  online_detalhes?: PedidoOnlineDetalhes;
 }
 
 export type TipoCustoFixo = 'mensal' | 'percentual';

@@ -20,7 +20,8 @@ import {
   ChevronRight,
   Store,
   MessageSquare,
-  Timer
+  Timer,
+  Globe
 } from 'lucide-react';
 import { Produto, Categoria, ItemPedidoCozinha, MesaAberta, ItemCarrinho } from '../types';
 import { 
@@ -655,6 +656,23 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                     );
                   })}
                 </div>
+
+                {/* Atalho Especial Comanda Online */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setComandaInput('99');
+                    if (!clienteNome) setClienteNome('Cliente Online');
+                  }}
+                  className={`w-full mt-2.5 py-2 px-3 rounded-xl font-bold text-xs border transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    comandaInput === '99'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
+                  }`}
+                >
+                  <Globe className="w-4 h-4 text-blue-600" />
+                  <span>Comanda Online (#99 - Pedidos de Casa)</span>
+                </button>
               </div>
 
               {/* Campo Opcional: Nome do Cliente */}

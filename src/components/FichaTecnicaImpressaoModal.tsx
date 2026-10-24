@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Printer, ChefHat, Calendar, Clock, Scale, Flame, Award, FileText } from 'lucide-react';
 import { Produto, Insumo, FichaTecnica, ReceitaMetadata } from '../types';
-import { converterParaUnidadeBase } from '../services/db';
+import { converterParaUnidadeBase, getLocal, STORAGE_KEYS, calcularCustoUnitarioProduto } from '../services/db';
 
 interface FichaTecnicaImpressaoModalProps {
   isOpen: boolean;
@@ -39,15 +39,35 @@ export const FichaTecnicaImpressaoModal: React.FC<FichaTecnicaImpressaoModalProp
 
   let totalCustoBatelada = 0;
   const linhasIngredientes = ingredientesProduto.map(f => {
-    const ins = insumos.find(i => i.id === f.insumo_id);
-    const unidadeExibida = f.unidade_medida || ins?.unidade_medida || 'un';
+    const isRec = f.insumo_id.startsWith('receita:');
+    let nome = '(Insumo não localizado)';
+    let custo = 0;
+    let unidadeExibida = f.unidade_medida || 'un';
     const qtdExibida = f.quantidade_original !== undefined ? f.quantidade_original : f.quantidade_utilizada;
-    const qtdBase = ins ? converterParaUnidadeBase(qtdExibida, unidadeExibida, ins.unidade_medida) : 0;
-    const custo = ins ? qtdBase * ins.preco_custo : 0;
+
+    if (isRec) {
+      const subProdId = f.insumo_id.replace('receita:', '');
+      const prods = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+      const subProd = prods.find(p => p.id === subProdId);
+      const subCusto = calcularCustoUnitarioProduto(subProdId, fichas, insumos, subProd);
+      const subFicha = fichas.find(sf => sf.produto_id === subProdId);
+      const subUnidadeBase = (subFicha?.unidade_medida || 'un') as 'g'|'kg'|'ml'|'l'|'un';
+      unidadeExibida = f.unidade_medida || subUnidadeBase;
+      const qtdBase = converterParaUnidadeBase(qtdExibida, unidadeExibida, subUnidadeBase);
+      custo = subCusto * qtdBase;
+      nome = subProd ? `[Receita Base] ${subProd.nome}` : 'Receita Base';
+    } else {
+      const ins = insumos.find(i => i.id === f.insumo_id);
+      unidadeExibida = f.unidade_medida || ins?.unidade_medida || 'un';
+      const qtdBase = ins ? converterParaUnidadeBase(qtdExibida, unidadeExibida, ins.unidade_medida) : 0;
+      custo = ins ? qtdBase * ins.preco_custo : 0;
+      nome = ins ? ins.nome : '(Insumo não localizado)';
+    }
+
     totalCustoBatelada += custo;
 
     return {
-      nome: ins ? ins.nome : '(Insumo não localizado)',
+      nome,
       quantidadeFormatada: `${qtdExibida} ${unidadeExibida}`,
       custo: custo,
       consumoUnitario: `${(qtdExibida / rendimentoUnidades) < 1 ? (qtdExibida / rendimentoUnidades).toFixed(3) : (qtdExibida / rendimentoUnidades).toFixed(2)} ${unidadeExibida}`

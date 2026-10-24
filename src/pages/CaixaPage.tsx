@@ -1,14 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useLoyalty } from '../context/LoyaltyContext';
-import { Cliente, Compra, Produto, Categoria, ItemCarrinho, MesaAberta, NotaFiscal, ConfiguracaoFiscal } from '../types';
+import { Cliente, Compra, Produto, Categoria, ItemCarrinho, MesaAberta, NotaFiscal, ConfiguracaoFiscal, PedidoOnline } from '../types';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
 import { buscarClientePorTelefone } from '../services/clientSearch';
-import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta, fetchPedidosCozinha, updatePedidoCozinhaStatus, INITIAL_CONFIG_FISCAL, getLocal, STORAGE_KEYS } from '../services/db';
+import { fetchProdutos, fetchCategorias, fetchMesasAbertas, saveMesaAberta, deleteMesaAberta, fetchPedidosCozinha, updatePedidoCozinhaStatus, fetchPedidosOnline, INITIAL_CONFIG_FISCAL, getLocal, STORAGE_KEYS } from '../services/db';
 import { AwardModal } from '../components/AwardModal';
 import { ClienteProfileModal } from '../components/ClienteProfileModal';
 import { AlertModal } from '../components/AlertModal';
 import { QrCodeMesasModal } from '../components/QrCodeMesasModal';
 import { ModalEmissaoNfe } from '../components/ModalEmissaoNfe';
+import { ModalComandaOnlineCaixa } from '../components/ModalComandaOnlineCaixa';
 import { fetchConfigFiscal, emitirNotaFiscal, formatarCpf } from '../services/nfeService';
 import { 
   UserCheck, 
@@ -47,6 +48,9 @@ import {
   ChevronRight,
   ShoppingBag,
   UtensilsCrossed,
+  Globe,
+  Copy,
+  CheckCheck,
   X
 } from 'lucide-react';
 
@@ -72,6 +76,11 @@ export const CaixaPage: React.FC = () => {
   const [modalNovaComandaCaixa, setModalNovaComandaCaixa] = useState(false);
   const [numeroNovaComandaInput, setNumeroNovaComandaInput] = useState('');
   const [nomeNovoClienteComanda, setNomeNovoClienteComanda] = useState('');
+
+  // Estados da Comanda Online (Pedidos de Casa)
+  const [pedidosOnline, setPedidosOnline] = useState<PedidoOnline[]>([]);
+  const [modalOnlineCaixaAberto, setModalOnlineCaixaAberto] = useState(false);
+  const [linkOnlineCopiado, setLinkOnlineCopiado] = useState(false);
 
   // Estados do Catálogo e Carrinho com Hidratação Instantânea (Zero Delay)
   const [produtos, setProdutos] = useState<Produto[]>(() => getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []));
@@ -171,7 +180,16 @@ export const CaixaPage: React.FC = () => {
     };
     carregarFiscal();
 
-    const interval = setInterval(carregarMesas, 2000);
+    const carregarPedidosOnline = () => {
+      fetchPedidosOnline().then(setPedidosOnline).catch(() => {});
+    };
+    carregarPedidosOnline();
+
+    const interval = setInterval(() => {
+      carregarMesas();
+      carregarPedidosOnline();
+    }, 2000);
+
     window.addEventListener('mesas_atualizadas', carregarMesas);
     window.addEventListener('novo_pedido_cozinha', carregarMesas);
     window.addEventListener('pedidos_cozinha_atualizados', carregarMesas);
@@ -179,9 +197,12 @@ export const CaixaPage: React.FC = () => {
     window.addEventListener('produtos_atualizados', carregarCatalogo);
     window.addEventListener('categorias_atualizadas', carregarCatalogo);
     window.addEventListener('config_fiscal_atualizada', carregarFiscal);
+    window.addEventListener('pedidos_online_atualizados', carregarPedidosOnline);
+    window.addEventListener('novo_pedido_online', carregarPedidosOnline);
     window.addEventListener('storage', carregarMesas);
     window.addEventListener('storage', carregarCatalogo);
     window.addEventListener('storage', carregarFiscal);
+    window.addEventListener('storage', carregarPedidosOnline);
 
     return () => {
       clearInterval(interval);
@@ -192,9 +213,12 @@ export const CaixaPage: React.FC = () => {
       window.removeEventListener('produtos_atualizados', carregarCatalogo);
       window.removeEventListener('categorias_atualizadas', carregarCatalogo);
       window.removeEventListener('config_fiscal_atualizada', carregarFiscal);
+      window.removeEventListener('pedidos_online_atualizados', carregarPedidosOnline);
+      window.removeEventListener('novo_pedido_online', carregarPedidosOnline);
       window.removeEventListener('storage', carregarMesas);
       window.removeEventListener('storage', carregarCatalogo);
       window.removeEventListener('storage', carregarFiscal);
+      window.removeEventListener('storage', carregarPedidosOnline);
     };
   }, [carregarCatalogo]);
 
@@ -777,6 +801,88 @@ export const CaixaPage: React.FC = () => {
     }
   }, [modoCaixa, mesaSelecionada]);
 
+  // Métricas e Ações da Comanda Online
+  const pedidosOnlineAtivos = useMemo(() => {
+    return pedidosOnline.filter(p => p.status !== 'entregue' && p.status !== 'cancelado');
+  }, [pedidosOnline]);
+
+  const totalOnlineAtivos = useMemo(() => {
+    return pedidosOnlineAtivos.reduce((acc, p) => acc + (p.total || 0), 0);
+  }, [pedidosOnlineAtivos]);
+
+  const copiarLinkComandaOnline = () => {
+    let base = window.location.origin;
+    const salvo = typeof localStorage !== 'undefined' ? localStorage.getItem('moreira_sales_cardapio_domain') : null;
+    if (salvo && salvo.trim()) {
+      base = salvo.trim();
+    } else if (base.includes('localhost')) {
+      base = 'https://moreira-sales.vercel.app';
+    }
+    const clean = base.replace(/\/$/, '');
+    const url = `${clean}/cardapio?online=true`;
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(() => {
+        setLinkOnlineCopiado(true);
+        setTimeout(() => setLinkOnlineCopiado(false), 2500);
+      });
+    } else {
+      setLinkOnlineCopiado(true);
+      setTimeout(() => setLinkOnlineCopiado(false), 2500);
+    }
+  };
+
+  const handleCobrarPedidoOnline = (pedido: PedidoOnline) => {
+    const itensCarrinho: ItemCarrinho[] = pedido.itens.map((it, idx) => {
+      const prodDoCatalogo = produtos.find(p => p.id === it.produto_id || p.nome.toLowerCase() === it.nome.toLowerCase());
+      return {
+        id_temp: it.id_temp || `item-online-${Date.now()}-${idx}`,
+        produto: {
+          id: it.produto_id || prodDoCatalogo?.id || `prod-online-${idx}`,
+          categoria_id: prodDoCatalogo?.categoria_id || '',
+          nome: it.nome,
+          preco: it.preco_unitario,
+          ativo: true,
+          controlar_estoque: Boolean(prodDoCatalogo?.controlar_estoque),
+          estoque_atual: prodDoCatalogo?.estoque_atual
+        },
+        quantidade: it.quantidade,
+        subtotal: it.subtotal
+      };
+    });
+
+    setMesaSelecionada(null);
+    setCarrinho(itensCarrinho);
+
+    const foneRaw = pedido.cliente_telefone || pedido.cliente_whatsapp || '';
+    const digits = cleanPhone(foneRaw);
+    const cliMatch = clientes.find(c => {
+      const cDigits = cleanPhone(c.whatsapp);
+      return (digits && cDigits === digits) || c.nome.toLowerCase() === pedido.cliente_nome.toLowerCase();
+    });
+
+    if (cliMatch) {
+      setClienteEncontrado(cliMatch);
+      setTelefoneInput(cliMatch.whatsapp ? formatPhoneDisplay(cliMatch.whatsapp) : '');
+      setIsNovoCliente(false);
+      setNomeNovoCliente('');
+    } else {
+      setClienteEncontrado(null);
+      setIsNovoCliente(true);
+      setNomeNovoCliente(pedido.cliente_nome);
+      setTelefoneInput(foneRaw ? formatPhoneDisplay(foneRaw) : '');
+    }
+
+    if (pedido.forma_pagamento === 'pix') setFormaPagamento('pix');
+    else if (pedido.forma_pagamento === 'cartao_credito') setFormaPagamento('cartao_credito');
+    else if (pedido.forma_pagamento === 'cartao_debito') setFormaPagamento('cartao_debito');
+    else if (pedido.forma_pagamento === 'dinheiro') setFormaPagamento('dinheiro');
+
+    setModoCaixa('balcao');
+    setModalOnlineCaixaAberto(false);
+    setSucessoMensagem(`Pedido Online #${pedido.numero_pedido} (${pedido.cliente_nome}) carregado no caixa para cobrança!`);
+    setTimeout(() => setSucessoMensagem(null), 4000);
+  };
+
   const iconesCat: Record<string, any> = {
     'Coffee': Coffee,
     'Croissant': Package,
@@ -838,11 +944,11 @@ export const CaixaPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setModalQrCodeAberto(true)}
-                className="px-3.5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl font-bold text-xs shadow-sm transition-colors flex items-center gap-1.5"
-                title="Gerar e imprimir QR Codes das mesas"
+                className="px-3.5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl font-bold text-xs shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+                title="Gerar e imprimir QR Codes das mesas e Comanda Online"
               >
                 <QrCode className="w-4 h-4" />
-                <span>QR Code Mesas</span>
+                <span>QR Code Comandas</span>
               </button>
             )}
           </div>
@@ -851,6 +957,65 @@ export const CaixaPage: React.FC = () => {
 
       {modoCaixa === 'mesas' && !mesaSelecionada ? (
         <div className="space-y-5">
+          {/* BANNER COMANDA ONLINE (PEDIDOS DE CASA) */}
+          <div className="bg-gradient-to-r from-blue-950 via-indigo-950 to-stone-900 text-white rounded-3xl p-4 sm:p-5 shadow-md border border-blue-900/50 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-blue-600/30 border border-blue-500/40 text-blue-400 flex items-center justify-center shrink-0">
+                <Globe className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-black tracking-tight">Comanda Online (Pedidos de Casa)</h3>
+                  <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 text-[10px] font-extrabold rounded-md border border-blue-400/30 uppercase">
+                    Mesa #99
+                  </span>
+                  {pedidosOnlineAtivos.length > 0 && (
+                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-black rounded-md border border-emerald-400/30 uppercase animate-pulse">
+                      {pedidosOnlineAtivos.length} ativo{pedidosOnlineAtivos.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-stone-300 mt-0.5">
+                  Vários clientes podem acessar simultaneamente de casa, pedir com nome/sobrenome, escolher retirada/entrega e enviar no WhatsApp.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+              <button
+                type="button"
+                onClick={copiarLinkComandaOnline}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                title="Copiar o link da comanda para jogar no WhatsApp do cliente"
+              >
+                {linkOnlineCopiado ? <CheckCheck className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4" />}
+                <span>{linkOnlineCopiado ? 'Link Copiado para o WhatsApp!' : 'Copiar Link para WhatsApp'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModalQrCodeAberto(true)}
+                className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Visualizar QR Code ou gerar outras comandas"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>QR Code Comandas</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModalOnlineCaixaAberto(true)}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm relative"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Ver Pedidos ({pedidosOnlineAtivos.length})</span>
+                {pedidosOnlineAtivos.length > 0 && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping absolute -top-0.5 -right-0.5" />
+                )}
+              </button>
+            </div>
+          </div>
+
           {/* 4 CARDS EXECUTIVOS (Estilo Painel Moderno do Bar/Restaurante) */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
             
@@ -984,6 +1149,46 @@ export const CaixaPage: React.FC = () => {
           {/* GRADE DE COMANDAS / MESAS */}
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-stone-200">
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+              {/* CARD DE COMANDA ONLINE (MESA 99) */}
+              {(filtroComanda !== 'livres' || pedidosOnlineAtivos.length === 0) && (!buscaComanda.trim() || 'online'.includes(buscaComanda.toLowerCase()) || '99'.includes(buscaComanda.toLowerCase()) || pedidosOnlineAtivos.some(p => p.cliente_nome.toLowerCase().includes(buscaComanda.toLowerCase()))) && (
+                <button
+                  type="button"
+                  onClick={() => setModalOnlineCaixaAberto(true)}
+                  className={`relative h-28 flex flex-col items-center justify-center rounded-2xl border-2 transition-all p-2 cursor-pointer ${
+                    pedidosOnlineAtivos.length > 0
+                      ? 'bg-gradient-to-b from-blue-50 to-indigo-50 border-blue-400 hover:border-blue-500 shadow-sm ring-2 ring-blue-300/40'
+                      : 'bg-stone-50 border-blue-200/60 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-1 text-blue-700">
+                    <Globe className="w-5 h-5" />
+                    <span className="text-xl font-black">99</span>
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-blue-900 mt-0.5">
+                    Online
+                  </span>
+                  {pedidosOnlineAtivos.length > 0 ? (
+                    <div className="flex flex-col items-center mt-0.5 w-full px-1">
+                      <span className="text-[10px] text-blue-950 font-extrabold truncate max-w-full">
+                        {pedidosOnlineAtivos.length} pedido{pedidosOnlineAtivos.length > 1 ? 's' : ''}
+                      </span>
+                      <span className="text-blue-950 font-black font-mono text-xs">
+                        R$ {totalOnlineAtivos.toFixed(2)}
+                      </span>
+                      <span className="mt-1 text-[9px] font-black uppercase tracking-wider text-blue-800 bg-blue-200/90 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-2xs">
+                        <Receipt className="w-2.5 h-2.5" />
+                        Ver / Cobrar
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-stone-400 font-bold text-[10px] mt-1 uppercase tracking-tight flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Livre
+                    </span>
+                  )}
+                </button>
+              )}
+
               {Array.from({ length: 30 }, (_, i) => i + 1)
                 .filter(num => {
                   const mesa = mesasAbertas.find(m => m.mesa_numero === num);
@@ -2229,6 +2434,17 @@ export const CaixaPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* MODAL DE GESTÃO E COBRANÇA DA COMANDA ONLINE */}
+      <ModalComandaOnlineCaixa
+        isOpen={modalOnlineCaixaAberto}
+        onClose={() => setModalOnlineCaixaAberto(false)}
+        onCobrarPedido={handleCobrarPedidoOnline}
+        onAbrirNovaComandaOnline={() => {
+          setModalOnlineCaixaAberto(false);
+          window.open(window.location.origin + window.location.pathname + '?modo=online', '_blank');
+        }}
+      />
     </div>
   );
 };

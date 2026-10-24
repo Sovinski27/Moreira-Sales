@@ -607,12 +607,24 @@ export async function exportarRelatorioExcelProfissional(options: ExportRelatori
         : 1;
 
       fichasProd.forEach(f => {
-        const ins = insumos.find(i => i.id === f.insumo_id);
-        if (ins) {
+        if (f.insumo_id.startsWith('receita:')) {
+          const subProdId = f.insumo_id.replace('receita:', '');
+          const subProd = produtos.find(p => p.id === subProdId);
+          const subFicha = fichas.find(sf => sf.produto_id === subProdId);
+          const subUnidade = subFicha?.unidade_medida || 'un';
+          const subCusto = subProd?.custo || 0;
           const qtdUnitaria = f.quantidade_utilizada / rendimento;
-          const qtdBaseUnitaria = converterParaUnidadeBase(qtdUnitaria, f.unidade_medida, ins.unidade_medida);
-          custo += (ins.preco_custo * qtdBaseUnitaria);
-          nomesInsumos.push(`${ins.nome} (${qtdUnitaria < 1 ? qtdUnitaria.toFixed(3) : qtdUnitaria.toFixed(2)} ${f.unidade_medida || ins.unidade_medida}/un)`);
+          const qtdBaseUnitaria = converterParaUnidadeBase(qtdUnitaria, f.unidade_medida, subUnidade);
+          custo += (subCusto * qtdBaseUnitaria);
+          nomesInsumos.push(`[Receita] ${subProd?.nome || 'Base'} (${qtdUnitaria < 1 ? qtdUnitaria.toFixed(3) : qtdUnitaria.toFixed(2)} ${f.unidade_medida || subUnidade}/un)`);
+        } else {
+          const ins = insumos.find(i => i.id === f.insumo_id);
+          if (ins) {
+            const qtdUnitaria = f.quantidade_utilizada / rendimento;
+            const qtdBaseUnitaria = converterParaUnidadeBase(qtdUnitaria, f.unidade_medida, ins.unidade_medida);
+            custo += (ins.preco_custo * qtdBaseUnitaria);
+            nomesInsumos.push(`${ins.nome} (${qtdUnitaria < 1 ? qtdUnitaria.toFixed(3) : qtdUnitaria.toFixed(2)} ${f.unidade_medida || ins.unidade_medida}/un)`);
+          }
         }
         if (f.custo_direto && f.custo_direto > 0) {
           custo += f.custo_direto;

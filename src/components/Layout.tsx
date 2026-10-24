@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLoyalty } from '../context/LoyaltyContext';
-import { Store, BarChart3, ChefHat, QrCode, Database, Sparkles, Lock, UtensilsCrossed } from 'lucide-react';
+import { Store, BarChart3, ChefHat, QrCode, Database, Sparkles, Lock, UtensilsCrossed, Globe } from 'lucide-react';
 import { fetchPedidosCozinha } from '../services/db';
 import { PedidoCozinha } from '../types';
 import { isAdminSessionActive } from '../services/adminAuth';

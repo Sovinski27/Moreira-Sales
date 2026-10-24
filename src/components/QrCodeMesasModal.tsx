@@ -1,18 +1,21 @@
 import React, { useState } from 'react';
-import { X, Printer, QrCode, ExternalLink, Copy, Check, Globe } from 'lucide-react';
+import { X, Printer, QrCode, ExternalLink, Copy, Check, Globe, MessageSquare, Send } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface QrCodeMesasModalProps {
   isOpen: boolean;
   onClose: () => void;
   totalMesas?: number;
+  modoInicial?: 'mesas' | 'online';
 }
 
 export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
   isOpen,
   onClose,
-  totalMesas = 20
+  totalMesas = 30,
+  modoInicial = 'mesas'
 }) => {
+  const [modoTipo, setModoTipo] = useState<'mesas' | 'online'>(modoInicial);
   const [mesaSelecionada, setMesaSelecionada] = useState<number>(1);
   const [copiado, setCopiado] = useState(false);
 
@@ -22,12 +25,10 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
       if (salvo && salvo.trim()) return salvo.trim();
 
       const origin = window.location.origin;
-      // Se estiver em produção ou na Vercel, utiliza a URL atual exata
       if (origin && !origin.includes('localhost')) {
         return origin;
       }
     }
-    // URL padrão oficial da Vercel (onde o sistema está online)
     return 'https://moreira-sales.vercel.app';
   };
 
@@ -37,12 +38,24 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
   if (!isOpen) return null;
 
   const cleanBaseUrl = baseUrl.trim().replace(/\/$/, '');
-  const urlMesa = `${cleanBaseUrl}/cardapio?mesa=${mesaSelecionada}`;
+  
+  // URL da comanda gerada: se for online gera ?online=true, se for mesa gera ?mesa=X
+  const urlComanda = modoTipo === 'online'
+    ? `${cleanBaseUrl}/cardapio?online=true`
+    : `${cleanBaseUrl}/cardapio?mesa=${mesaSelecionada}`;
 
   const handleCopiarLink = () => {
-    navigator.clipboard.writeText(urlMesa);
+    navigator.clipboard.writeText(urlComanda);
     setCopiado(true);
-    setTimeout(() => setCopiado(false), 2000);
+    setTimeout(() => setCopiado(false), 2500);
+  };
+
+  const handleCompartilharWhatsApp = () => {
+    const texto = modoTipo === 'online'
+      ? `Olá! Segue nosso cardápio e comanda online da Panificadora Moreira Sales para você fazer seu pedido:\n${urlComanda}`
+      : `Olá! Segue o link do cardápio digital da Mesa ${mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada} da Panificadora Moreira Sales:\n${urlComanda}`;
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
+    window.open(url, '_blank');
   };
 
   const handleImprimir = () => {
@@ -66,10 +79,10 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-black tracking-tight leading-tight">
-                QR Codes do Cardápio das Mesas
+                Geração de Comandas e QR Codes
               </h3>
               <p className="text-xs text-amber-200/80">
-                Selecione a mesa para visualizar, copiar o link ou imprimir o display.
+                Gere o QR Code ou copie o link direto para jogar no WhatsApp dos clientes!
               </p>
             </div>
           </div>
@@ -85,40 +98,79 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
         </div>
 
         {/* Corpo com Grid Responsivo de 2 Colunas */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
+          
+          {/* Alternador de Tipo: Mesas do Salão vs Comanda Online */}
+          <div className="flex bg-stone-100 p-1.5 rounded-2xl border border-stone-200 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setModoTipo('mesas')}
+              className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                modoTipo === 'mesas'
+                  ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
+                  : 'text-stone-500 hover:text-stone-800'
+              }`}
+            >
+              <span>🏢 Mesas Físicas (1 a {totalMesas})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoTipo('online')}
+              className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                modoTipo === 'online'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-stone-500 hover:text-stone-800'
+              }`}
+            >
+              <Globe className="w-4 h-4" />
+              <span>🌐 Comanda Online (WhatsApp)</span>
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
             
-            {/* Coluna 1: Seletor de Mesas e Ações Rápidas */}
+            {/* Coluna 1: Seletor e Ações Rápidas */}
             <div className="space-y-4">
-              <div>
-                <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-2">
-                  Selecione a Mesa:
-                </label>
-                {/* Grade compacta sem barra de rolagem interna feia */}
-                <div className="grid grid-cols-4 sm:grid-cols-5 gap-1.5">
-                  {Array.from({ length: totalMesas }, (_, i) => i + 1).map(num => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => setMesaSelecionada(num)}
-                      className={`py-2 px-1 rounded-xl font-bold text-xs transition-all text-center cursor-pointer ${
-                        mesaSelecionada === num
-                          ? 'bg-amber-600 text-white shadow-xs scale-102 ring-2 ring-amber-400/30'
-                          : 'bg-stone-100 text-stone-700 hover:bg-stone-200 hover:text-stone-900'
-                      }`}
-                    >
-                      {num < 10 ? `0${num}` : num}
-                    </button>
-                  ))}
+              {modoTipo === 'mesas' ? (
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-2">
+                    Selecione o Número da Mesa:
+                  </label>
+                  <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                    {Array.from({ length: totalMesas }, (_, i) => i + 1).map(num => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setMesaSelecionada(num)}
+                        className={`py-2 px-1 rounded-xl font-bold text-xs transition-all text-center cursor-pointer ${
+                          mesaSelecionada === num
+                            ? 'bg-amber-600 text-white shadow-xs scale-102 ring-2 ring-amber-400/30'
+                            : 'bg-stone-100 text-stone-700 hover:bg-stone-200 hover:text-stone-900'
+                        }`}
+                      >
+                        {num < 10 ? `0${num}` : num}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4 text-xs space-y-2">
+                  <div className="flex items-center gap-2 text-blue-950 font-black text-sm">
+                    <Globe className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>Comanda Online para Pedidos de Casa</span>
+                  </div>
+                  <p className="text-blue-900/90 leading-relaxed font-medium">
+                    Pegue este link e <b>jogue na conversa do WhatsApp</b> do seu cliente. Vários clientes de casa podem acessar simultaneamente, colocar Nome e Sobrenome, escolher retirada ou entrega com endereço e forma de pagamento!
+                  </p>
+                </div>
+              )}
 
               {/* Indicador e Controle do Domínio Online (Vercel) */}
               <div className="bg-amber-50/80 border border-amber-200/90 rounded-2xl p-3 text-xs space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-amber-950 flex items-center gap-1.5">
                     <Globe className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Domínio Online (Vercel):</span>
+                    <span>Domínio da Panificadora:</span>
                   </span>
                   <button
                     type="button"
@@ -160,13 +212,13 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
                 )}
               </div>
 
-              {/* Caixa de Link Direto com Copiar */}
+              {/* Caixa de Link Direto com Botão de Copiar para o WhatsApp */}
               <div className="space-y-1.5 pt-1">
                 <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block">
-                  Link Direto da Mesa {mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada}:
+                  {modoTipo === 'online' ? 'Link da Comanda Online (Jogar no WhatsApp):' : `Link da Mesa ${mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada}:`}
                 </span>
                 <div className="flex items-center gap-2 bg-stone-50 px-3 py-2 rounded-xl border border-stone-200 text-xs font-mono text-stone-700">
-                  <span className="truncate flex-1">{urlMesa}</span>
+                  <span className="truncate flex-1">{urlComanda}</span>
                   <button
                     type="button"
                     onClick={handleCopiarLink}
@@ -178,31 +230,39 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
                 </div>
               </div>
 
-              {/* Botões de Ação para Teste */}
-              <div className="space-y-2">
-                <a
-                  href={urlMesa}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+              {/* Botões de Ação Imediata para WhatsApp e Teste */}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCopiarLink}
+                  className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-98"
                 >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Abrir Cardápio Online na Vercel (Mesa {mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada})</span>
-                </a>
+                  {copiado ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiado ? 'Link Copiado! Cole no WhatsApp do Cliente' : 'Copiar Link para Jogar no WhatsApp'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCompartilharWhatsApp}
+                  className="w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Enviar Diretamente no WhatsApp</span>
+                </button>
 
                 <a
-                  href={`/cardapio?mesa=${mesaSelecionada}`}
+                  href={urlComanda}
                   target="_blank"
                   rel="noreferrer"
-                  className="w-full py-2.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="w-full py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-center"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Testar Cardápio Neste Navegador (Aba Local)</span>
+                  <span>Abrir Comanda Neste Navegador para Testar</span>
                 </a>
               </div>
             </div>
 
-            {/* Coluna 2: Preview do Display de Mesa / Cartão de Impressão */}
+            {/* Coluna 2: Preview do Display / Cartão de Leitura de QR Code */}
             <div className="flex flex-col items-center">
               <div className="w-full bg-[#FAF8F5] border-2 border-stone-200/80 rounded-3xl p-5 flex flex-col items-center text-center shadow-xs">
                 {/* Logo e Nome */}
@@ -213,26 +273,32 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
                   Panificadora Moreira Sales
                 </h4>
                 
-                {/* Badge da Mesa */}
-                <div className="inline-block bg-amber-100 text-amber-900 font-black text-xs px-3.5 py-1 rounded-full my-2 border border-amber-200/60">
-                  MESA {mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada}
-                </div>
+                {/* Badge da Comanda */}
+                {modoTipo === 'online' ? (
+                  <div className="inline-block bg-blue-100 text-blue-900 font-black text-xs px-3.5 py-1 rounded-full my-2 border border-blue-200">
+                    🌐 COMANDA ONLINE / WHATSAPP
+                  </div>
+                ) : (
+                  <div className="inline-block bg-amber-100 text-amber-900 font-black text-xs px-3.5 py-1 rounded-full my-2 border border-amber-200/60">
+                    MESA {mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada}
+                  </div>
+                )}
 
                 {/* QR Code com borda limpa */}
                 <div className="bg-white p-3 rounded-2xl shadow-xs border border-stone-200/80 my-1">
                   <QRCodeSVG
-                    value={urlMesa}
-                    size={135}
+                    value={urlComanda}
+                    size={140}
                     level="M"
                     includeMargin={false}
                   />
                 </div>
 
                 <p className="text-xs font-bold text-stone-800 mt-2">
-                  Aponte a câmera do celular para pedir
+                  {modoTipo === 'online' ? 'Lê o QR Code ou clica no link para pedir' : 'Aponte a câmera do celular para pedir'}
                 </p>
                 <p className="text-[11px] text-stone-500 mt-0.5">
-                  Seu pedido vai direto para a nossa cozinha! ☕🥖
+                  {modoTipo === 'online' ? 'Pedidos para retirada ou entrega em domicílio! ☕🛵' : 'Seu pedido vai direto para a nossa cozinha! ☕🥖'}
                 </p>
               </div>
             </div>
@@ -243,7 +309,7 @@ export const QrCodeMesasModal: React.FC<QrCodeMesasModalProps> = ({
         {/* Footer com Ações */}
         <div className="p-3.5 sm:p-4 bg-stone-50 border-t border-stone-200 flex items-center justify-between shrink-0">
           <span className="text-xs text-stone-500 font-medium hidden sm:inline">
-            Mesa {mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada} de {totalMesas} mesas
+            {modoTipo === 'online' ? 'Comanda Online #99 (Acessível simultaneamente por qualquer cliente)' : `Mesa ${mesaSelecionada < 10 ? `0${mesaSelecionada}` : mesaSelecionada} de ${totalMesas} mesas`}
           </span>
 
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">

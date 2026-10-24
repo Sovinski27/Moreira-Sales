@@ -17,7 +17,10 @@ import {
   GripVertical,
   ArrowRight,
   Archive,
-  RefreshCw
+  RefreshCw,
+  Globe,
+  MapPin,
+  ShoppingBag
 } from 'lucide-react';
 import { PedidoCozinha, PedidoCozinhaStatus } from '../types';
 import { 
@@ -184,10 +187,22 @@ export const CozinhaPage: React.FC = () => {
       >
         {/* Cabeçalho do Card */}
         <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-base font-black text-stone-900 tracking-tight">
-              Mesa {pedido.mesa_numero < 10 ? `0${pedido.mesa_numero}` : pedido.mesa_numero}
-            </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {pedido.mesa_numero === 99 || pedido.online_detalhes ? (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="px-2 py-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[11px] font-black rounded-lg uppercase tracking-wider flex items-center gap-1 shadow-xs">
+                  <Globe className="w-3 h-3" />
+                  Online #99
+                </span>
+                <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg ${pedido.online_detalhes?.tipo === 'entrega' ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-emerald-100 text-emerald-900 border border-emerald-300'}`}>
+                  {pedido.online_detalhes?.tipo === 'entrega' ? '🛵 Entrega' : '🛍️ Retirada'}
+                </span>
+              </div>
+            ) : (
+              <span className="text-base font-black text-stone-900 tracking-tight">
+                Mesa {pedido.mesa_numero < 10 ? `0${pedido.mesa_numero}` : pedido.mesa_numero}
+              </span>
+            )}
             {temAlerta && (
               <span className="px-2 py-0.5 bg-rose-600 text-white text-[10px] font-black rounded-full uppercase animate-pulse">
                 Novo
@@ -202,7 +217,7 @@ export const CozinhaPage: React.FC = () => {
         </div>
 
         {/* Cliente */}
-        <div className="text-xs text-stone-600 mb-3 flex items-center justify-between">
+        <div className="text-xs text-stone-600 mb-2 flex items-center justify-between">
           <span className="truncate font-semibold">
             {pedido.cliente_nome || `Mesa ${pedido.mesa_numero}`}
           </span>
@@ -212,6 +227,22 @@ export const CozinhaPage: React.FC = () => {
             </span>
           )}
         </div>
+
+        {/* Endereço de Entrega (se for pedido online com entrega) */}
+        {pedido.online_detalhes?.tipo === 'entrega' && pedido.online_detalhes.endereco && (
+          <div className="bg-blue-50 border border-blue-200/80 rounded-xl p-2 text-[11px] text-blue-900 mb-2.5">
+            <p className="font-bold flex items-center gap-1">
+              <MapPin className="w-3 h-3 text-blue-600 shrink-0" />
+              <span>{pedido.online_detalhes.endereco.rua}, {pedido.online_detalhes.endereco.numero} - {pedido.online_detalhes.endereco.bairro}</span>
+            </p>
+            {pedido.online_detalhes.endereco.complemento && (
+              <p className="text-[10px] text-blue-700 ml-4 font-medium">Compl: {pedido.online_detalhes.endereco.complemento}</p>
+            )}
+            {pedido.online_detalhes.endereco.ponto_referencia && (
+              <p className="text-[10px] text-blue-700 ml-4 font-medium">Ref: {pedido.online_detalhes.endereco.ponto_referencia}</p>
+            )}
+          </div>
+        )}
 
         {/* Botão de Silenciar Som individual do pedido */}
         {temAlerta && (

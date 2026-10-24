@@ -7,6 +7,7 @@ import { AdminLoginPage } from './pages/AdminLoginPage';
 import { CozinhaPage } from './pages/CozinhaPage';
 import { CardapioDigitalPage } from './pages/CardapioDigitalPage';
 import { GarcomPage } from './pages/GarcomPage';
+import { ComandaOnlinePage } from './pages/ComandaOnlinePage';
 import { Footer } from './components/Footer';
 import { isAdminSessionActive, logoutAdmin } from './services/adminAuth';
 
@@ -21,6 +22,26 @@ export const App: React.FC = () => {
     window.addEventListener('admin_auth_changed', handleAuthChange);
     return () => window.removeEventListener('admin_auth_changed', handleAuthChange);
   }, []);
+
+  // Detectar se a URL está sendo aberta em modo Comanda Online de casa (/online, ?modo=online, ?comanda=online, ?mesa=99, ?online=true, #online)
+  const isModoOnlineDireto = () => {
+    if (typeof window === 'undefined') return false;
+    const path = window.location.pathname.toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.toLowerCase();
+    return (
+      path.includes('online') ||
+      path.includes('delivery') ||
+      hash.includes('online') ||
+      hash.includes('delivery') ||
+      params.get('modo') === 'online' ||
+      params.get('comanda') === 'online' ||
+      params.get('mesa') === '99' ||
+      params.get('mesa') === 'online' ||
+      params.has('online')
+    );
+  };
+
   // Detectar se a URL está sendo aberta em modo cliente de mesa (/cardapio, ?modo=cardapio, ?mesa=3, #cardapio ou subdomínio cardapio.*)
   const isModoClienteDireto = () => {
     if (typeof window === 'undefined') return false;
@@ -66,7 +87,7 @@ export const App: React.FC = () => {
 
   // Atalhos de teclado exclusivos do Sistema Operacional (F1: Caixa, F2: Admin, F3: Cozinha, F4: Garçom)
   useEffect(() => {
-    if (isModoClienteDireto()) return; // Clientes no cardápio não possuem atalhos operacionais
+    if (isModoClienteDireto() || isModoOnlineDireto()) return; // Clientes no cardápio/online não possuem atalhos operacionais
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F1') {
@@ -88,9 +109,31 @@ export const App: React.FC = () => {
   }, []);
 
   // =========================================================================
-  // 1. LINK EXCLUSIVO E 100% ISOLADO DO CARDÁPIO DIGITAL (CLIENTES DAS MESAS)
+  // 0. LINK EXCLUSIVO DA COMANDA ONLINE (USUÁRIOS ACESSANDO DE CASA)
+  // =========================================================================
+  if (isModoOnlineDireto()) {
+    return (
+      <LoyaltyProvider>
+        <ComandaOnlinePage isStandalone />
+      </LoyaltyProvider>
+    );
+  }
+
+  // =========================================================================
+  // 1. COMANDA ONLINE STANDALONE (ACESSO VIA QR CODE OU LINK DO WHATSAPP)
   // =========================================================================
   // Nenhuma navegação operacional (caixa/cozinha/admin) é montada ou exposta.
+  if (isModoOnlineDireto()) {
+    return (
+      <LoyaltyProvider>
+        <ComandaOnlinePage />
+      </LoyaltyProvider>
+    );
+  }
+
+  // =========================================================================
+  // 2. LINK EXCLUSIVO E 100% ISOLADO DO CARDÁPIO DIGITAL (CLIENTES DAS MESAS)
+  // =========================================================================
   if (isModoClienteDireto()) {
     return (
       <LoyaltyProvider>
@@ -100,7 +143,7 @@ export const App: React.FC = () => {
   }
 
   // =========================================================================
-  // 2. MONITOR STANDALONE DEDICADO DA COZINHA KDS (TELA DA COZINHA)
+  // 3. MONITOR STANDALONE DEDICADO DA COZINHA KDS (TELA DA COZINHA)
   // =========================================================================
   if (isModoCozinhaDireto() && currentTab === 'cozinha') {
     return (
@@ -116,7 +159,7 @@ export const App: React.FC = () => {
   }
 
   // =========================================================================
-  // 3. COMANDA MÓVEL STANDALONE DEDICADA DO GARÇOM / ATENDENTE (CELULAR)
+  // 4. COMANDA MÓVEL STANDALONE DEDICADA DO GARÇOM / ATENDENTE (CELULAR)
   // =========================================================================
   if (isModoGarcomDireto() && currentTab === 'garcom') {
     return (
@@ -127,7 +170,7 @@ export const App: React.FC = () => {
   }
 
   // =========================================================================
-  // 4. SISTEMA OPERACIONAL DA PANIFICADORA (CAIXA, COZINHA, GARÇOM, PAINEL DO DONO)
+  // 5. SISTEMA OPERACIONAL DA PANIFICADORA (CAIXA, COZINHA, GARÇOM, PAINEL DO DONO)
   // =========================================================================
   return (
     <LoyaltyProvider>

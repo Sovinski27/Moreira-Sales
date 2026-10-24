@@ -16,7 +16,9 @@ import {
   ItemPedidoCozinha,
   ConfiguracaoFiscal,
   NotaFiscal,
-  ReceitaMetadata
+  ReceitaMetadata,
+  PedidoOnline,
+  PedidoOnlineDetalhes
 } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { 
@@ -45,6 +47,7 @@ export const STORAGE_KEYS = {
   HISTORICO_COMPRAS: 'panificadora_historico_compras',
   CUSTOS_FIXOS: 'panificadora_custos_fixos',
   PEDIDOS_COZINHA: 'panificadora_pedidos_cozinha',
+  PEDIDOS_ONLINE: 'panificadora_pedidos_online',
   MESAS_ABERTAS: 'panificadora_mesas_abertas',
   CONFIG_FISCAL: 'panificadora_config_fiscal',
   NOTAS_FISCAIS: 'panificadora_notas_fiscais',
@@ -663,8 +666,15 @@ export function calcularCustoUnitarioProduto(
   produtoId: string,
   fichas: FichaTecnica[],
   insumos: Insumo[],
-  produtoBase?: Produto | null
+  produtoBase?: Produto | null,
+  visitedProducts: Set<string> = new Set()
 ): number {
+  if (visitedProducts.has(produtoId)) {
+    return 0; // Evita loop infinito em caso de referência circular
+  }
+  const currentVisited = new Set(visitedProducts);
+  currentVisited.add(produtoId);
+
   const fichasProd = fichas.filter(f => f.produto_id === produtoId);
   if (fichasProd.length === 0) {
     return Number(produtoBase?.custo) || 0;
@@ -679,15 +689,34 @@ export function calcularCustoUnitarioProduto(
 
   fichasProd.forEach(f => {
     if (f.insumo_id) {
-      const ins = insumos.find(i => i.id === f.insumo_id);
-      if (ins) {
+      if (f.insumo_id.startsWith('receita:')) {
+        // Sub-receita existente utilizada como ingrediente (ex: Massa de Salgado, Recheio, etc.)
+        const subProdId = f.insumo_id.replace('receita:', '');
+        const localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+        const subProd = localProds.find(p => p.id === subProdId);
+        const subCusto = calcularCustoUnitarioProduto(subProdId, fichas, insumos, subProd, currentVisited);
+
+        const subFicha = fichas.find(sf => sf.produto_id === subProdId);
+        const subUnidadeBase = (subFicha?.unidade_medida || 'un') as 'g' | 'kg' | 'ml' | 'l' | 'un';
+
         const qtdBase = converterParaUnidadeBase(
           f.quantidade_utilizada,
           f.unidade_medida,
-          ins.unidade_medida
+          subUnidadeBase
         );
-        custoBateladaTotal += (Number(ins.preco_custo) || 0) * qtdBase;
+        custoBateladaTotal += (Number(subCusto) || 0) * qtdBase;
         possuiInsumoOuCustoValido = true;
+      } else {
+        const ins = insumos.find(i => i.id === f.insumo_id);
+        if (ins) {
+          const qtdBase = converterParaUnidadeBase(
+            f.quantidade_utilizada,
+            f.unidade_medida,
+            ins.unidade_medida
+          );
+          custoBateladaTotal += (Number(ins.preco_custo) || 0) * qtdBase;
+          possuiInsumoOuCustoValido = true;
+        }
       }
     }
     if (f.custo_direto && f.custo_direto > 0) {
@@ -705,32 +734,35 @@ export function calcularCustoUnitarioProduto(
 }
 
 export function recalcularTodosCustosProdutos(): Produto[] {
-  const localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+  let localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
   const fichas = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
   const insumos = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
 
   let houveAlteracao = false;
-  const sincronizados = localProds.map(p => {
-    const temFicha = fichas.some(f => f.produto_id === p.id);
-    if (!temFicha) return p;
+  // Executa 2 passadas para garantir que sub-receitas propaguem seus custos para as receitas pai
+  for (let pass = 0; pass < 2; pass++) {
+    localProds = localProds.map(p => {
+      const temFicha = fichas.some(f => f.produto_id === p.id);
+      if (!temFicha) return p;
 
-    const custoCalculado = calcularCustoUnitarioProduto(p.id, fichas, insumos, p);
-    if (p.custo !== custoCalculado) {
-      houveAlteracao = true;
-      return { ...p, custo: custoCalculado };
-    }
-    return p;
-  });
+      const custoCalculado = calcularCustoUnitarioProduto(p.id, fichas, insumos, p);
+      if (p.custo !== custoCalculado) {
+        houveAlteracao = true;
+        return { ...p, custo: custoCalculado };
+      }
+      return p;
+    });
+  }
 
   if (houveAlteracao) {
-    setLocal(STORAGE_KEYS.PRODUTOS, sincronizados);
+    setLocal(STORAGE_KEYS.PRODUTOS, localProds);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('produtos_atualizados'));
       window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
     }
   }
 
-  return sincronizados;
+  return localProds;
 }
 
 export async function fetchProdutos(): Promise<Produto[]> {
@@ -1305,6 +1337,198 @@ export async function criarPedidoCardapio(params: {
   return pedido;
 }
 
+// ==========================================
+// MÓDULO: COMANDA ONLINE (PEDIDOS DE CASA)
+// ==========================================
+export async function fetchPedidosOnline(): Promise<PedidoOnline[]> {
+  return getLocal<PedidoOnline[]>(STORAGE_KEYS.PEDIDOS_ONLINE, []);
+}
+
+export async function savePedidoOnline(dados: {
+  clienteNome: string;
+  clienteTelefone: string;
+  tipo: 'retirada' | 'entrega';
+  endereco?: {
+    rua: string;
+    numero: string;
+    bairro: string;
+    complemento?: string;
+    ponto_referencia?: string;
+  };
+  formaPagamento: 'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro';
+  trocoPara?: string;
+  itens: ItemPedidoCozinha[];
+  observacoes?: string;
+}): Promise<PedidoOnline> {
+  const pedidosExistentes = getLocal<PedidoOnline[]>(STORAGE_KEYS.PEDIDOS_ONLINE, []);
+  
+  // Próximo número de pedido
+  const proximoNumero = pedidosExistentes.length > 0 
+    ? Math.max(...pedidosExistentes.map(p => p.numero_pedido || 1000)) + 1 
+    : 1001;
+
+  const total = dados.itens.reduce((acc, i) => acc + (i.subtotal || 0), 0);
+  const pedId = generateUuid();
+  const agora = new Date().toISOString();
+
+  // Construir mensagem para WhatsApp formatada automaticamente
+  const enderecoStr = dados.tipo === 'entrega' && dados.endereco
+    ? `${dados.endereco.rua}, nº ${dados.endereco.numero} - ${dados.endereco.bairro}${dados.endereco.complemento ? ` (${dados.endereco.complemento})` : ''}${dados.endereco.ponto_referencia ? ` [Ref: ${dados.endereco.ponto_referencia}]` : ''}`
+    : 'Retirada no Balcão da Panificadora';
+
+  const formaPagtoNome = {
+    pix: 'Pix',
+    cartao_credito: 'Cartão de Crédito',
+    cartao_debito: 'Cartão de Débito',
+    dinheiro: dados.trocoPara ? `Dinheiro (Troco para R$ ${dados.trocoPara})` : 'Dinheiro'
+  }[dados.formaPagamento];
+
+  const itensTexto = dados.itens.map(i => {
+    let linha = `• ${i.quantidade}x ${i.nome} - R$ ${i.subtotal.toFixed(2)}`;
+    if (i.observacao) {
+      linha += `\n  _Obs: ${i.observacao}_`;
+    }
+    return linha;
+  }).join('\n');
+
+  const mensagemWhatsapp = `🍞 *PEDIDO ONLINE - MOREIRA SALES* 🍞\n` +
+    `*Pedido:* #${proximoNumero}\n` +
+    `*Cliente:* ${dados.clienteNome}\n` +
+    `*WhatsApp:* ${dados.clienteTelefone}\n` +
+    `*Modalidade:* ${dados.tipo === 'entrega' ? '🛵 Entrega em Domicílio' : '🛍️ Retirada no Balcão'}\n` +
+    (dados.tipo === 'entrega' ? `*Endereço:* ${enderecoStr}\n` : '') +
+    `*Pagamento:* ${formaPagtoNome}\n` +
+    (dados.observacoes ? `*Obs Geral:* ${dados.observacoes}\n` : '') +
+    `\n📋 *ITENS DO PEDIDO:*\n${itensTexto}\n\n` +
+    `💰 *TOTAL DO PEDIDO:* R$ ${total.toFixed(2)}\n\n` +
+    `_Pedido registrado com sucesso no sistema da Panificadora Moreira Sales!_`;
+
+  const novoPedidoOnline: PedidoOnline = {
+    id: pedId,
+    numero_pedido: proximoNumero,
+    cliente_nome: dados.clienteNome,
+    cliente_telefone: dados.clienteTelefone,
+    tipo: dados.tipo,
+    endereco: dados.endereco,
+    forma_pagamento: dados.formaPagamento,
+    troco_para: dados.trocoPara,
+    itens: dados.itens,
+    total,
+    observacoes: dados.observacoes,
+    status: 'pendente',
+    criado_em: agora,
+    mensagem_whatsapp: mensagemWhatsapp
+  };
+
+  // 1. Salvar na lista de pedidos online
+  const novaLista = [novoPedidoOnline, ...pedidosExistentes];
+  setLocal(STORAGE_KEYS.PEDIDOS_ONLINE, novaLista);
+
+  // 2. Criar pedido na cozinha (KDS) com identificação clara de Pedido Online
+  const obsKds = `${dados.tipo === 'entrega' ? '🛵 [ENTREGA]' : '🛍️ [RETIRADA]'} • ${dados.formaPagamento.toUpperCase()}${dados.endereco ? ` • End: ${dados.endereco.rua}, ${dados.endereco.numero} - ${dados.endereco.bairro}` : ''}${dados.observacoes ? ` • Obs: ${dados.observacoes}` : ''}`;
+
+  const pedidoCozinha = await savePedidoCozinha({
+    mesa_numero: 99, // 99 = Comanda Online
+    cliente_nome: `${dados.clienteNome} (Online #${proximoNumero})`,
+    cliente_telefone: dados.clienteTelefone,
+    itens: dados.itens,
+    total,
+    status: 'pendente',
+    observacoes: obsKds,
+    alerta_silenciado: false,
+    online_detalhes: {
+      tipo: dados.tipo,
+      endereco: dados.endereco,
+      forma_pagamento: dados.formaPagamento,
+      troco_para: dados.trocoPara,
+      mensagem_whatsapp: mensagemWhatsapp
+    }
+  });
+
+  // 3. Vincular também na comanda online das mesas abertas do Caixa
+  const mesas = await fetchMesasAbertas();
+  const mesaOnlineExistente = mesas.find((m: MesaAberta) => m.mesa_numero === 99);
+
+  const novosItensCarrinho: ItemCarrinho[] = dados.itens.map(item => ({
+    id_temp: item.id_temp,
+    produto: {
+      id: item.produto_id,
+      categoria_id: '',
+      nome: item.nome,
+      preco: item.preco_unitario,
+      ativo: true
+    },
+    quantidade: item.quantidade,
+    subtotal: item.subtotal
+  }));
+
+  if (mesaOnlineExistente) {
+    const carrinhoAtualizado = [...(mesaOnlineExistente.carrinho || []), ...novosItensCarrinho];
+    const totalAtualizado = carrinhoAtualizado.reduce((sum, item) => sum + (item.subtotal || 0), 0);
+    const pedidosIds = [...(mesaOnlineExistente.pedidos_ids || []), pedidoCozinha.id];
+
+    await saveMesaAberta({
+      ...mesaOnlineExistente,
+      cliente_nome: `${dados.clienteNome} (e outros)`,
+      cliente_telefone: dados.clienteTelefone,
+      carrinho: carrinhoAtualizado,
+      total: totalAtualizado,
+      pedidos_ids: pedidosIds,
+      is_online: true
+    });
+  } else {
+    await saveMesaAberta({
+      mesa_id: 'mesa-online-99',
+      mesa_numero: 99,
+      cliente_nome: dados.clienteNome,
+      cliente_telefone: dados.clienteTelefone,
+      carrinho: novosItensCarrinho,
+      total,
+      pedidos_ids: [pedidoCozinha.id],
+      criado_em: agora,
+      is_online: true
+    });
+  }
+
+  // 4. Cadastrar ou atualizar cliente no CRM de fidelidade
+  try {
+    await identificarOuCadastrarCliente(dados.clienteNome, dados.clienteTelefone);
+  } catch (e) {
+    console.warn('Erro ao sincronizar cliente no CRM:', e);
+  }
+
+  // 5. Disparar eventos
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pedidos_online_atualizados', { detail: novoPedidoOnline }));
+    window.dispatchEvent(new CustomEvent('novo_pedido_cozinha', { detail: pedidoCozinha }));
+    window.dispatchEvent(new CustomEvent('pedidos_cozinha_atualizados'));
+    window.dispatchEvent(new CustomEvent('mesas_atualizadas'));
+    window.dispatchEvent(new CustomEvent('storage'));
+  }
+
+  return novoPedidoOnline;
+}
+
+export async function updateStatusPedidoOnline(id: string, status: PedidoOnline['status']): Promise<void> {
+  const pedidos = getLocal<PedidoOnline[]>(STORAGE_KEYS.PEDIDOS_ONLINE, []);
+  const updated = pedidos.map(p => p.id === id ? { ...p, status } : p);
+  setLocal(STORAGE_KEYS.PEDIDOS_ONLINE, updated);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pedidos_online_atualizados'));
+    window.dispatchEvent(new CustomEvent('storage'));
+  }
+}
+
+export async function deletePedidoOnline(id: string): Promise<void> {
+  const pedidos = getLocal<PedidoOnline[]>(STORAGE_KEYS.PEDIDOS_ONLINE, []);
+  const updated = pedidos.filter(p => p.id !== id);
+  setLocal(STORAGE_KEYS.PEDIDOS_ONLINE, updated);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pedidos_online_atualizados'));
+    window.dispatchEvent(new CustomEvent('storage'));
+  }
+}
+
 // --- CMV ---
 export async function fetchFornecedores(): Promise<Fornecedor[]> {
   const localList = getLocal<Fornecedor[]>(STORAGE_KEYS.FORNECEDORES, []);
@@ -1711,10 +1935,15 @@ export async function saveReceitaCompleta(
   const novosItens: FichaTecnica[] = ingredientes
     .filter(ing => ing.insumo_id && (Number(ing.quantidade_original ?? ing.quantidade_utilizada) > 0))
     .map((ing) => {
-      const ins = insumos.find(i => i.id === ing.insumo_id);
+      const isRec = ing.insumo_id.startsWith('receita:');
+      const ins = isRec ? null : insumos.find(i => i.id === ing.insumo_id);
+      const subFicha = isRec ? currentList.find(f => f.produto_id === ing.insumo_id.replace('receita:', '')) : null;
+      const subUnidadeBase = (subFicha?.unidade_medida || 'un') as 'g' | 'kg' | 'ml' | 'l' | 'un';
+      const baseUnit = isRec ? subUnidadeBase : (ins?.unidade_medida || 'un');
+
       const qtdDigitada = Number(ing.quantidade_original ?? ing.quantidade_utilizada);
-      const unidadeEscolhida = ing.unidade_medida || ins?.unidade_medida || 'un';
-      const qtdNormalizadaBase = converterParaUnidadeBase(qtdDigitada, unidadeEscolhida, ins?.unidade_medida);
+      const unidadeEscolhida = ing.unidade_medida || baseUnit;
+      const qtdNormalizadaBase = converterParaUnidadeBase(qtdDigitada, unidadeEscolhida, baseUnit);
 
       return {
         id: generateUuid(),

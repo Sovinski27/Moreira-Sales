@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Fornecedor, Insumo, FichaTecnica, Produto, Categoria } from '../types';
 import { 
@@ -43,7 +43,10 @@ import {
   DollarSign,
   Sparkles,
   Tag,
-  Box
+  Box,
+  Search,
+  RotateCcw,
+  ChefHat
 } from 'lucide-react';
 import { exportarRelatorioExcelProfissional } from '../services/excelReport';
 import { AlertModal } from './AlertModal';
@@ -63,6 +66,20 @@ export const CmvDashboard: React.FC = () => {
   const [simuladorProdutoId, setSimuladorProdutoId] = useState<string | null>(null);
   const [margemDesejada, setMargemDesejada] = useState<string>('100');
   const [modoPrecificacao, setModoPrecificacao] = useState<'markup' | 'margem'>('markup');
+
+  // Filtros e Pesquisa na Precificação e CMV
+  const [buscaCmv, setBuscaCmv] = useState('');
+  const [filtroCategoriaCmv, setFiltroCategoriaCmv] = useState('todas');
+  const [filtroStatusCmv, setFiltroStatusCmv] = useState<'todos' | 'com_receita' | 'sem_receita' | 'margem_baixa' | 'margem_saudavel'>('todos');
+
+  // Filtros e Pesquisa na aba de Insumos
+  const [buscaInsumos, setBuscaInsumos] = useState('');
+  const [filtroEstoqueInsumos, setFiltroEstoqueInsumos] = useState<'todos' | 'baixo' | 'ok'>('todos');
+  const [filtroFornecedorInsumos, setFiltroFornecedorInsumos] = useState('todos');
+
+  // Filtros e Pesquisa na aba de Fichas Técnicas
+  const [buscaFichas, setBuscaFichas] = useState('');
+  const [filtroCategoriaFichas, setFiltroCategoriaFichas] = useState('todas');
 
   // Modal Fornecedor
   const [modalFornecedorOpen, setModalFornecedorOpen] = useState(false);
@@ -259,6 +276,94 @@ export const CmvDashboard: React.FC = () => {
     const prod = produtos.find(p => p.id === produtoId);
     return calcularCustoUnitarioProduto(produtoId, fichas, insumos, prod);
   };
+
+  // Produtos filtrados na Precificação e CMV
+  const produtosFiltradosCmv = useMemo(() => {
+    return produtos.filter(p => {
+      if (buscaCmv.trim()) {
+        const termo = buscaCmv.toLowerCase();
+        const nomeMatch = p.nome.toLowerCase().includes(termo);
+        const cat = categorias.find(c => c.id === p.categoria_id);
+        const catMatch = cat ? cat.nome.toLowerCase().includes(termo) : false;
+        if (!nomeMatch && !catMatch) return false;
+      }
+      if (filtroCategoriaCmv !== 'todas' && p.categoria_id !== filtroCategoriaCmv) {
+        return false;
+      }
+      if (filtroStatusCmv !== 'todos') {
+        const custo = getCustoProduto(p.id);
+        const lucro = p.preco - custo;
+        const margem = p.preco > 0 ? (lucro / p.preco) * 100 : 0;
+        const temReceita = fichas.some(f => f.produto_id === p.id);
+        if (filtroStatusCmv === 'com_receita' && !temReceita) return false;
+        if (filtroStatusCmv === 'sem_receita' && temReceita) return false;
+        if (filtroStatusCmv === 'margem_baixa' && margem >= 50) return false;
+        if (filtroStatusCmv === 'margem_saudavel' && margem < 50) return false;
+      }
+      return true;
+    });
+  }, [produtos, buscaCmv, filtroCategoriaCmv, filtroStatusCmv, categorias, fichas]);
+
+  // Insumos filtrados
+  const insumosFiltrados = useMemo(() => {
+    return insumos.filter(i => {
+      if (buscaInsumos.trim()) {
+        const termo = buscaInsumos.toLowerCase();
+        const nomeMatch = i.nome.toLowerCase().includes(termo);
+        const forn = fornecedores.find(f => f.id === i.fornecedor_id);
+        const fornMatch = forn ? forn.nome_empresa.toLowerCase().includes(termo) : false;
+        if (!nomeMatch && !fornMatch) return false;
+      }
+      if (filtroFornecedorInsumos !== 'todos' && i.fornecedor_id !== filtroFornecedorInsumos) {
+        return false;
+      }
+      if (filtroEstoqueInsumos === 'baixo' && i.quantidade_estoque > i.estoque_minimo) {
+        return false;
+      }
+      if (filtroEstoqueInsumos === 'ok' && i.quantidade_estoque <= i.estoque_minimo) {
+        return false;
+      }
+      return true;
+    });
+  }, [insumos, buscaInsumos, filtroFornecedorInsumos, filtroEstoqueInsumos, fornecedores]);
+
+  // Fichas Técnicas filtradas
+  const produtosComFichaFiltrados = useMemo(() => {
+    return produtos
+      .filter(p => fichas.some(f => f.produto_id === p.id))
+      .filter(p => {
+        if (buscaFichas.trim()) {
+          const termo = buscaFichas.toLowerCase();
+          const nomeMatch = p.nome.toLowerCase().includes(termo);
+          const cat = categorias.find(c => c.id === p.categoria_id);
+          const catMatch = cat ? cat.nome.toLowerCase().includes(termo) : false;
+          if (!nomeMatch && !catMatch) return false;
+        }
+        if (filtroCategoriaFichas !== 'todas' && p.categoria_id !== filtroCategoriaFichas) {
+          return false;
+        }
+        return true;
+      });
+  }, [produtos, fichas, buscaFichas, filtroCategoriaFichas, categorias]);
+
+  // Lista de receitas existentes disponíveis para usar como ingrediente em outras receitas (sub-receitas)
+  const receitasDisponiveisComoIngrediente = useMemo(() => {
+    const targetId = tipoProdutoReceita === 'existente' ? novaFichaProdutoId : '';
+    return produtos
+      .filter(p => p.id !== targetId && fichas.some(f => f.produto_id === p.id))
+      .map(p => {
+        const custoUnit = getCustoProduto(p.id);
+        const subFicha = fichas.find(f => f.produto_id === p.id);
+        const baseU = subFicha?.unidade_medida || 'un';
+        return {
+          id: p.id,
+          nome: p.nome,
+          custoUnitario: custoUnit,
+          unidadeMedida: baseU,
+          rendimento: subFicha?.rendimento_unidades || 1
+        };
+      });
+  }, [produtos, fichas, tipoProdutoReceita, novaFichaProdutoId]);
 
   const handleAbrirCompraInsumo = (insumo: Insumo) => {
     setCompraInsumoModal({
@@ -474,15 +579,25 @@ export const CmvDashboard: React.FC = () => {
       if (existing.length > 0) {
         setNovaFichaRendimento(String(existing[0].rendimento_unidades || 1));
         setNovaFichaIngredientes(existing.map(f => {
-          const ins = insumos.find(i => i.id === f.insumo_id);
-          const unidadeEscolhida = f.unidade_medida || ins?.unidade_medida || 'kg';
+          const isSub = f.insumo_id.startsWith('receita:');
+          let unidadeEscolhida = f.unidade_medida;
+          if (!unidadeEscolhida) {
+            if (isSub) {
+              const subId = f.insumo_id.replace('receita:', '');
+              const subF = fichas.find(item => item.produto_id === subId);
+              unidadeEscolhida = (subF?.unidade_medida || 'un') as any;
+            } else {
+              const ins = insumos.find(i => i.id === f.insumo_id);
+              unidadeEscolhida = ins?.unidade_medida || 'kg';
+            }
+          }
           const qtd = f.quantidade_original !== undefined 
             ? String(f.quantidade_original) 
             : String(f.quantidade_utilizada);
           return {
             insumo_id: f.insumo_id,
             quantidade_utilizada: qtd,
-            unidade_medida: unidadeEscolhida
+            unidade_medida: unidadeEscolhida as any
           };
         }));
       } else {
@@ -524,15 +639,25 @@ export const CmvDashboard: React.FC = () => {
     if (existing.length > 0) {
       setNovaFichaRendimento(String(existing[0].rendimento_unidades || 1));
       setNovaFichaIngredientes(existing.map(f => {
-        const ins = insumos.find(i => i.id === f.insumo_id);
-        const unidadeEscolhida = f.unidade_medida || ins?.unidade_medida || 'kg';
+        const isSub = f.insumo_id.startsWith('receita:');
+        let unidadeEscolhida = f.unidade_medida;
+        if (!unidadeEscolhida) {
+          if (isSub) {
+            const subId = f.insumo_id.replace('receita:', '');
+            const subF = fichas.find(item => item.produto_id === subId);
+            unidadeEscolhida = (subF?.unidade_medida || 'un') as any;
+          } else {
+            const ins = insumos.find(i => i.id === f.insumo_id);
+            unidadeEscolhida = ins?.unidade_medida || 'kg';
+          }
+        }
         const qtd = f.quantidade_original !== undefined 
           ? String(f.quantidade_original) 
           : String(f.quantidade_utilizada);
         return {
           insumo_id: f.insumo_id,
           quantidade_utilizada: qtd,
-          unidade_medida: unidadeEscolhida
+          unidade_medida: unidadeEscolhida as any
         };
       }));
     } else {
@@ -576,16 +701,26 @@ export const CmvDashboard: React.FC = () => {
 
     const validIngredients = novaFichaIngredientes
       .map(ing => {
-        const ins = insumos.find(i => i.id === ing.insumo_id);
+        const isSub = Boolean(ing.insumo_id && ing.insumo_id.startsWith('receita:'));
+        const ins = !isSub ? insumos.find(i => i.id === ing.insumo_id) : null;
         const qtdStr = String(ing.quantidade_utilizada || '').replace(',', '.');
         const match = qtdStr.match(/([0-9]+(?:\.[0-9]+)?)/);
         const qtd = match ? parseFloat(match[1]) : (parseFloat(qtdStr) || 0);
-        const unidadeEscolhida = ing.unidade_medida || ins?.unidade_medida || 'un';
+        let unidadeEscolhida = ing.unidade_medida;
+        if (!unidadeEscolhida) {
+          if (isSub) {
+            const subId = ing.insumo_id.replace('receita:', '');
+            const subF = fichas.find(item => item.produto_id === subId);
+            unidadeEscolhida = (subF?.unidade_medida || 'un') as any;
+          } else {
+            unidadeEscolhida = ins?.unidade_medida || 'un';
+          }
+        }
         return {
           insumo_id: ing.insumo_id || '',
           quantidade_utilizada: isNaN(qtd) ? 0 : qtd,
           quantidade_original: isNaN(qtd) ? 0 : qtd,
-          unidade_medida: unidadeEscolhida
+          unidade_medida: unidadeEscolhida || 'un'
         };
       })
       .filter(ing => Boolean(ing.insumo_id && ing.quantidade_utilizada > 0));
@@ -651,12 +786,24 @@ export const CmvDashboard: React.FC = () => {
   // Cálculo de custo total da batelada no modal de Receita com conversão matemática de unidades
   const custoTotalReceitaAtual = novaFichaIngredientes.reduce((acc, ing) => {
     if (!ing.insumo_id) return acc;
-    const ins = insumos.find(i => i.id === ing.insumo_id);
-    if (!ins) return acc;
+
     const qtdStr = String(ing.quantidade_utilizada || '').replace(',', '.');
     const match = qtdStr.match(/([0-9]+(?:\.[0-9]+)?)/);
     const qtd = match ? parseFloat(match[1]) : (parseFloat(qtdStr) || 0);
     if (qtd <= 0) return acc;
+
+    if (ing.insumo_id.startsWith('receita:')) {
+      const subProdId = ing.insumo_id.replace('receita:', '');
+      const subCusto = getCustoProduto(subProdId);
+      const subFicha = fichas.find(f => f.produto_id === subProdId);
+      const subUnidadeBase = (subFicha?.unidade_medida || 'un') as 'g' | 'kg' | 'ml' | 'l' | 'un';
+      const unidadeUsada = ing.unidade_medida || subUnidadeBase;
+      const qtdBase = converterParaUnidadeBase(qtd, unidadeUsada, subUnidadeBase);
+      return acc + (subCusto * qtdBase);
+    }
+
+    const ins = insumos.find(i => i.id === ing.insumo_id);
+    if (!ins) return acc;
 
     const unidadeUsada = ing.unidade_medida || ins.unidade_medida;
     const qtdBase = converterParaUnidadeBase(qtd, unidadeUsada, ins.unidade_medida);
@@ -756,9 +903,111 @@ export const CmvDashboard: React.FC = () => {
             </div>
           </div>
 
+          {/* BARRA DE FILTROS E PESQUISA - CMV */}
+          <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-200/80 mb-6 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+              {/* Campo de Pesquisa */}
+              <div className="sm:col-span-5 relative">
+                <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={buscaCmv}
+                  onChange={e => setBuscaCmv(e.target.value)}
+                  placeholder="Pesquisar produto pelo nome..."
+                  className="w-full pl-9 pr-8 py-2 text-sm bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                />
+                {buscaCmv && (
+                  <button
+                    type="button"
+                    onClick={() => setBuscaCmv('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5 cursor-pointer"
+                    title="Limpar busca"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Filtro por Categoria */}
+              <div className="sm:col-span-4">
+                <select
+                  value={filtroCategoriaCmv}
+                  onChange={e => setFiltroCategoriaCmv(e.target.value)}
+                  className="w-full py-2 px-3 text-sm bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                >
+                  <option value="todas">Todas as Categorias ({produtos.length})</option>
+                  {categorias.map(cat => {
+                    const qtd = produtos.filter(p => p.categoria_id === cat.id).length;
+                    return (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.nome} ({qtd})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Filtro por Status da Receita / Margem */}
+              <div className="sm:col-span-3">
+                <select
+                  value={filtroStatusCmv}
+                  onChange={e => setFiltroStatusCmv(e.target.value as any)}
+                  className="w-full py-2 px-3 text-sm bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                >
+                  <option value="todos">Todos os Status</option>
+                  <option value="com_receita">Com Receita Cadastrada</option>
+                  <option value="sem_receita">Sem Receita (Pendente)</option>
+                  <option value="margem_saudavel">Margem Saudável (≥ 50%)</option>
+                  <option value="margem_baixa">Alerta: Margem Baixa (&lt; 50%)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Contador de resultados e botão Limpar Filtros */}
+            <div className="flex flex-wrap items-center justify-between text-xs text-stone-500 pt-1 border-t border-amber-200/50">
+              <span className="font-semibold">
+                Exibindo <strong className="text-stone-800">{produtosFiltradosCmv.length}</strong> de <strong className="text-stone-800">{produtos.length}</strong> produtos
+              </span>
+              {(buscaCmv.trim() || filtroCategoriaCmv !== 'todas' || filtroStatusCmv !== 'todos') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuscaCmv('');
+                    setFiltroCategoriaCmv('todas');
+                    setFiltroStatusCmv('todos');
+                  }}
+                  className="inline-flex items-center gap-1 text-amber-700 hover:text-amber-900 font-bold hover:underline cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+          </div>
+
+          {produtosFiltradosCmv.length === 0 && (
+            <div className="text-center py-10 px-4 border-2 border-dashed border-amber-200 rounded-xl bg-amber-50/20 my-4">
+              <Search className="w-8 h-8 text-amber-300 mx-auto mb-2" />
+              <h4 className="text-sm font-bold text-stone-700">Nenhum produto localizado</h4>
+              <p className="text-xs text-stone-500 mt-1">Nenhum item corresponde aos filtros e pesquisa selecionados.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setBuscaCmv('');
+                  setFiltroCategoriaCmv('todas');
+                  setFiltroStatusCmv('todos');
+                }}
+                className="mt-3 inline-flex items-center gap-1 text-xs text-amber-800 bg-amber-100 hover:bg-amber-200 font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Limpar Filtros</span>
+              </button>
+            </div>
+          )}
+
           {/* Mobile View */}
           <div className="block sm:hidden space-y-4">
-            {produtos.map(p => {
+            {produtosFiltradosCmv.map(p => {
               const custo = getCustoProduto(p.id);
               const lucro = p.preco - custo;
               const margem = p.preco > 0 ? (lucro / p.preco) * 100 : 0;
@@ -907,152 +1156,167 @@ export const CmvDashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {produtos.map(p => {
-                  const custo = getCustoProduto(p.id);
-                  const lucro = p.preco - custo;
-                  const margem = p.preco > 0 ? (lucro / p.preco) * 100 : 0;
-                  const perigo = margem < 50;
-                  const temReceita = fichas.some(f => f.produto_id === p.id);
-                  const qtdIngredientes = fichas.filter(f => f.produto_id === p.id).length;
-                  
-                  const isSimulando = simuladorProdutoId === p.id;
-                  const { precoSugerido, lucroSugerido, margemFinal, isInvalid } = calcularPrecoSimulado(custo);
+                {produtosFiltradosCmv.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-stone-500">
+                      <p className="font-semibold text-sm">Nenhum produto encontrado para os filtros selecionados.</p>
+                      <button
+                        onClick={() => { setBuscaCmv(''); setFiltroCategoriaCmv('todas'); setFiltroStatusCmv('todos'); }}
+                        className="mt-2 text-xs text-amber-700 font-bold underline hover:text-amber-800 cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Limpar filtros de busca
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  produtosFiltradosCmv.map(p => {
+                    const custo = getCustoProduto(p.id);
+                    const lucro = p.preco - custo;
+                    const margem = p.preco > 0 ? (lucro / p.preco) * 100 : 0;
+                    const perigo = margem < 50;
+                    const temReceita = fichas.some(f => f.produto_id === p.id);
+                    const qtdIngredientes = fichas.filter(f => f.produto_id === p.id).length;
+                    
+                    const isSimulando = simuladorProdutoId === p.id;
+                    const { precoSugerido, lucroSugerido, margemFinal, isInvalid } = calcularPrecoSimulado(custo);
 
-                  return (
-                    <React.Fragment key={p.id}>
-                      <tr className={`border-b border-amber-50 hover:bg-amber-50/30 transition-colors ${perigo ? 'bg-red-50/30' : ''}`}>
-                        <td className="p-3 font-semibold text-slate-800">
-                          {p.nome}
-                          {perigo && <span title="Margem abaixo de 50%"><AlertTriangle className="inline w-4 h-4 text-red-500 ml-1.5 align-middle" /></span>}
-                        </td>
-                        <td className="p-3">
-                          {temReceita ? (
+                    return (
+                      <React.Fragment key={p.id}>
+                        <tr className={`border-b border-amber-50 hover:bg-amber-50/30 transition-colors ${perigo ? 'bg-red-50/30' : ''}`}>
+                          <td className="p-3 font-semibold text-slate-800">
+                            {p.nome}
+                            {perigo && <span title="Margem abaixo de 50%"><AlertTriangle className="inline w-4 h-4 text-red-500 ml-1.5 align-middle" /></span>}
+                          </td>
+                          <td className="p-3">
+                            {temReceita ? (
+                              <button
+                                onClick={() => handleAbrirModalReceita(p.id)}
+                                className="inline-flex items-center gap-1.5 text-xs text-amber-800 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer"
+                                title={`Clique para ver ou editar os insumos da receita (Rendimento: ${fichas.find(f => f.produto_id === p.id)?.rendimento_unidades || 1} un)`}
+                              >
+                                <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                                <span>{qtdIngredientes} {qtdIngredientes === 1 ? 'insumo' : 'insumos'} (Rende {fichas.find(f => f.produto_id === p.id)?.rendimento_unidades || 1} un)</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleAbrirModalReceita(p.id)}
+                                className="inline-flex items-center gap-1 text-xs text-stone-500 hover:text-amber-700 hover:bg-amber-50 px-2 py-1 rounded-lg border border-dashed border-stone-300 font-medium transition-colors"
+                                title="Vincular insumos e receita a este produto"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Vincular Receita</span>
+                              </button>
+                            )}
+                          </td>
+                          <td className="p-3 text-slate-700 font-medium">{formatMoney(p.preco)}</td>
+                          <td className="p-3 text-red-600 font-semibold">{formatMoney(custo)}</td>
+                          <td className="p-3 text-emerald-700 font-bold">{formatMoney(lucro)}</td>
+                          <td className="p-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${perigo ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                              {margem.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="p-3">
                             <button
-                              onClick={() => handleAbrirModalReceita(p.id)}
-                              className="inline-flex items-center gap-1.5 text-xs text-amber-800 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer"
-                              title={`Clique para ver ou editar os insumos da receita (Rendimento: ${fichas.find(f => f.produto_id === p.id)?.rendimento_unidades || 1} un)`}
+                              onClick={() => {
+                                if (isSimulando) {
+                                  setSimuladorProdutoId(null);
+                                } else {
+                                  setSimuladorProdutoId(p.id);
+                                  setMargemDesejada('100');
+                                  setModoPrecificacao('markup');
+                                }
+                              }}
+                              className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-200 transition-colors whitespace-nowrap cursor-pointer"
                             >
-                              <BookOpen className="w-3.5 h-3.5 text-amber-700" />
-                              <span>{qtdIngredientes} {qtdIngredientes === 1 ? 'insumo' : 'insumos'} (Rende {fichas.find(f => f.produto_id === p.id)?.rendimento_unidades || 1} un)</span>
+                              {isSimulando ? 'Fechar' : 'Simular Preço'}
                             </button>
-                          ) : (
-                            <button
-                              onClick={() => handleAbrirModalReceita(p.id)}
-                              className="inline-flex items-center gap-1 text-xs text-stone-500 hover:text-amber-700 hover:bg-amber-50 px-2 py-1 rounded-lg border border-dashed border-stone-300 font-medium transition-colors"
-                              title="Vincular insumos e receita a este produto"
-                            >
-                              <Plus className="w-3 h-3" />
-                              <span>Vincular Receita</span>
-                            </button>
-                          )}
-                        </td>
-                        <td className="p-3 text-slate-700 font-medium">{formatMoney(p.preco)}</td>
-                        <td className="p-3 text-red-600 font-semibold">{formatMoney(custo)}</td>
-                        <td className="p-3 text-emerald-700 font-bold">{formatMoney(lucro)}</td>
-                        <td className="p-3">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${perigo ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-                            {margem.toFixed(1)}%
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <button
-                            onClick={() => {
-                              if (isSimulando) {
-                                setSimuladorProdutoId(null);
-                              } else {
-                                setSimuladorProdutoId(p.id);
-                                setMargemDesejada('100');
-                                setModoPrecificacao('markup');
-                              }
-                            }}
-                            className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-200 transition-colors whitespace-nowrap cursor-pointer"
-                          >
-                            {isSimulando ? 'Fechar' : 'Simular Preço'}
-                          </button>
-                        </td>
-                      </tr>
-                      {isSimulando && (
-                        <tr className="bg-amber-50/40 border-b border-amber-100 animate-fadeIn">
-                          <td colSpan={7} className="p-4 sm:p-5">
-                            <div className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm space-y-4">
-                              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                                <div>
-                                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Simulador de Precificação Inteligente</span>
-                                  <h4 className="text-base font-bold text-slate-800 mt-0.5">Definir Novo Preço para: <span className="text-amber-800">{p.nome}</span></h4>
-                                </div>
-                                <div className="text-xs text-slate-500">
-                                  Custo calculado: <strong className="text-red-600 font-bold">{formatMoney(custo)}</strong>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-                                <div>
-                                  <div className="flex justify-between items-center mb-1">
-                                    <label className="text-xs font-bold text-slate-600">Lucro Desejado (%):</label>
-                                    <span className="text-[11px] text-amber-600 font-medium">
-                                      {modoPrecificacao === 'markup' ? 'Markup sobre o custo' : 'Margem de venda'}
-                                    </span>
-                                  </div>
-                                  <div className="relative">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="5"
-                                      value={margemDesejada}
-                                      onChange={(e) => setMargemDesejada(e.target.value)}
-                                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-slate-900 font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 pr-10 text-sm"
-                                      placeholder={modoPrecificacao === 'markup' ? 'Ex: 100' : 'Ex: 50'}
-                                    />
-                                    <span className="absolute right-3 top-2 text-slate-400 font-bold">%</span>
-                                  </div>
-
-                                  <div className="flex flex-wrap gap-1 pt-1.5">
-                                    {['50', '100', '150', '200', '300'].map(val => (
-                                      <button
-                                        key={val}
-                                        type="button"
-                                        onClick={() => setMargemDesejada(val)}
-                                        className={`px-2 py-0.5 rounded text-xs font-bold transition-all cursor-pointer ${margemDesejada === val ? 'bg-amber-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
-                                      >
-                                        +{val}%
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-2 gap-2 text-center">
-                                  <div>
-                                    <span className="block text-[11px] text-slate-500 font-medium">Preço Sugerido</span>
-                                    <span className={`text-base font-black ${isInvalid ? 'text-red-600' : 'text-emerald-600'}`}>
-                                      {isInvalid ? 'Inválido' : formatMoney(precoSugerido)}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="block text-[11px] text-slate-500 font-medium">Lucro Líquido</span>
-                                    <span className="text-sm font-bold text-emerald-700">+{formatMoney(lucroSugerido)}</span>
-                                  </div>
-                                </div>
-
-                                <div className="flex flex-col justify-center">
-                                  <button
-                                    onClick={() => handleAplicarPreco(p, precoSugerido)}
-                                    disabled={isInvalid || precoSugerido <= 0}
-                                    className={`w-full py-2.5 px-4 rounded-xl font-bold text-sm transition-all shadow-sm cursor-pointer ${isInvalid || precoSugerido <= 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-[0.98]'}`}
-                                  >
-                                    Aplicar Preço Sugerido ({formatMoney(precoSugerido)})
-                                  </button>
-                                  <span className="text-[11px] text-slate-500 text-center mt-1">
-                                    Margem calculada: <strong>{margemFinal.toFixed(1)}%</strong>
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
                           </td>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
+                        {isSimulando && (
+                          <tr className="bg-amber-50/40 border-b border-amber-100 animate-fadeIn">
+                            <td colSpan={7} className="p-4 sm:p-5">
+                              <div className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm space-y-4">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                                  <div>
+                                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Simulador de Precificação Inteligente</span>
+                                    <h4 className="text-base font-bold text-slate-800 mt-0.5">Definir Novo Preço para: <span className="text-amber-800">{p.nome}</span></h4>
+                                  </div>
+                                  <div className="text-xs text-slate-500">
+                                    Custo calculado: <strong className="text-red-600 font-bold">{formatMoney(custo)}</strong>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                                  <div>
+                                    <div className="flex justify-between items-center mb-1">
+                                      <label className="text-xs font-bold text-slate-600">Lucro Desejado (%):</label>
+                                      <span className="text-[11px] text-amber-600 font-medium">
+                                        {modoPrecificacao === 'markup' ? 'Markup sobre o custo' : 'Margem de venda'}
+                                      </span>
+                                    </div>
+                                    <div className="relative">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="5"
+                                        value={margemDesejada}
+                                        onChange={(e) => setMargemDesejada(e.target.value)}
+                                        className="w-full border border-slate-300 rounded-xl px-3 py-2 text-slate-900 font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 pr-10 text-sm"
+                                        placeholder={modoPrecificacao === 'markup' ? 'Ex: 100' : 'Ex: 50'}
+                                      />
+                                      <span className="absolute right-3 top-2 text-slate-400 font-bold">%</span>
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-1 pt-1.5">
+                                      {['50', '100', '150', '200', '300'].map(val => (
+                                        <button
+                                          key={val}
+                                          type="button"
+                                          onClick={() => setMargemDesejada(val)}
+                                          className={`px-2 py-0.5 rounded text-xs font-bold transition-all cursor-pointer ${margemDesejada === val ? 'bg-amber-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                                        >
+                                          +{val}%
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-2 gap-2 text-center">
+                                    <div>
+                                      <span className="block text-[11px] text-slate-500 font-medium">Preço Sugerido</span>
+                                      <span className={`text-base font-black ${isInvalid ? 'text-red-600' : 'text-emerald-600'}`}>
+                                        {isInvalid ? 'Inválido' : formatMoney(precoSugerido)}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="block text-[11px] text-slate-500 font-medium">Lucro Líquido</span>
+                                      <span className="text-sm font-bold text-emerald-700">+{formatMoney(lucroSugerido)}</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-col justify-center">
+                                    <button
+                                      onClick={() => handleAplicarPreco(p, precoSugerido)}
+                                      disabled={isInvalid || precoSugerido <= 0}
+                                      className={`w-full py-2.5 px-4 rounded-xl font-bold text-sm transition-all shadow-sm cursor-pointer ${isInvalid || precoSugerido <= 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-[0.98]'}`}
+                                    >
+                                      Aplicar Preço Sugerido ({formatMoney(precoSugerido)})
+                                    </button>
+                                    <span className="text-[11px] text-slate-500 text-center mt-1">
+                                      Margem calculada: <strong>{margemFinal.toFixed(1)}%</strong>
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -1116,91 +1380,172 @@ export const CmvDashboard: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px] text-left border-collapse">
-                <thead>
-                  <tr className="bg-amber-50/60 text-amber-900 border-b border-amber-200 text-xs font-bold uppercase tracking-wider">
-                    <th className="p-3">Insumo</th>
-                    <th className="p-3">Fornecedor</th>
-                    <th className="p-3">Custo / Unidade</th>
-                    <th className="p-3">Estoque Atual</th>
-                    <th className="p-3 text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {insumos.map(i => {
-                    const forn = fornecedores.find(f => f.id === i.fornecedor_id);
-                    const baixo = i.quantidade_estoque <= i.estoque_minimo;
-                    return (
-                      <tr key={i.id} className="border-b border-amber-50 hover:bg-amber-50/20 transition-colors">
-                        <td className="p-3 font-semibold text-slate-800">
-                          {i.nome}
-                          {baixo && <span className="ml-2 inline-block px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full font-bold">Estoque Baixo!</span>}
-                        </td>
-                        <td className="p-3 text-slate-600 text-sm">
-                          {forn ? forn.nome_empresa : <span className="text-stone-400 italic">Não vinculado</span>}
-                        </td>
-                        <td className="p-3 text-slate-700 font-semibold">{formatMoney(i.preco_custo)} / {i.unidade_medida}</td>
-                        <td className={`p-3 font-bold ${baixo ? 'text-red-600' : 'text-slate-800'}`}>
-                          {i.quantidade_estoque.toFixed(2)} {i.unidade_medida}
-                        </td>
-                        <td className="p-3 text-right space-x-1">
-                          <button 
-                            onClick={() => handleAbrirCompraInsumo(i)} 
-                            className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors inline-block cursor-pointer" 
-                            title="Registrar Compra / Repor Estoque"
-                          >
-                            <ShoppingCart className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => {
-                              setNovoInsumo({
-                                id: i.id,
-                                nome: i.nome,
-                                unidade_medida: i.unidade_medida,
-                                preco_custo: String(i.preco_custo),
-                                quantidade_estoque: String(i.quantidade_estoque),
-                                estoque_minimo: String(i.estoque_minimo),
-                                fornecedor_id: i.fornecedor_id || ''
-                              });
-                              setInsumoError(null);
-                              setModalInsumoOpen(true);
-                            }} 
-                            className="p-1.5 text-stone-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors inline-block cursor-pointer" 
-                            title="Editar Insumo"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
+            <div className="space-y-4">
+              {/* Barra de Pesquisa e Filtros de Insumos */}
+              <div className="bg-amber-50/40 p-3 sm:p-4 rounded-xl border border-amber-100 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={buscaInsumos}
+                    onChange={(e) => setBuscaInsumos(e.target.value)}
+                    placeholder="Buscar insumo por nome ou fornecedor..."
+                    className="w-full pl-9 pr-4 py-2 bg-white border border-stone-200 rounded-xl text-xs sm:text-sm text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  {buscaInsumos && (
+                    <button
+                      onClick={() => setBuscaInsumos('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={filtroEstoqueInsumos}
+                    onChange={(e) => setFiltroEstoqueInsumos(e.target.value as any)}
+                    className="bg-white border border-stone-200 text-stone-700 text-xs font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="todos">Status: Todos</option>
+                    <option value="baixo">⚠️ Estoque Baixo / Alerta</option>
+                    <option value="ok">✅ Estoque Normal</option>
+                  </select>
+
+                  <select
+                    value={filtroFornecedorInsumos}
+                    onChange={(e) => setFiltroFornecedorInsumos(e.target.value)}
+                    className="bg-white border border-stone-200 text-stone-700 text-xs font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 max-w-[180px] truncate"
+                  >
+                    <option value="todos">Fornecedor: Todos</option>
+                    {fornecedores.map(f => (
+                      <option key={f.id} value={f.id}>{f.nome_empresa}</option>
+                    ))}
+                  </select>
+
+                  {(buscaInsumos || filtroEstoqueInsumos !== 'todos' || filtroFornecedorInsumos !== 'todos') && (
+                    <button
+                      onClick={() => {
+                        setBuscaInsumos('');
+                        setFiltroEstoqueInsumos('todos');
+                        setFiltroFornecedorInsumos('todos');
+                      }}
+                      className="inline-flex items-center gap-1 text-xs text-stone-500 hover:text-amber-700 bg-white border border-stone-200 px-2.5 py-2 rounded-xl font-medium transition-colors cursor-pointer"
+                      title="Limpar filtros"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Limpar</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[600px] text-left border-collapse">
+                  <thead>
+                    <tr className="bg-amber-50/60 text-amber-900 border-b border-amber-200 text-xs font-bold uppercase tracking-wider">
+                      <th className="p-3">Insumo</th>
+                      <th className="p-3">Fornecedor</th>
+                      <th className="p-3">Custo / Unidade</th>
+                      <th className="p-3">Estoque Atual</th>
+                      <th className="p-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {insumosFiltrados.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center text-stone-500">
+                          <p className="font-semibold text-sm">Nenhum insumo encontrado para os filtros selecionados.</p>
                           <button
                             onClick={() => {
-                              setConfirmConfig({
-                                isOpen: true,
-                                title: 'Excluir Insumo',
-                                message: `Tem certeza que deseja remover o insumo "${i.nome}"?`,
-                                isDestructive: true,
-                                onConfirm: async () => {
-                                  try {
-                                    await deleteInsumo(i.id);
-                                    await loadData();
-                                    showToast(`Insumo "${i.nome}" excluído com sucesso.`);
-                                  } catch (err) {
-                                    console.error('Erro ao excluir insumo:', err);
-                                    showToast(`Erro ao excluir insumo.`);
-                                  }
-                                }
-                              });
+                              setBuscaInsumos('');
+                              setFiltroEstoqueInsumos('todos');
+                              setFiltroFornecedorInsumos('todos');
                             }}
-                            className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-block cursor-pointer"
-                            title="Excluir Insumo"
+                            className="mt-2 text-xs text-amber-700 font-bold underline hover:text-amber-800 cursor-pointer inline-flex items-center gap-1"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Limpar filtros de insumos
                           </button>
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    ) : (
+                      insumosFiltrados.map(i => {
+                        const forn = fornecedores.find(f => f.id === i.fornecedor_id);
+                        const baixo = i.quantidade_estoque <= i.estoque_minimo;
+                        return (
+                          <tr key={i.id} className="border-b border-amber-50 hover:bg-amber-50/20 transition-colors">
+                            <td className="p-3 font-semibold text-slate-800">
+                              {i.nome}
+                              {baixo && <span className="ml-2 inline-block px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full font-bold">Estoque Baixo!</span>}
+                            </td>
+                            <td className="p-3 text-slate-600 text-sm">
+                              {forn ? forn.nome_empresa : <span className="text-stone-400 italic">Não vinculado</span>}
+                            </td>
+                            <td className="p-3 text-slate-700 font-semibold">{formatMoney(i.preco_custo)} / {i.unidade_medida}</td>
+                            <td className={`p-3 font-bold ${baixo ? 'text-red-600' : 'text-slate-800'}`}>
+                              {i.quantidade_estoque.toFixed(2)} {i.unidade_medida}
+                            </td>
+                            <td className="p-3 text-right space-x-1">
+                              <button 
+                                onClick={() => handleAbrirCompraInsumo(i)} 
+                                className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors inline-block cursor-pointer" 
+                                title="Registrar Compra / Repor Estoque"
+                              >
+                                <ShoppingCart className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setNovoInsumo({
+                                    id: i.id,
+                                    nome: i.nome,
+                                    unidade_medida: i.unidade_medida,
+                                    preco_custo: String(i.preco_custo),
+                                    quantidade_estoque: String(i.quantidade_estoque),
+                                    estoque_minimo: String(i.estoque_minimo),
+                                    fornecedor_id: i.fornecedor_id || ''
+                                  });
+                                  setInsumoError(null);
+                                  setModalInsumoOpen(true);
+                                }} 
+                                className="p-1.5 text-stone-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors inline-block cursor-pointer" 
+                                title="Editar Insumo"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setConfirmConfig({
+                                    isOpen: true,
+                                    title: 'Excluir Insumo',
+                                    message: `Tem certeza que deseja remover o insumo "${i.nome}"?`,
+                                    isDestructive: true,
+                                    onConfirm: async () => {
+                                      try {
+                                        await deleteInsumo(i.id);
+                                        await loadData();
+                                        showToast(`Insumo "${i.nome}" excluído com sucesso.`);
+                                      } catch (err) {
+                                        console.error('Erro ao excluir insumo:', err);
+                                        showToast(`Erro ao excluir insumo.`);
+                                      }
+                                    }
+                                  });
+                                }}
+                                className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-block cursor-pointer" 
+                                title="Excluir Insumo"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -1359,165 +1704,275 @@ export const CmvDashboard: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {produtos.filter(p => fichas.some(f => f.produto_id === p.id)).map(p => {
-                const ingredientesProduto = fichas.filter(f => f.produto_id === p.id);
-                const rendimento = (ingredientesProduto[0]?.rendimento_unidades && ingredientesProduto[0].rendimento_unidades > 0)
-                  ? ingredientesProduto[0].rendimento_unidades
-                  : 1;
+              {/* Barra de Pesquisa e Filtros de Fichas Técnicas */}
+              <div className="bg-amber-50/40 p-3 sm:p-4 rounded-xl border border-amber-100 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={buscaFichas}
+                    onChange={(e) => setBuscaFichas(e.target.value)}
+                    placeholder="Buscar receita por nome do produto ou categoria..."
+                    className="w-full pl-9 pr-4 py-2 bg-white border border-stone-200 rounded-xl text-xs sm:text-sm text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  {buscaFichas && (
+                    <button
+                      onClick={() => setBuscaFichas('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs font-bold"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
 
-                let custoBateladaTotal = 0;
-                ingredientesProduto.forEach(f => {
-                  const ins = insumos.find(i => i.id === f.insumo_id);
-                  if (ins) {
-                    const qtdBase = converterParaUnidadeBase(f.quantidade_utilizada, f.unidade_medida, ins.unidade_medida);
-                    custoBateladaTotal += ins.preco_custo * qtdBase;
-                  }
-                  if (f.custo_direto) custoBateladaTotal += f.custo_direto * rendimento;
-                });
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={filtroCategoriaFichas}
+                    onChange={(e) => setFiltroCategoriaFichas(e.target.value)}
+                    className="bg-white border border-stone-200 text-stone-700 text-xs font-semibold py-2 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 max-w-[200px] truncate"
+                  >
+                    <option value="todas">Todas as Categorias</option>
+                    {categorias.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.nome}</option>
+                    ))}
+                  </select>
 
-                const custoUnitario = calcularCustoUnitarioProduto(p.id, fichas, insumos, p);
-                const lucro = p.preco - custoUnitario;
-                const margem = p.preco > 0 ? (lucro / p.preco) * 100 : 0;
+                  {(buscaFichas || filtroCategoriaFichas !== 'todas') && (
+                    <button
+                      onClick={() => {
+                        setBuscaFichas('');
+                        setFiltroCategoriaFichas('todas');
+                      }}
+                      className="inline-flex items-center gap-1 text-xs text-stone-500 hover:text-amber-700 bg-white border border-stone-200 px-2.5 py-2 rounded-xl font-medium transition-colors cursor-pointer"
+                      title="Limpar filtros"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Limpar</span>
+                    </button>
+                  )}
+                </div>
+              </div>
 
-                return (
-                  <div key={p.id} className="border border-amber-200 rounded-2xl bg-amber-50/20 p-4 sm:p-5 shadow-xs">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-amber-200/60 pb-3 mb-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="font-bold text-base sm:text-lg text-amber-950">{p.nome}</h4>
-                          <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                            Rende: {rendimento} {rendimento === 1 ? 'unidade' : 'unidades / pães'}
-                          </span>
-                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                            Preço de Venda: {formatMoney(p.preco)}
-                          </span>
+              {produtosComFichaFiltrados.length === 0 ? (
+                <div className="text-center py-10 px-4 border border-amber-200 rounded-2xl bg-amber-50/10">
+                  <p className="font-semibold text-sm text-stone-600">Nenhuma ficha técnica encontrada para os filtros selecionados.</p>
+                  <button
+                    onClick={() => {
+                      setBuscaFichas('');
+                      setFiltroCategoriaFichas('todas');
+                    }}
+                    className="mt-2 text-xs text-amber-700 font-bold underline hover:text-amber-800 cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Limpar filtros de receitas
+                  </button>
+                </div>
+              ) : (
+                produtosComFichaFiltrados.map(p => {
+                  const ingredientesProduto = fichas.filter(f => f.produto_id === p.id);
+                  const rendimento = (ingredientesProduto[0]?.rendimento_unidades && ingredientesProduto[0].rendimento_unidades > 0)
+                    ? ingredientesProduto[0].rendimento_unidades
+                    : 1;
+
+                  let custoBateladaTotal = 0;
+                  ingredientesProduto.forEach(f => {
+                    if (f.insumo_id.startsWith('receita:')) {
+                      const subId = f.insumo_id.replace('receita:', '');
+                      const subProd = produtos.find(prod => prod.id === subId);
+                      const subFicha = fichas.find(item => item.produto_id === subId);
+                      const subUnidadeBase = (subFicha?.unidade_medida || 'un') as 'g' | 'kg' | 'ml' | 'l' | 'un';
+                      const subCustoUn = calcularCustoUnitarioProduto(subId, fichas, insumos, subProd);
+                      const unidadeExibicao = f.unidade_medida || subUnidadeBase;
+                      const qtdExibicao = f.quantidade_original !== undefined ? f.quantidade_original : f.quantidade_utilizada;
+                      const qtdBase = converterParaUnidadeBase(qtdExibicao, unidadeExibicao, subUnidadeBase);
+                      custoBateladaTotal += subCustoUn * qtdBase;
+                    } else {
+                      const ins = insumos.find(i => i.id === f.insumo_id);
+                      if (ins) {
+                        const qtdBase = converterParaUnidadeBase(f.quantidade_utilizada, f.unidade_medida, ins.unidade_medida);
+                        custoBateladaTotal += ins.preco_custo * qtdBase;
+                      }
+                    }
+                    if (f.custo_direto) custoBateladaTotal += f.custo_direto * rendimento;
+                  });
+
+                  const custoUnitario = calcularCustoUnitarioProduto(p.id, fichas, insumos, p);
+                  const lucro = p.preco - custoUnitario;
+                  const margem = p.preco > 0 ? (lucro / p.preco) * 100 : 0;
+
+                  return (
+                    <div key={p.id} className="border border-amber-200 rounded-2xl bg-amber-50/20 p-4 sm:p-5 shadow-xs">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-amber-200/60 pb-3 mb-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="font-bold text-base sm:text-lg text-amber-950">{p.nome}</h4>
+                            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                              Rende: {rendimento} {rendimento === 1 ? 'unidade' : 'unidades / pães'}
+                            </span>
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                              Preço de Venda: {formatMoney(p.preco)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-stone-500 mt-1">
+                            {ingredientesProduto.length} {ingredientesProduto.length === 1 ? 'ingrediente cadastrado' : 'ingredientes cadastrados'} • Consumo e custos calculados por unidade produzida
+                          </p>
                         </div>
-                        <p className="text-xs text-stone-500 mt-1">
-                          {ingredientesProduto.length} {ingredientesProduto.length === 1 ? 'insumo cadastrado' : 'insumos cadastrados'} • Consumo e custos calculados por unidade produzida
-                        </p>
-                      </div>
 
-                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                        <button
-                          onClick={() => handleAbrirModalReceita(p.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>Editar Receita Completa</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setConfirmConfig({
-                              isOpen: true,
-                              title: 'Excluir Toda a Receita',
-                              message: `Deseja remover todos os ingredientes da receita de "${p.nome}"?`,
-                              isDestructive: true,
-                              onConfirm: async () => {
-                                try {
-                                  await deleteReceitaCompleta(p.id);
-                                  await loadData();
-                                  showToast(`Receita de "${p.nome}" removida com sucesso.`);
-                                } catch (err) {
-                                  console.error('Erro ao excluir receita:', err);
-                                  showToast(`Erro ao excluir receita.`);
+                        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                          <button
+                            onClick={() => handleAbrirModalReceita(p.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Editar Receita Completa</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setConfirmConfig({
+                                isOpen: true,
+                                title: 'Excluir Toda a Receita',
+                                message: `Deseja remover todos os ingredientes da receita de "${p.nome}"?`,
+                                isDestructive: true,
+                                onConfirm: async () => {
+                                  try {
+                                    await deleteReceitaCompleta(p.id);
+                                    await loadData();
+                                    showToast(`Receita de "${p.nome}" removida com sucesso.`);
+                                  } catch (err) {
+                                    console.error('Erro ao excluir receita:', err);
+                                    showToast(`Erro ao excluir receita.`);
+                                  }
                                 }
-                              }
-                            });
-                          }}
-                          className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                          title="Excluir Receita Completa"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                              });
+                            }}
+                            className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                            title="Excluir Receita Completa"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
 
-                    <ul className="space-y-2 text-sm">
-                      {ingredientesProduto.map(f => {
-                        const ins = insumos.find(i => i.id === f.insumo_id);
-                        const unidadeExibicao = f.unidade_medida || ins?.unidade_medida || 'un';
-                        const qtdExibicao = f.quantidade_original !== undefined ? f.quantidade_original : f.quantidade_utilizada;
-                        const qtdBase = ins ? converterParaUnidadeBase(qtdExibicao, unidadeExibicao, ins.unidade_medida) : 0;
-                        const custoItem = ins ? qtdBase * ins.preco_custo : 0;
-                        const consumoUnitarioStr = formatConsumoUnitario(qtdExibicao, rendimento, unidadeExibicao);
-                        const custoUnitarioItem = rendimento > 0 ? (custoItem / rendimento) : 0;
+                      <ul className="space-y-2 text-sm">
+                        {ingredientesProduto.map(f => {
+                          const isReceitaSub = f.insumo_id.startsWith('receita:');
+                          let nomeItem = '';
+                          let precoUnitarioStr = '';
+                          let unidadeExibicao: 'g' | 'kg' | 'ml' | 'l' | 'un' = (f.unidade_medida as any) || 'un';
+                          let qtdExibicao = f.quantidade_original !== undefined ? f.quantidade_original : f.quantidade_utilizada;
+                          let qtdBase = 0;
+                          let custoItem = 0;
+                          let unidadeBaseReferencia: 'g' | 'kg' | 'ml' | 'l' | 'un' = 'un';
 
-                        return (
-                          <li key={f.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center bg-white p-3 rounded-xl border border-stone-200/80 text-xs sm:text-sm gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-slate-800">
-                                {ins ? ins.nome : <span className="text-stone-400 italic">(Insumo não localizado)</span>}
-                              </span>
-                              {ins && (
-                                <span className="text-xs text-stone-400">
-                                  ({formatMoney(ins.preco_custo)}/{ins.unidade_medida})
+                          if (isReceitaSub) {
+                            const subId = f.insumo_id.replace('receita:', '');
+                            const subProd = produtos.find(item => item.id === subId);
+                            const subFicha = fichas.find(item => item.produto_id === subId);
+                            unidadeBaseReferencia = (subFicha?.unidade_medida || 'un') as 'g' | 'kg' | 'ml' | 'l' | 'un';
+                            unidadeExibicao = (f.unidade_medida as any) || unidadeBaseReferencia;
+                            const subCustoUn = calcularCustoUnitarioProduto(subId, fichas, insumos, subProd);
+                            nomeItem = subProd ? subProd.nome : 'Receita não localizada';
+                            precoUnitarioStr = `${formatMoney(subCustoUn)}/${unidadeBaseReferencia}`;
+                            qtdBase = converterParaUnidadeBase(qtdExibicao, unidadeExibicao, unidadeBaseReferencia);
+                            custoItem = subCustoUn * qtdBase;
+                          } else {
+                            const ins = insumos.find(i => i.id === f.insumo_id);
+                            unidadeBaseReferencia = (ins?.unidade_medida || 'un') as 'g' | 'kg' | 'ml' | 'l' | 'un';
+                            unidadeExibicao = (f.unidade_medida as any) || ins?.unidade_medida || 'un';
+                            nomeItem = ins ? ins.nome : '(Insumo não localizado)';
+                            if (ins) {
+                              precoUnitarioStr = `${formatMoney(ins.preco_custo)}/${ins.unidade_medida}`;
+                              qtdBase = converterParaUnidadeBase(qtdExibicao, unidadeExibicao, ins.unidade_medida);
+                              custoItem = qtdBase * ins.preco_custo;
+                            }
+                          }
+
+                          const consumoUnitarioStr = formatConsumoUnitario(qtdExibicao, rendimento, unidadeExibicao);
+                          const custoUnitarioItem = rendimento > 0 ? (custoItem / rendimento) : 0;
+
+                          return (
+                            <li key={f.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center bg-white p-3 rounded-xl border border-stone-200/80 text-xs sm:text-sm gap-2">
+                              <div className="flex items-center gap-2">
+                                {isReceitaSub && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md shrink-0">
+                                    <ChefHat className="w-3.5 h-3.5 text-amber-700" />
+                                    Receita Base
+                                  </span>
+                                )}
+                                <span className="font-semibold text-slate-800">
+                                  {nomeItem}
                                 </span>
-                              )}
-                            </div>
-                            <div className="flex items-center justify-between sm:justify-end gap-3 pt-1 sm:pt-0 border-t sm:border-t-0 border-stone-100">
-                              <div className="text-left sm:text-right">
-                                <div className="text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block">
-                                  Consumo/unidade: {consumoUnitarioStr}
-                                </div>
-                                <div className="text-[10px] text-stone-400 mt-0.5">
-                                  Total receita: {qtdExibicao} {unidadeExibicao}
-                                  {unidadeExibicao !== ins?.unidade_medida && ins && (
-                                    <span> (= {qtdBase < 1 ? qtdBase.toFixed(3) : qtdBase.toFixed(2)} {ins.unidade_medida})</span>
-                                  )} • ({formatMoney(custoItem)})
-                                </div>
+                                {precoUnitarioStr && (
+                                  <span className="text-xs text-stone-400">
+                                    ({precoUnitarioStr})
+                                  </span>
+                                )}
                               </div>
-                              <div className="text-right min-w-[70px]">
-                                <span className="font-bold text-red-600 block text-xs sm:text-sm">
-                                  {formatMoney(custoUnitarioItem)}/un
-                                </span>
-                              </div>
-                              <button
-                                onClick={() => {
-                                  setConfirmConfig({
-                                    isOpen: true,
-                                    title: 'Remover Ingrediente',
-                                    message: `Remover este ingrediente da receita?`,
-                                    isDestructive: true,
-                                    onConfirm: async () => {
-                                      try {
-                                        await deleteFichaTecnica(f.id);
-                                        await loadData();
-                                        showToast('Ingrediente removido da receita com sucesso.');
-                                      } catch (err) {
-                                        console.error('Erro ao remover ingrediente:', err);
-                                        showToast('Erro ao remover ingrediente.');
+                              <div className="flex items-center justify-between sm:justify-end gap-3 pt-1 sm:pt-0 border-t sm:border-t-0 border-stone-100">
+                                <div className="text-left sm:text-right">
+                                  <div className="text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block">
+                                    Consumo/unidade: {consumoUnitarioStr}
+                                  </div>
+                                  <div className="text-[10px] text-stone-400 mt-0.5">
+                                    Total receita: {qtdExibicao} {unidadeExibicao}
+                                    {unidadeExibicao !== unidadeBaseReferencia && (
+                                      <span> (= {qtdBase < 1 ? qtdBase.toFixed(3) : qtdBase.toFixed(2)} {unidadeBaseReferencia})</span>
+                                    )} • ({formatMoney(custoItem)})
+                                  </div>
+                                </div>
+                                <div className="text-right min-w-[70px]">
+                                  <span className="font-bold text-red-600 block text-xs sm:text-sm">
+                                    {formatMoney(custoUnitarioItem)}/un
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setConfirmConfig({
+                                      isOpen: true,
+                                      title: 'Remover Ingrediente',
+                                      message: `Remover este ingrediente da receita?`,
+                                      isDestructive: true,
+                                      onConfirm: async () => {
+                                        try {
+                                          await deleteFichaTecnica(f.id);
+                                          await loadData();
+                                          showToast('Ingrediente removido da receita com sucesso.');
+                                        } catch (err) {
+                                          console.error('Erro ao remover ingrediente:', err);
+                                          showToast('Erro ao remover ingrediente.');
+                                        }
                                       }
-                                    }
-                                  });
-                                }}
-                                className="text-stone-300 hover:text-red-500 p-1 cursor-pointer transition-colors"
-                                title="Remover este ingrediente"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                                    });
+                                  }}
+                                  className="text-stone-300 hover:text-red-500 p-1 cursor-pointer transition-colors"
+                                  title="Remover este ingrediente"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
 
-                    <div className="mt-3 pt-3 border-t border-amber-200/60 flex flex-wrap justify-between items-center text-xs sm:text-sm gap-2">
-                      <div className="text-stone-600 font-medium">
-                        Margem Líquida: <strong className={margem < 50 ? 'text-red-600 font-bold' : 'text-emerald-700 font-bold'}>{margem.toFixed(1)}%</strong>
-                        <span className="text-stone-400 ml-1.5">({formatMoney(lucro)} lucro/unidade)</span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <span className="text-xs text-stone-500">
-                          Batelada ({rendimento} un): <strong className="text-stone-700 font-bold">{formatMoney(custoBateladaTotal)}</strong>
-                        </span>
-                        <div className="font-bold text-amber-900 text-sm sm:text-base">
-                          Custo Unitário de Produção: <span className="text-red-600 font-black">{formatMoney(custoUnitario)}</span>
+                      <div className="mt-3 pt-3 border-t border-amber-200/60 flex flex-wrap justify-between items-center text-xs sm:text-sm gap-2">
+                        <div className="text-stone-600 font-medium">
+                          Margem Líquida: <strong className={margem < 50 ? 'text-red-600 font-bold' : 'text-emerald-700 font-bold'}>{margem.toFixed(1)}%</strong>
+                          <span className="text-stone-400 ml-1.5">({formatMoney(lucro)} lucro/unidade)</span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="text-xs text-stone-500">
+                            Batelada ({rendimento} un): <strong className="text-stone-700 font-bold">{formatMoney(custoBateladaTotal)}</strong>
+                          </span>
+                          <div className="font-bold text-amber-900 text-sm sm:text-base">
+                            Custo Unitário de Produção: <span className="text-red-600 font-black">{formatMoney(custoUnitario)}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           )}
         </div>
@@ -2078,18 +2533,18 @@ export const CmvDashboard: React.FC = () => {
                       Ingredientes / Matérias-Primas Utilizadas
                     </label>
                     <p className="text-[11px] text-stone-500">
-                      Informe o total usado na receita. O sistema calcula automaticamente o consumo por unidade.
+                      Informe o total usado na receita. Você pode selecionar insumos ou receitas já existentes (ex: massas, recheios).
                     </p>
                   </div>
                   <span className="text-xs text-stone-500 shrink-0">
-                    {insumos.length} insumos disponíveis
+                    {insumos.length + receitasDisponiveisComoIngrediente.length} itens disponíveis
                   </span>
                 </div>
 
-                {insumos.length === 0 ? (
+                {insumos.length === 0 && receitasDisponiveisComoIngrediente.length === 0 ? (
                   <div className="p-4 rounded-xl border border-dashed border-amber-200 bg-amber-50/40 text-center">
                     <p className="text-xs text-amber-800 font-semibold mb-1">
-                      Nenhum insumo disponível para montar a receita!
+                      Nenhum insumo ou receita disponível para montar a ficha!
                     </p>
                     <p className="text-[11px] text-stone-500 mb-2">
                       Cadastre os insumos primeiro na aba "Insumos" antes de montar a ficha técnica.
@@ -2110,17 +2565,36 @@ export const CmvDashboard: React.FC = () => {
                 ) : (
                   <div className="space-y-2">
                     {novaFichaIngredientes.map((ing, idx) => {
-                      const insumoSel = insumos.find(i => i.id === ing.insumo_id);
-                      const unidadeBase = insumoSel?.unidade_medida || 'kg';
-                      const opcoesUnidades: Array<'g' | 'kg' | 'ml' | 'l' | 'un'> = 
-                        unidadeBase === 'kg' || unidadeBase === 'g' 
-                          ? ['g', 'kg'] 
-                          : (unidadeBase === 'l' || unidadeBase === 'ml' ? ['ml', 'l'] : ['un']);
+                      const isSubReceita = Boolean(ing.insumo_id && ing.insumo_id.startsWith('receita:'));
+                      let nomeItem = '';
+                      let unidadeBase = 'kg';
+                      let precoBase = 0;
+                      let opcoesUnidades: Array<'g' | 'kg' | 'ml' | 'l' | 'un'> = ['g', 'kg'];
 
-                      const unidadeEscolhida = ing.unidade_medida || (unidadeBase === 'kg' ? 'g' : unidadeBase);
+                      if (isSubReceita) {
+                        const subProdId = ing.insumo_id.replace('receita:', '');
+                        const subProd = produtos.find(p => p.id === subProdId);
+                        const subFicha = fichas.find(f => f.produto_id === subProdId);
+                        unidadeBase = subFicha?.unidade_medida || 'un';
+                        precoBase = calcularCustoUnitarioProduto(subProdId, fichas, insumos, subProd);
+                        nomeItem = subProd ? subProd.nome : 'Receita Base';
+                        opcoesUnidades = unidadeBase === 'kg' || unidadeBase === 'g'
+                          ? ['g', 'kg']
+                          : (unidadeBase === 'l' || unidadeBase === 'ml' ? ['ml', 'l'] : ['un', 'g', 'kg']);
+                      } else {
+                        const insumoSel = insumos.find(i => i.id === ing.insumo_id);
+                        unidadeBase = insumoSel?.unidade_medida || 'kg';
+                        precoBase = insumoSel ? insumoSel.preco_custo : 0;
+                        nomeItem = insumoSel ? insumoSel.nome : '';
+                        opcoesUnidades = unidadeBase === 'kg' || unidadeBase === 'g'
+                          ? ['g', 'kg']
+                          : (unidadeBase === 'l' || unidadeBase === 'ml' ? ['ml', 'l'] : ['un']);
+                      }
+
+                      const unidadeEscolhida = ing.unidade_medida || (unidadeBase === 'kg' ? 'g' : (unidadeBase as any));
                       const qtdNum = parseFloat(String(ing.quantidade_utilizada || '').replace(',', '.')) || 0;
-                      const qtdBase = insumoSel ? converterParaUnidadeBase(qtdNum, unidadeEscolhida, insumoSel.unidade_medida) : 0;
-                      const subtotal = insumoSel ? qtdBase * insumoSel.preco_custo : 0;
+                      const qtdBase = converterParaUnidadeBase(qtdNum, unidadeEscolhida, unidadeBase as any);
+                      const subtotal = qtdBase * precoBase;
                       const consumoUnitarioStr = formatConsumoUnitario(qtdNum, rendimentoAtualNum, unidadeEscolhida);
                       const custoUnitarioItem = rendimentoAtualNum > 0 ? (subtotal / rendimentoAtualNum) : 0;
 
@@ -2132,24 +2606,48 @@ export const CmvDashboard: React.FC = () => {
                                 value={ing.insumo_id || ''} 
                                 onChange={e => {
                                   const selId = e.target.value;
-                                  const insNovo = insumos.find(i => i.id === selId);
                                   const copy = [...novaFichaIngredientes];
-                                  const defaultUnit = insNovo ? (insNovo.unidade_medida === 'kg' ? 'g' : (insNovo.unidade_medida === 'l' ? 'ml' : insNovo.unidade_medida)) : 'g';
-                                  copy[idx] = { 
-                                    ...copy[idx], 
-                                    insumo_id: selId,
-                                    unidade_medida: defaultUnit as any
-                                  };
+                                  if (selId.startsWith('receita:')) {
+                                    const subProdId = selId.replace('receita:', '');
+                                    const subFicha = fichas.find(f => f.produto_id === subProdId);
+                                    const subU = subFicha?.unidade_medida || 'un';
+                                    copy[idx] = {
+                                      ...copy[idx],
+                                      insumo_id: selId,
+                                      unidade_medida: subU as any
+                                    };
+                                  } else {
+                                    const insNovo = insumos.find(i => i.id === selId);
+                                    const defaultUnit = insNovo ? (insNovo.unidade_medida === 'kg' ? 'g' : (insNovo.unidade_medida === 'l' ? 'ml' : insNovo.unidade_medida)) : 'g';
+                                    copy[idx] = { 
+                                      ...copy[idx], 
+                                      insumo_id: selId,
+                                      unidade_medida: defaultUnit as any
+                                    };
+                                  }
                                   setNovaFichaIngredientes(copy);
                                 }} 
                                 className="appearance-none bg-white border border-stone-300 text-stone-800 text-xs sm:text-sm py-2 px-3 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 w-full"
                               >
-                                <option value="">Selecione o insumo...</option>
-                                {insumos.map(i => (
-                                  <option key={i.id} value={i.id}>
-                                    {i.nome} ({formatMoney(i.preco_custo)}/{i.unidade_medida})
-                                  </option>
-                                ))}
+                                <option value="">Selecione o insumo ou receita...</option>
+                                {insumos.length > 0 && (
+                                  <optgroup label="📦 Insumos / Matérias-Primas">
+                                    {insumos.map(i => (
+                                      <option key={i.id} value={i.id}>
+                                        {i.nome} ({formatMoney(i.preco_custo)}/{i.unidade_medida})
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {receitasDisponiveisComoIngrediente.length > 0 && (
+                                  <optgroup label="🥖 Receitas Já Existentes (Massas, Recheios, Bases)">
+                                    {receitasDisponiveisComoIngrediente.map(r => (
+                                      <option key={'receita:' + r.id} value={'receita:' + r.id}>
+                                        [Receita] {r.nome} (Custo: {formatMoney(r.custoUnitario)}/{r.unidadeMedida})
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
                               </select>
                               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-stone-500">
                                 <ChevronDown className="w-4 h-4" />
@@ -2186,7 +2684,7 @@ export const CmvDashboard: React.FC = () => {
                                 </select>
                               ) : (
                                 <span className="text-xs font-bold text-stone-500 px-1 shrink-0">
-                                  {insumoSel?.unidade_medida || 'un'}
+                                  {unidadeBase || 'un'}
                                 </span>
                               )}
                             </div>
@@ -2206,16 +2704,22 @@ export const CmvDashboard: React.FC = () => {
                             )}
                           </div>
 
-                          {insumoSel && (
+                          {ing.insumo_id && (
                             <div className="flex flex-wrap justify-between items-center text-xs bg-white px-3 py-1.5 rounded-lg border border-stone-200/60 gap-1.5">
-                              <div className="text-stone-600">
-                                Total na receita: <strong>{qtdNum} {unidadeEscolhida}</strong>
-                                {unidadeEscolhida !== insumoSel.unidade_medida && (
-                                  <span className="text-[11px] text-stone-400 ml-1">
-                                    (= {qtdBase < 1 ? qtdBase.toFixed(3) : qtdBase.toFixed(2)} {insumoSel.unidade_medida})
+                              <div className="text-stone-600 flex flex-wrap items-center gap-1.5">
+                                {isSubReceita && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded">
+                                    <ChefHat className="w-3 h-3 text-amber-700" />
+                                    Receita Base
                                   </span>
                                 )}
-                                <span className="text-stone-700 font-bold ml-1.5">({formatMoney(subtotal)})</span>
+                                <span>Total na receita: <strong>{qtdNum} {unidadeEscolhida}</strong></span>
+                                {unidadeEscolhida !== unidadeBase && (
+                                  <span className="text-[11px] text-stone-400">
+                                    (= {qtdBase < 1 ? qtdBase.toFixed(3) : qtdBase.toFixed(2)} {unidadeBase})
+                                  </span>
+                                )}
+                                <span className="text-stone-700 font-bold">({formatMoney(subtotal)})</span>
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded text-[11px]">
