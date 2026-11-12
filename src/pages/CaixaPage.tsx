@@ -1523,6 +1523,11 @@ export const CaixaPage: React.FC = () => {
                       </span>
                       <span className={`font-mono font-black text-base sm:text-lg mt-0.5 ${semEstoque ? 'text-stone-400' : 'text-amber-700'}`}>
                         R$ {produto.preco.toFixed(2)}
+                        {produto.unidade_venda && (
+                          <span className="text-[10px] font-sans font-semibold text-stone-500 ml-1">
+                            /{produto.unidade_venda}
+                          </span>
+                        )}
                       </span>
                       {produto.controlar_estoque && !semEstoque && produto.estoque_atual !== undefined && (
                         <span className="text-[10px] text-stone-400 font-medium absolute bottom-1.5">

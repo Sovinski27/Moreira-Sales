@@ -2,6 +2,12 @@
  * Utilitários para formatação e envio de mensagens pelo WhatsApp
  */
 
+/**
+ * Número oficial do WhatsApp da Panificadora Moreira Sales para recebimento de pedidos online (44 8836-2777)
+ */
+export const WHATSAPP_PANIFICADORA = '554488362777';
+export const WHATSAPP_PANIFICADORA_DISPLAY = '(44) 8836-2777';
+
 export function cleanPhone(phone: string): string {
   return phone.replace(/\D/g, '');
 }

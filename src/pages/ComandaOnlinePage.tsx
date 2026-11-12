@@ -35,7 +35,7 @@ import {
   getLocal, 
   STORAGE_KEYS 
 } from '../services/db';
-import { cleanPhone, formatPhoneDisplay, getWhatsAppUrl } from '../services/whatsapp';
+import { cleanPhone, formatPhoneDisplay, getWhatsAppUrl, WHATSAPP_PANIFICADORA, WHATSAPP_PANIFICADORA_DISPLAY } from '../services/whatsapp';
 import { Footer } from '../components/Footer';
 
 interface ComandaOnlinePageProps {
@@ -182,7 +182,8 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
         preco_unitario: Number(produto.preco) || 0,
         quantidade: 1,
         subtotal: Number(produto.preco) || 0,
-        observacao: observacao?.trim() || undefined
+        observacao: observacao?.trim() || undefined,
+        unidade_venda: produto.unidade_venda || 'unidade'
       };
       return [...prev, novoItem];
     });
@@ -274,13 +275,11 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
     }
   };
 
-  // Enviar no WhatsApp da Panificadora
+  // Enviar no WhatsApp oficial da Panificadora Moreira Sales (44 8836-2777)
   const handleEnviarWhatsApp = () => {
     if (!pedidoConcluido?.mensagem_whatsapp) return;
-    // Telefone da panificadora Moreira Sales
-    const fonePanificadora = '44998765432';
-    const url = getWhatsAppUrl(fonePanificadora, pedidoConcluido.mensagem_whatsapp);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const url = getWhatsAppUrl(WHATSAPP_PANIFICADORA, pedidoConcluido.mensagem_whatsapp);
+    window.location.href = url;
   };
 
   // Reiniciar formulário para novo pedido
@@ -438,7 +437,7 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
                     required
                     value={whatsapp}
                     onChange={handleTelefoneChange}
-                    placeholder="(44) 99876-5432"
+                    placeholder="(44) 98888-0000"
                     className="w-full pl-10 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl text-sm font-bold text-stone-900 placeholder:text-stone-400 focus:outline-none focus:border-amber-600 focus:bg-white transition-colors"
                   />
                 </div>
@@ -460,7 +459,7 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
 
             <div className="mt-6 pt-4 border-t border-stone-100 flex items-center justify-center gap-1.5 text-xs text-stone-400">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Panificadora Moreira Sales • Umuarama - PR</span>
+              <span>Panificadora Moreira Sales • Moreira Sales - PR</span>
             </div>
           </div>
         )}
@@ -574,9 +573,16 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
                           <h4 className="font-bold text-sm text-stone-900 leading-tight">
                             {prod.nome}
                           </h4>
-                          <span className="font-black font-mono text-sm text-amber-800 shrink-0">
-                            R$ {Number(prod.preco || 0).toFixed(2)}
-                          </span>
+                          <div className="text-right shrink-0">
+                            <span className="font-black font-mono text-sm text-amber-800 block">
+                              R$ {Number(prod.preco || 0).toFixed(2)}
+                            </span>
+                            {prod.unidade_venda && (
+                              <span className="text-[10px] text-stone-400 font-semibold block">
+                                /{prod.unidade_venda}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         {prod.controlar_estoque && (
                           <span className="text-[10px] text-stone-400 block mb-2">
@@ -1021,7 +1027,7 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
                 className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-md transition-transform active:scale-98 cursor-pointer"
               >
                 <Send className="w-4 h-4" />
-                <span>Enviar Pedido no WhatsApp da Panificadora</span>
+                <span>Enviar Pedido no WhatsApp ({WHATSAPP_PANIFICADORA_DISPLAY})</span>
               </button>
 
               <button

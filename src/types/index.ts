@@ -41,6 +41,7 @@ export interface Produto {
   nome: string;
   preco: number;
   custo?: number; // Preço de custo
+  unidade_venda?: 'kg' | '100 g' | 'unidade' | '300 ml' | string;
   controlar_estoque?: boolean;
   estoque_atual?: number;
   ativo: boolean;
@@ -213,6 +214,7 @@ export interface ItemPedidoCozinha {
   preco_unitario: number;
   subtotal: number;
   observacao?: string;
+  unidade_venda?: string;
 }
 
 export interface PedidoCozinha {

@@ -12,6 +12,7 @@ interface ProdutoModalProps {
     nome: string; 
     preco: number; 
     categoria_id: string;
+    unidade_venda?: string;
     custo?: number; 
     controlar_estoque?: boolean; 
     estoque_atual?: number;
@@ -31,6 +32,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
   const [nome, setNome] = useState('');
   const [preco, setPreco] = useState('');
   const [custo, setCusto] = useState('');
+  const [unidadeVenda, setUnidadeVenda] = useState('unidade');
   const [categoriaId, setCategoriaId] = useState('');
   const [controlarEstoque, setControlarEstoque] = useState(false);
   const [estoqueAtual, setEstoqueAtual] = useState('');
@@ -56,6 +58,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
         setNome(produto.nome || '');
         setPreco(produto.preco !== undefined ? produto.preco.toFixed(2) : '');
         setCusto(produto.custo !== undefined ? produto.custo.toFixed(2) : '');
+        setUnidadeVenda(produto.unidade_venda || 'unidade');
         setControlarEstoque(produto.controlar_estoque || false);
         setEstoqueAtual(produto.estoque_atual !== undefined ? String(produto.estoque_atual) : '');
         setCategoriaId(produto.categoria_id || '');
@@ -63,6 +66,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
         setNome('');
         setPreco('');
         setCusto('');
+        setUnidadeVenda('unidade');
         setControlarEstoque(false);
         setEstoqueAtual('');
         const initialCat = (categoriasProp && categoriasProp.length > 0) ? categoriasProp[0].id : (listaCategorias.length > 0 ? listaCategorias[0].id : '');
@@ -145,6 +149,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
       nome: nome.trim(), 
       preco: precoNum,
       categoria_id: targetCatId,
+      unidade_venda: unidadeVenda.trim() || 'unidade',
       custo: !isNaN(custoNum as any) ? custoNum : undefined,
       controlar_estoque: controlarEstoque,
       estoque_atual: !isNaN(estoqueNum as any) ? estoqueNum : undefined
@@ -354,6 +359,43 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
                 Dica: Você também pode cadastrar bolos, tortas e salgados com receita completa na aba <strong>CMV & Fichas Técnicas</strong>.
               </p>
             </div>
+          </div>
+
+          {/* UNIDADE DE VENDA */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider">
+                Unidade de Venda
+              </label>
+              <span className="text-[10px] text-stone-400 font-medium">Ex: unidade, 100 g, kg, 300 ml</span>
+            </div>
+            
+            {/* Atalhos rápidos de unidade */}
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {['unidade', '100 g', 'kg', '300 ml'].map(u => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => setUnidadeVenda(u)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    unidadeVenda === u
+                      ? 'bg-amber-600 text-white shadow-xs ring-2 ring-amber-600/30'
+                      : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200'
+                  }`}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
+
+            <input
+              type="text"
+              value={unidadeVenda}
+              onChange={e => setUnidadeVenda(e.target.value)}
+              placeholder="Ex: unidade, 100 g, kg, 300 ml"
+              className="w-full px-4 py-2.5 bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:border-amber-600 outline-none font-medium text-stone-800 text-sm"
+              required
+            />
           </div>
 
           {/* CONTROLE DE ESTOQUE */}

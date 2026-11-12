@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Coffee, 
+  Wheat, 
   ShoppingCart, 
   Search, 
   Plus, 
@@ -12,10 +12,11 @@ import {
   ArrowLeft, 
   X, 
   User, 
-  Sparkles, 
-  ChevronRight,
-  UtensilsCrossed,
-  RotateCcw
+  RotateCcw,
+  ArrowUpRight,
+  Sparkles,
+  Phone,
+  Clock
 } from 'lucide-react';
 import { Produto, Categoria, ItemPedidoCozinha, PedidoCozinha, Cliente, Compra } from '../types';
 import { 
@@ -25,8 +26,6 @@ import {
   fetchPedidosCozinha, 
   fetchClientes, 
   fetchCompras,
-  fetchMesasAbertas,
-  saveMesaAberta,
   identificarOuCadastrarCliente,
   getLocal,
   STORAGE_KEYS
@@ -38,6 +37,32 @@ interface CardapioDigitalPageProps {
   mesaInicial?: number;
   isStandalone?: boolean;
 }
+
+// Map of emojis for categories matching the reference website
+const CATEGORIA_EMOJIS: Record<string, string> = {
+  'pães e panificação': '🥖',
+  'paes e panificacao': '🥖',
+  'pães': '🥖',
+  'salgados': '🥟',
+  'lanches': '🥪',
+  'doces e confeitaria': '🍰',
+  'doces': '🍰',
+  'cafés': '☕',
+  'cafes': '☕',
+  'sucos 300 ml': '🍊',
+  'sucos': '🍊',
+  'bebidas': '🥤'
+};
+
+const obterEmojiCategoria = (nome: string): string => {
+  const norm = nome.trim().toLowerCase();
+  for (const [chave, emoji] of Object.entries(CATEGORIA_EMOJIS)) {
+    if (norm.includes(chave) || chave.includes(norm)) {
+      return emoji;
+    }
+  }
+  return '✨';
+};
 
 export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({ 
   mesaInicial,
@@ -54,13 +79,11 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     return '1';
   };
 
-  // Estados da Tela Inicial de Identificação
+  // Estados da Tela de Identificação
   const [mesaInput, setMesaInput] = useState<string>(initialMesaFromUrl);
   const [nomeInput, setNomeInput] = useState<string>('');
   const [telefoneInput, setTelefoneInput] = useState<string>('');
   const [salvandoCadastro, setSalvandoCadastro] = useState<boolean>(false);
-
-  // Cada novo acesso à página de cardápio exige a identificação do cliente e da mesa
   const [acessouCardapio, setAcessouCardapio] = useState<boolean>(false);
 
   // Cliente reconhecido ou criado
@@ -68,7 +91,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
   const [clientesList, setClientesList] = useState<Cliente[]>([]);
   const [clienteEncontradoNoPreenchimento, setClienteEncontradoNoPreenchimento] = useState<Cliente | null>(null);
 
-  // Produtos e categorias do cardápio com hidratação instantânea
+  // Produtos e categorias do cardápio
   const [produtos, setProdutos] = useState<Produto[]>(() => getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []));
   const [categorias, setCategorias] = useState<Categoria[]>(() => getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []));
   const [categoriaAtiva, setCategoriaAtiva] = useState<string>('todos');
@@ -88,11 +111,11 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
   const [pedidosAtivosMesa, setPedidosAtivosMesa] = useState<PedidoCozinha[]>([]);
   const [ultimoPedidoEnviado, setUltimoPedidoEnviado] = useState<PedidoCozinha | null>(null);
 
-  // Histórico de compras e pedidos para cálculo fidedigno de visitas em tempo real
+  // Histórico de compras para visitas
   const [comprasExistentes, setComprasExistentes] = useState<Compra[]>([]);
   const [pedidosExistentes, setPedidosExistentes] = useState<PedidoCozinha[]>([]);
 
-  // Carregar produtos, categorias, clientes e histórico existente
+  // Carregar produtos, categorias, clientes e histórico
   useEffect(() => {
     const recarregar = () => {
       fetchProdutos().then(setProdutos);
@@ -122,7 +145,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     };
   }, []);
 
-  // Calcular número REAL de visitas de um cliente através do histórico
+  // Calcular número de visitas reais
   const obterVisitasReais = (cliente: Cliente | null): number => {
     if (!cliente) return 0;
     const cNome = cliente.nome ? cliente.nome.trim().toLowerCase() : '';
@@ -142,26 +165,25 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     return Math.max(cliente.total_compras_historico || 0, countCompras, countPedidos);
   };
 
-  // Identificação em tempo real por telefone ou por nome
+  // Reconhecimento de cliente por telefone ou nome
   useEffect(() => {
     const nome = nomeInput.trim().toLowerCase();
     const tel = cleanPhone(telefoneInput);
 
     if (tel && tel.length >= 8) {
-      const match = clientesList.find(c => {
-        const cTel = cleanPhone(c.whatsapp);
-        return cTel === tel || (tel.length >= 8 && (cTel.endsWith(tel) || tel.endsWith(cTel)));
-      });
+      const match = clientesList.find(c => c.whatsapp && cleanPhone(c.whatsapp).includes(tel));
       if (match) {
         setClienteEncontradoNoPreenchimento(match);
+        if (!nomeInput) setNomeInput(match.nome);
         return;
       }
     }
 
     if (nome.length >= 3) {
-      const match = clientesList.find(c => c.nome.trim().toLowerCase() === nome);
+      const match = clientesList.find(c => c.nome.toLowerCase() === nome || c.nome.toLowerCase().startsWith(nome));
       if (match) {
         setClienteEncontradoNoPreenchimento(match);
+        if (!telefoneInput && match.whatsapp) setTelefoneInput(formatPhoneDisplay(match.whatsapp));
         return;
       }
     }
@@ -169,79 +191,60 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     setClienteEncontradoNoPreenchimento(null);
   }, [nomeInput, telefoneInput, clientesList]);
 
-  // Monitorar digitação do WhatsApp para formatação
+  // Formatação do telefone
   const handleTelefoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    const digits = cleanPhone(raw);
-    
-    let formatted = raw;
-    if (digits.length <= 11) {
-      formatted = formatPhoneDisplay(digits);
+    const v = e.target.value;
+    const digits = v.replace(/\D/g, '').slice(0, 11);
+    if (digits.length === 0) {
+      setTelefoneInput('');
+      return;
     }
-    setTelefoneInput(formatted);
+    if (digits.length <= 2) {
+      setTelefoneInput(`(${digits}`);
+    } else if (digits.length <= 7) {
+      setTelefoneInput(`(${digits.slice(0, 2)}) ${digits.slice(2)}`);
+    } else {
+      setTelefoneInput(`(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`);
+    }
   };
 
-  // Botão de liberação de acesso: Mesa informada e Nome preenchido (mínimo 2 caracteres)
-  const isBotaoAcessarLiberado = mesaInput.trim().length > 0 && !isNaN(parseInt(mesaInput, 10)) && nomeInput.trim().length >= 2;
+  const isBotaoAcessarLiberado = Boolean(mesaInput.trim()) && Boolean(nomeInput.trim());
 
-  const handleAcessarCardapio = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!isBotaoAcessarLiberado || salvandoCadastro) return;
+  const handleEntrarNoCardapio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isBotaoAcessarLiberado) return;
 
     setSalvandoCadastro(true);
-    const numMesa = parseInt(mesaInput.trim(), 10);
-    const nomeFinal = nomeInput.trim();
-    const telLimpo = cleanPhone(telefoneInput);
-
     try {
-      // 1. Busca cliente existente no Supabase ou cria automaticamente o novo cadastro
-      const { cliente, isNovo } = await identificarOuCadastrarCliente(
-        nomeFinal,
-        telLimpo
-      );
-      const visitasReal = Math.max(cliente.total_compras_historico || 0, obterVisitasReais(cliente));
-      setClienteAtivo({ ...cliente, total_compras_historico: visitasReal });
+      const nomeFinal = nomeInput.trim();
+      const telFinal = cleanPhone(telefoneInput);
 
-      // 2. REGRA DO USUÁRIO: Ao fazer login no cardápio, a mesa já deve constar como ocupada com a comanda do cliente!
-      try {
-        const mesas = await fetchMesasAbertas();
-        const mesaExistente = mesas.find(m => m.mesa_numero === numMesa);
-        if (!mesaExistente) {
-          await saveMesaAberta({
-            id: `mesa-${numMesa}`,
-            mesa_id: numMesa.toString(),
-            mesa_numero: numMesa,
-            cliente_id: cliente.id,
-            cliente_nome: cliente.nome,
-            cliente_telefone: cliente.whatsapp || telLimpo,
-            carrinho: [],
-            total: 0,
-            status: 'ocupada',
+      if (telFinal && telFinal.length >= 8) {
+        const { cliente } = await identificarOuCadastrarCliente(nomeFinal, telFinal);
+        setClienteAtivo(cliente);
+      } else {
+        const existente = clientesList.find(c => c.nome.toLowerCase() === nomeFinal.toLowerCase());
+        if (existente) {
+          setClienteAtivo(existente);
+        } else {
+          setClienteAtivo({
+            id: `temp-${Date.now()}`,
+            nome: nomeFinal,
+            whatsapp: telFinal || '',
+            total_compras_historico: 0,
             criado_em: new Date().toISOString()
           });
-        } else {
-          await saveMesaAberta({
-            ...mesaExistente,
-            cliente_id: cliente.id,
-            cliente_nome: cliente.nome,
-            cliente_telefone: cliente.whatsapp || telLimpo
-          });
         }
-      } catch (errMesa) {
-        console.warn('Erro ao registrar mesa ocupada no login do cardápio:', errMesa);
       }
-
       setAcessouCardapio(true);
     } catch (err) {
-      console.warn('Erro ao registrar/identificar cliente:', err);
-      // Mesmo com falha de rede temporária, permite acessar o cardápio da mesa
+      console.error('Erro ao identificar cliente:', err);
       setAcessouCardapio(true);
     } finally {
       setSalvandoCadastro(false);
     }
   };
 
-  // Trocar de cliente / mesa (reseta os dados para que outra pessoa possa se identificar)
   const handleTrocarCliente = () => {
     setNomeInput('');
     setTelefoneInput('');
@@ -251,7 +254,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     setAcessouCardapio(false);
   };
 
-  // Monitorar pedidos da cozinha para esta mesa
+  // Monitorar pedidos da cozinha para a mesa
   const mesaNumeroAtual = parseInt(mesaInput, 10) || 1;
 
   const atualizarPedidosMesa = async () => {
@@ -288,7 +291,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     }
   }, [acessouCardapio, mesaNumeroAtual, ultimoPedidoEnviado?.id]);
 
-  // Adicionar produto ao carrinho
+  // Adicionar item ao carrinho
   const handleAdicionarItem = (produto: Produto, observacao?: string) => {
     setCarrinho(prev => {
       const idxExistente = prev.findIndex(item => item.produto_id === produto.id && item.observacao === (observacao || ''));
@@ -307,7 +310,8 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
             quantidade: 1,
             preco_unitario: produto.preco,
             subtotal: produto.preco,
-            observacao: observacao || undefined
+            observacao: observacao || undefined,
+            unidade_venda: produto.unidade_venda || 'unidade'
           }
         ];
       }
@@ -333,7 +337,6 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     });
   };
 
-  // Decrementar item diretamente a partir do card do cardápio (otimização mobile)
   const handleRemoverItemCard = (produtoId: string) => {
     setCarrinho(prev => {
       const idx = [...prev].reverse().findIndex(i => i.produto_id === produtoId);
@@ -357,7 +360,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
   const totalCarrinho = carrinho.reduce((acc, item) => acc + item.subtotal, 0);
   const totalItensCarrinho = carrinho.reduce((acc, item) => acc + item.quantidade, 0);
 
-  // Enviar pedido da mesa direto para a cozinha (KDS)
+  // Enviar pedido da mesa para a cozinha (KDS)
   const handleEnviarPedidoParaCozinha = async () => {
     if (carrinho.length === 0) return;
 
@@ -367,7 +370,6 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
       const nomeFinal = nomeInput.trim() || `Mesa ${numMesa}`;
       const telLimpo = cleanPhone(telefoneInput);
 
-      // Se informou telefone e ainda não tinha vinculado cliente, vincula ou cria cadastro
       let cliId = clienteAtivo?.id;
       if (!cliId && telLimpo && telLimpo.length >= 8) {
         try {
@@ -379,272 +381,366 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
         }
       }
 
-      // Envia direto para a Cozinha e para a Mesa Aberta no Caixa
-      const novoPedido = await criarPedidoCardapio({
+      const pedidoCriado = await criarPedidoCardapio({
         mesaNumero: numMesa,
-        clienteId: cliId,
         clienteNome: nomeFinal,
         clienteTelefone: telLimpo || undefined,
-        itens: carrinho,
-        observacoes: observacoesGerais.trim() || undefined
+        clienteId: cliId,
+        observacoes: observacoesGerais.trim() || undefined,
+        itens: carrinho
       });
 
-      setUltimoPedidoEnviado(novoPedido);
+      setUltimoPedidoEnviado(pedidoCriado);
       setCarrinho([]);
       setObservacoesGerais('');
-      setErroEnvio(null);
       setModalCarrinhoAberto(false);
-      await atualizarPedidosMesa();
-    } catch (err) {
-      console.error('Erro ao enviar pedido para a cozinha:', err);
-      setErroEnvio('Não foi possível enviar o pedido para a cozinha. Verifique a conexão e tente novamente.');
+      setErroEnvio(null);
+
+      // Scroll suave até o topo para ver o status da cozinha
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err: any) {
+      console.error('Falha ao enviar pedido:', err);
+      setErroEnvio(err?.message || 'Erro ao enviar o pedido para a cozinha. Tente novamente.');
     } finally {
       setEnviandoPedido(false);
     }
   };
 
-  // Filtragem de produtos por busca e categoria
+  // Filtragem dos produtos
   const produtosFiltrados = useMemo(() => {
-    return produtos.filter(p => {
-      if (p.ativo === false) return false;
-      const bateBusca = !busca.trim() || p.nome.toLowerCase().includes(busca.toLowerCase());
-      const bateCategoria = categoriaAtiva === 'todos' || p.categoria_id === categoriaAtiva;
-      return bateBusca && bateCategoria;
+    return produtos.filter(prod => {
+      if (prod.ativo === false) return false;
+
+      // Filtro por categoria
+      if (categoriaAtiva !== 'todos' && prod.categoria_id !== categoriaAtiva) {
+        return false;
+      }
+
+      // Filtro por busca de texto
+      if (busca.trim()) {
+        const termo = busca.toLowerCase().trim();
+        const nomeMatch = prod.nome.toLowerCase().includes(termo);
+        const cat = categorias.find(c => c.id === prod.categoria_id);
+        const catMatch = cat ? cat.nome.toLowerCase().includes(termo) : false;
+        return nomeMatch || catMatch;
+      }
+
+      return true;
     });
-  }, [produtos, busca, categoriaAtiva]);
+  }, [produtos, categoriaAtiva, busca, categorias]);
+
+  // Rolagem suave até a seção do cardápio
+  const rolarAteCardapio = () => {
+    const el = document.getElementById('cardapio');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
   // =========================================================================
-  // 1. TELA QUE ANTECEDE AO CARDÁPIO (EXATO LAYOUT DO PRINT ENVIADO PELO CLIENTE)
+  // 1. TELA DE IDENTIFICAÇÃO (DESIGN ARTESANAL MOREIRA SALES)
   // =========================================================================
   if (!acessouCardapio) {
     return (
-      <div className="min-h-screen bg-[#F4F4F6] flex items-center justify-center p-4 selection:bg-amber-200">
-        
-        {/* Card Central - Cópia Fiel do Layout do Print */}
-        <div className="w-full max-w-[430px] bg-white rounded-[32px] shadow-xl shadow-stone-200/60 p-7 sm:p-9 border border-stone-100 animate-scaleUp">
-          
-          {/* Ícone Circular Superior com Talheres Cruzados */}
-          <div className="w-16 h-16 rounded-full bg-[#FEF4E6] flex items-center justify-center mx-auto mb-4.5 text-[#C88A3E] shadow-xs">
-            <UtensilsCrossed className="w-7 h-7 text-[#C88A3E]" strokeWidth={2.2} />
-          </div>
-
-          {/* Título e Subtítulo */}
-          <h1 className="text-2xl font-bold text-stone-900 text-center tracking-tight mb-2">
-            Bem-vindo(a)!
-          </h1>
-          <p className="text-xs text-stone-500 text-center leading-relaxed mb-7 max-w-[280px] mx-auto font-normal">
-            Preencha os dados abaixo para iniciar seu atendimento na mesa.
-          </p>
-
-          <form onSubmit={handleAcessarCardapio} className="space-y-4">
-            
-            {/* Campo 1: NÚMERO DA MESA * */}
-            <div>
-              <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
-                NÚMERO DA MESA *
-              </label>
-              <input
-                type="text"
-                required
-                value={mesaInput}
-                onChange={e => setMesaInput(e.target.value.replace(/\D/g, ''))}
-                placeholder="Ex: 5"
-                className="w-full px-4 py-3.5 bg-[#F9F9FB] border border-stone-200 rounded-xl text-center text-sm font-bold text-stone-900 placeholder:text-stone-400 placeholder:font-normal focus:bg-white focus:border-amber-600 outline-none transition-all shadow-xs"
-              />
-            </div>
-
-            {/* Campo 2: SEU NOME E SOBRENOME * */}
-            <div>
-              <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
-                SEU NOME E SOBRENOME *
-              </label>
-              <div className="relative">
-                <User className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  required
-                  autoFocus={Boolean(mesaInput)}
-                  value={nomeInput}
-                  onChange={e => setNomeInput(e.target.value)}
-                  placeholder="Ex: João da Silva"
-                  className="w-full pl-10 pr-4 py-3.5 bg-[#F9F9FB] border border-stone-200 rounded-xl text-sm font-medium text-stone-900 placeholder:text-stone-400 placeholder:font-normal focus:bg-white focus:border-amber-600 outline-none transition-all shadow-xs"
-                />
+      <div className="min-h-screen bg-[#fcfaf5] text-[#38271c] flex flex-col justify-between selection:bg-[#e9ddc6]">
+        {/* Topo / Marca */}
+        <header className="border-b border-[#e6dfd1] bg-[#fcfaf5]">
+          <div className="max-w-5xl mx-auto px-6 py-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="w-12 h-12 rounded-full border border-[#b69b70] flex items-center justify-center bg-[#fffdf9] text-[#a07842] shadow-2xs">
+                <Wheat className="w-6 h-6" />
+              </span>
+              <div>
+                <span className="font-serif text-xl sm:text-2xl font-bold tracking-wide block leading-none text-[#38271c]">
+                  MOREIRA SALES
+                </span>
+                <span className="text-[10px] tracking-[2px] font-sans text-[#87735f] font-semibold uppercase mt-1 block">
+                  PANIFICADORA &amp; CONFEITARIA
+                </span>
               </div>
             </div>
+            <span className="hidden sm:inline-block text-xs font-serif italic text-[#87735f]">
+              Feito com carinho. Todos os dias.
+            </span>
+          </div>
+        </header>
 
-            {/* Campo 3: WHATSAPP (OPCIONAL) */}
-            <div>
-              <label className="block text-[11px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
-                WHATSAPP (OPCIONAL)
-              </label>
-              <input
-                type="tel"
-                value={telefoneInput}
-                onChange={handleTelefoneChange}
-                placeholder="(DD) 90000-0000"
-                className="w-full px-4 py-3.5 bg-[#F9F9FB] border border-stone-200 rounded-xl text-center text-sm font-medium text-stone-900 placeholder:text-stone-400 placeholder:font-normal focus:bg-white focus:border-amber-600 outline-none transition-all shadow-xs"
-              />
-              <p className="text-[11px] text-stone-400 text-center leading-normal mt-2 px-2 font-normal">
-                Informe seu WhatsApp para acumular visitas e pontos de fidelidade no Painel da Panificadora!
+        {/* Card Central de Identificação */}
+        <main className="flex-1 max-w-md w-full mx-auto px-6 py-10 flex flex-col justify-center">
+          <div className="bg-[#fffdfa] border border-[#e6dfd1] rounded-3xl p-7 sm:p-8 shadow-sm">
+            <div className="text-center mb-6">
+              <span className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#f4eee3] border border-[#e9dfcd] text-[#78502b] mb-3">
+                <Wheat className="w-7 h-7" />
+              </span>
+              <p className="text-[11px] font-bold tracking-[2px] text-[#a17e4f] uppercase mb-1">
+                SEJA BEM-VINDO
+              </p>
+              <h2 className="font-serif text-2xl sm:text-3xl font-bold text-[#38271c]">
+                Identifique seu atendimento
+              </h2>
+              <p className="text-xs text-[#87735f] mt-1.5 leading-relaxed">
+                Informe o número da sua mesa e seu nome para navegar pelo cardápio e enviar pedidos à cozinha.
               </p>
             </div>
 
-            {/* Reconhecimento em Tempo Real (se já tiver cadastro pelo Nome ou WhatsApp) */}
-            {clienteEncontradoNoPreenchimento ? (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-xs text-emerald-800 animate-fadeIn flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <div className="min-w-0">
-                  <p className="font-bold truncate">Cliente identificado: {clienteEncontradoNoPreenchimento.nome}</p>
-                  <p className="text-[11px] text-emerald-700">
-                    Histórico vinculado: {obterVisitasReais(clienteEncontradoNoPreenchimento)} {obterVisitasReais(clienteEncontradoNoPreenchimento) === 1 ? 'visita já registrada' : 'visitas já registradas'} no sistema.
-                  </p>
+            <form onSubmit={handleEntrarNoCardapio} className="space-y-4">
+              {/* Mesa */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#785b40] mb-1.5">
+                  NÚMERO DA MESA *
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  value={mesaInput}
+                  onChange={e => setMesaInput(e.target.value.replace(/\D/g, ''))}
+                  placeholder="Ex: 5"
+                  className="w-full px-4 py-3 bg-[#fdfbf7] border border-[#d9cebb] rounded-xl text-center text-base font-bold text-[#38271c] focus:border-[#78502b] focus:bg-white outline-none transition-all shadow-2xs font-mono"
+                />
+              </div>
+
+              {/* Nome */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#785b40] mb-1.5">
+                  SEU NOME E SOBRENOME *
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-[#a28c76] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    required
+                    value={nomeInput}
+                    onChange={e => setNomeInput(e.target.value)}
+                    placeholder="Ex: Maria Oliveira"
+                    className="w-full pl-10 pr-4 py-3 bg-[#fdfbf7] border border-[#d9cebb] rounded-xl text-sm font-medium text-[#38271c] focus:border-[#78502b] focus:bg-white outline-none transition-all shadow-2xs"
+                  />
                 </div>
               </div>
-            ) : nomeInput.trim().length >= 2 ? (
-              <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-2.5 text-[11px] text-amber-900 animate-fadeIn">
-                ✨ Novo cadastro: <b>{nomeInput.trim()}</b> será salvo no banco de dados e acumulará seu histórico na panificadora.
-              </div>
-            ) : null}
 
-            {/* Botão de Acesso - Liberado quando colocar o número da mesa e o nome */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={!isBotaoAcessarLiberado || salvandoCadastro}
-                className={`w-full py-4 rounded-2xl font-bold text-sm transition-all duration-200 flex items-center justify-center gap-1.5 ${
-                  isBotaoAcessarLiberado && !salvandoCadastro
-                    ? 'bg-gradient-to-r from-[#D49342] to-[#C88A3E] hover:from-[#C88A3E] hover:to-[#B67A32] text-white shadow-lg shadow-amber-500/25 active:scale-[0.99] cursor-pointer'
-                    : 'bg-[#D6D3D1] text-white cursor-not-allowed'
-                }`}
-              >
-                <span>{salvandoCadastro ? 'Identificando Cliente...' : 'Acessar Cardápio'}</span>
-                <ChevronRight className="w-4 h-4 ml-0.5" />
-              </button>
-            </div>
-          </form>
-        </div>
+              {/* WhatsApp */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#785b40] mb-1.5">
+                  WHATSAPP (OPCIONAL)
+                </label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-[#a28c76] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="tel"
+                    value={telefoneInput}
+                    onChange={handleTelefoneChange}
+                    placeholder="(DD) 90000-0000"
+                    className="w-full pl-10 pr-4 py-3 bg-[#fdfbf7] border border-[#d9cebb] rounded-xl text-center text-sm font-medium text-[#38271c] focus:border-[#78502b] focus:bg-white outline-none transition-all shadow-2xs font-mono"
+                  />
+                </div>
+                <p className="text-[11px] text-[#9c886f] text-center mt-1.5 leading-normal">
+                  Usado para acumular visitas e pontos de fidelidade.
+                </p>
+              </div>
+
+              {/* Identificação de fidelidade */}
+              {clienteEncontradoNoPreenchimento ? (
+                <div className="bg-[#f0f6ee] border border-[#c4e0be] rounded-2xl p-3 text-xs text-[#2b5924] flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#2b5924] shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">Cliente identificado: {clienteEncontradoNoPreenchimento.nome}</p>
+                    <p className="text-[11px] text-[#3e7235]">
+                      {obterVisitasReais(clienteEncontradoNoPreenchimento)} {obterVisitasReais(clienteEncontradoNoPreenchimento) === 1 ? 'visita' : 'visitas'} registradas no sistema.
+                    </p>
+                  </div>
+                </div>
+              ) : nomeInput.trim().length >= 2 ? (
+                <div className="bg-[#faf5ec] border border-[#e6dfd1] rounded-2xl p-2.5 text-[11px] text-[#78502b]">
+                  🌾 Novo cadastro: <b>{nomeInput.trim()}</b> será registrado com carinho no sistema da panificadora.
+                </div>
+              ) : null}
+
+              {/* Botão Acessar */}
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={!isBotaoAcessarLiberado || salvandoCadastro}
+                  className={`w-full py-4 rounded-xl font-bold text-sm transition-all duration-200 flex items-center justify-center gap-2 ${
+                    isBotaoAcessarLiberado && !salvandoCadastro
+                      ? 'bg-[#563922] hover:bg-[#775034] text-[#fff7e9] shadow-md shadow-[#563922]/20 active:scale-[0.99] cursor-pointer'
+                      : 'bg-[#d9cebb] text-white cursor-not-allowed'
+                  }`}
+                >
+                  <span>{salvandoCadastro ? 'Identificando...' : 'Acessar Cardápio'}</span>
+                  <ArrowUpRight className="w-4 h-4" />
+                </button>
+              </div>
+            </form>
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer className="border-t border-[#e6dfd1] py-6 px-6 text-center text-xs text-[#9a8265] font-serif">
+          <span>Panificadora Moreira Sales • É sempre bom ter você por aqui.</span>
+        </footer>
       </div>
     );
   }
 
   // =========================================================================
-  // 2. TELA DO CARDÁPIO DIGITAL (APÓS PREENCHER E ACESSAR)
+  // 2. TELA DO CARDÁPIO DIGITAL (LAYOUT & CORES FIÉIS AO CHATGPT SITE)
   // =========================================================================
   return (
-    <div className="min-h-screen bg-[#FBF9F5] text-stone-900 pb-32 selection:bg-amber-200">
+    <div className="min-h-screen bg-[#fcfaf5] text-[#38271c] selection:bg-[#e9ddc6] pb-32">
       
-      {/* Header Fixo Superior do Cardápio */}
-      <header className="bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white sticky top-0 z-30 shadow-md">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+      {/* HEADER SUPERIOR MOREIRA SALES */}
+      <header className="border-b border-[#e6dfd1] bg-[#fcfaf5] sticky top-0 z-30 backdrop-blur-md bg-[#fcfaf5]/95">
+        <div className="max-w-6xl mx-auto px-4 sm:px-8 py-4 sm:py-5 flex items-center justify-between gap-4">
+          
+          {/* Marca / Logo com Badge de Trigo */}
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setAcessouCardapio(false)}
-              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-              title="Trocar mesa ou alterar dados"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center font-black text-amber-300 text-sm shadow-inner shrink-0">
-              MS
-            </div>
+            <span className="w-11 h-11 sm:w-13 sm:h-13 rounded-full border border-[#b69b70] flex items-center justify-center bg-[#fffdf9] text-[#a07842] shadow-2xs shrink-0">
+              <Wheat className="w-6 h-6 sm:w-7 sm:h-7" />
+            </span>
             <div>
-              <h1 className="text-base sm:text-lg font-black tracking-tight leading-none text-white">
-                Moreira Sales
-              </h1>
-              <p className="text-[11px] text-amber-200 font-medium">Cardápio Digital</p>
+              <span className="font-serif text-lg sm:text-2xl font-bold tracking-wide block leading-none text-[#38271c]">
+                MOREIRA SALES
+              </span>
+              <span className="text-[9px] sm:text-[10px] tracking-[2px] font-sans text-[#87735f] font-bold uppercase mt-1 block">
+                PANIFICADORA &amp; CONFEITARIA
+              </span>
             </div>
           </div>
 
-          {/* Badge da Mesa e Cliente */}
-          <div className="flex items-center gap-2">
+          {/* Slogan Central (Desktop) */}
+          <span className="hidden md:inline-block text-xs font-serif italic text-[#87735f] text-center">
+            Feito com carinho. Todos os dias.
+          </span>
+
+          {/* Mesa / Cliente & Carrinho Rápido */}
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
               onClick={handleTrocarCliente}
-              className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 px-3 py-1.5 rounded-2xl border border-white/15 transition-all text-xs font-bold text-amber-300 active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#d9cebb] bg-[#fffdf9] hover:bg-[#f4eee3] transition-all text-xs text-[#63482e] font-semibold cursor-pointer active:scale-95"
               title="Clique para trocar de cliente ou alterar mesa"
             >
-              <span className="uppercase text-[10px] text-stone-300">Mesa</span>
-              <span className="text-sm font-black text-white">
+              <span className="text-[10px] uppercase font-bold text-[#9c886f]">Mesa</span>
+              <span className="font-mono font-black text-sm text-[#38271c]">
                 {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
               </span>
-              <RotateCcw className="w-3 h-3 text-amber-400 ml-0.5" />
+              <RotateCcw className="w-3 h-3 text-[#9c886f] ml-0.5" />
             </button>
+
+            {totalItensCarrinho > 0 && (
+              <button
+                type="button"
+                onClick={() => setModalCarrinhoAberto(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#563922] hover:bg-[#775034] text-[#fff7e9] transition-all text-xs font-bold cursor-pointer shadow-xs active:scale-95"
+              >
+                <ShoppingCart className="w-3.5 h-3.5" />
+                <span>{totalItensCarrinho}</span>
+                <span className="hidden sm:inline font-mono font-normal opacity-90">
+                  • R$ {totalCarrinho.toFixed(2)}
+                </span>
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 pt-4 space-y-4">
+      {/* HERO SECTION (EXATAMENTE COMO NO SITE CHATGPT) */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-8 py-8 sm:py-14 grid grid-cols-1 md:grid-cols-12 gap-8 items-center border-b border-[#e6dfd1]">
         
-        {/* Identificação Resumida do Atendimento da Mesa */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-3xl border border-stone-200 shadow-xs flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-800 font-bold shrink-0">
-              <User className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-bold text-sm text-stone-900 truncate">
-                  {clienteAtivo?.nome || nomeInput.trim() || `Mesa ${mesaInput}`}
-                </p>
-                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 shrink-0">
-                  Mesa {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
-                </span>
-              </div>
-              <p className="text-xs text-stone-500 font-mono truncate">
-                {telefoneInput ? formatPhoneDisplay(telefoneInput) : 'Atendimento sem WhatsApp'}
-                {clienteAtivo && ` • ${obterVisitasReais(clienteAtivo)} ${obterVisitasReais(clienteAtivo) === 1 ? 'visita' : 'visitas'} no histórico`}
-              </p>
+        {/* Lado Esquerdo: Mensagem e Chamada */}
+        <div className="md:col-span-7">
+          <p className="text-[10px] sm:text-[11px] font-bold tracking-[2px] text-[#a17e4f] uppercase mb-2">
+            DA NOSSA PADARIA PARA O SEU DIA
+          </p>
+          <h1 className="font-serif text-3xl sm:text-5xl font-bold text-[#38271c] leading-[1.15] mb-4">
+            Tem sempre um<br />bom motivo para <em className="italic text-[#78502b]">ficar.</em>
+          </h1>
+          <p className="text-sm sm:text-base text-[#887765] leading-relaxed max-w-lg mb-6">
+            O pão quentinho, o café passado e aquele doce.<br />
+            Escolha o que combina com a sua vontade.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <button
+              type="button"
+              onClick={rolarAteCardapio}
+              className="bg-[#563922] hover:bg-[#775034] text-[#fff7e9] px-6 py-3.5 rounded-lg font-bold text-xs sm:text-sm inline-flex items-center gap-3 transition-colors shadow-xs active:scale-95 cursor-pointer"
+            >
+              <span>Explorar cardápio</span>
+              <ArrowUpRight className="w-4 h-4" />
+            </button>
+
+            <div className="text-[11px] text-[#9c886f] flex items-center gap-2">
+              <Wheat className="w-4 h-4 text-[#a07842]" />
+              <span>Sabor de casa em cada detalhe.</span>
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={handleTrocarCliente}
-            className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl transition-colors shrink-0 cursor-pointer"
-          >
-            Trocar Cliente
-          </button>
         </div>
 
-        {/* STATUS DO ÚLTIMO PEDIDO ENVIADO PARA A COZINHA */}
-        {ultimoPedidoEnviado && (
-          <div className="bg-white rounded-3xl p-4 sm:p-5 border-2 border-amber-500 shadow-lg animate-fadeIn">
+        {/* Lado Direito: Ilustração Arqueada Artesanal */}
+        <div className="md:col-span-5 flex justify-center">
+          <div className="w-full max-w-sm bg-[#e9ddc6] bg-[radial-gradient(at_25%_20%,#fff8dd,#e9ddc6_70%)] rounded-t-[140px] rounded-b-xl relative overflow-hidden min-h-[240px] sm:min-h-[290px] flex items-center justify-center p-6 border border-[#d9cebb]/60 shadow-inner">
+            
+            {/* Prato com Croissant */}
+            <div className="relative flex flex-col items-center justify-center">
+              <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-full bg-[#fcfaf5] border-4 border-[#d9cebb] shadow-md flex items-center justify-center text-4xl sm:text-5xl">
+                🥐
+              </div>
+              
+              {/* Xícara de Café */}
+              <div className="absolute -bottom-3 -right-4 bg-[#fffdf9] border-2 border-[#b69b70] rounded-2xl px-3 py-2 shadow-lg flex items-center gap-1.5 text-xs font-bold text-[#563922]">
+                <span className="text-base">☕</span>
+                <span>Café passado</span>
+              </div>
+            </div>
+
+            {/* Selo Artesanal */}
+            <div className="absolute top-4 right-4 bg-[#fffaf0]/90 backdrop-blur-xs border border-[#b69b70] rounded-full px-3 py-1 text-[9px] font-bold text-[#78502b] uppercase tracking-wider shadow-2xs">
+              MOREIRA SALES
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* STATUS DO ÚLTIMO PEDIDO ENVIADO PARA A COZINHA (SE HOUVER) */}
+      {ultimoPedidoEnviado && (
+        <div className="max-w-6xl mx-auto px-4 sm:px-8 mt-6">
+          <div className="bg-[#fffdfa] rounded-3xl p-5 sm:p-6 border-2 border-[#a07842] shadow-sm animate-fadeIn">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs sm:text-sm font-bold text-amber-950 flex items-center gap-1.5 uppercase">
-                <ChefHat className="w-4 h-4 text-amber-600" /> Acompanhe seu Pedido na Cozinha
+              <span className="text-xs sm:text-sm font-bold text-[#563922] flex items-center gap-2 uppercase tracking-wide">
+                <ChefHat className="w-4 h-4 text-[#a07842]" /> Acompanhe seu Pedido na Cozinha
               </span>
-              <span className="text-xs font-mono font-bold text-stone-400">
+              <span className="text-xs font-mono font-bold text-[#9c886f]">
                 #{ultimoPedidoEnviado.id.slice(-5)}
               </span>
             </div>
 
-            {/* Linha do tempo de status */}
-            <div className="grid grid-cols-3 gap-2 text-center py-1">
-              <div className={`p-2.5 rounded-2xl flex flex-col items-center justify-center transition-all ${
+            {/* Etapas do pedido */}
+            <div className="grid grid-cols-3 gap-2 text-center py-2">
+              <div className={`p-3 rounded-2xl flex flex-col items-center justify-center transition-all ${
                 ultimoPedidoEnviado.status === 'pendente' 
-                  ? 'bg-rose-500 text-white font-black shadow-md animate-pulse' 
-                  : 'bg-stone-100 text-stone-400'
+                  ? 'bg-[#563922] text-[#fff7e9] font-bold shadow-md animate-pulse' 
+                  : 'bg-[#f4eee3] text-[#9c886f]'
               }`}>
                 <AlertCircle className="w-5 h-5 mb-1" />
                 <span className="text-xs leading-tight">Recebido na Cozinha</span>
               </div>
 
-              <div className={`p-2.5 rounded-2xl flex flex-col items-center justify-center transition-all ${
+              <div className={`p-3 rounded-2xl flex flex-col items-center justify-center transition-all ${
                 ultimoPedidoEnviado.status === 'preparando' 
-                  ? 'bg-amber-500 text-white font-black shadow-md animate-pulse' 
+                  ? 'bg-[#a07842] text-white font-bold shadow-md animate-pulse' 
                   : ultimoPedidoEnviado.status === 'pronto' || ultimoPedidoEnviado.status === 'entregue'
-                  ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
-                  : 'bg-stone-100 text-stone-400'
+                  ? 'bg-[#eef5eb] text-[#2b5924] font-bold border border-[#c4e0be]'
+                  : 'bg-[#f4eee3] text-[#9c886f]'
               }`}>
                 <ChefHat className="w-5 h-5 mb-1" />
                 <span className="text-xs leading-tight">Em Preparo</span>
               </div>
 
-              <div className={`p-2.5 rounded-2xl flex flex-col items-center justify-center transition-all ${
+              <div className={`p-3 rounded-2xl flex flex-col items-center justify-center transition-all ${
                 ultimoPedidoEnviado.status === 'pronto' || ultimoPedidoEnviado.status === 'entregue'
-                  ? 'bg-emerald-600 text-white font-black shadow-md' 
-                  : 'bg-stone-100 text-stone-400'
+                  ? 'bg-[#2b5924] text-white font-bold shadow-md' 
+                  : 'bg-[#f4eee3] text-[#9c886f]'
               }`}>
                 <CheckCircle2 className="w-5 h-5 mb-1" />
                 <span className="text-xs leading-tight">
@@ -653,79 +749,104 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               </div>
             </div>
 
-            <p className="text-xs text-stone-600 text-center mt-3 font-medium">
-              {ultimoPedidoEnviado.status === 'pendente' && 'A cozinha foi notificada com alerta sonoro e logo começará a preparar seu pedido.'}
-              {ultimoPedidoEnviado.status === 'preparando' && 'Seus itens estão na chapa e no balcão de preparo com todo carinho!'}
-              {ultimoPedidoEnviado.status === 'pronto' && 'Seu pedido está pronto! O garçom está levando até a sua mesa.'}
-              {ultimoPedidoEnviado.status === 'entregue' && 'Bom apetite! Se desejar algo mais, basta pedir novamente aqui.'}
+            <p className="text-xs text-[#87735f] text-center mt-3 font-medium">
+              {ultimoPedidoEnviado.status === 'pendente' && 'A cozinha recebeu seu pedido e logo começará a prepará-lo com carinho.'}
+              {ultimoPedidoEnviado.status === 'preparando' && 'Seus itens estão sendo preparados na nossa chapa e balcão artesanal!'}
+              {ultimoPedidoEnviado.status === 'pronto' && 'Seu pedido está prontinho! O garçom está levando até a sua mesa.'}
+              {ultimoPedidoEnviado.status === 'entregue' && 'Bom apetite! Se desejar algo mais, é só pedir aqui pelo cardápio.'}
             </p>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Campo de Busca de Produtos */}
-        <div className="relative">
-          <input
-            type="text"
-            value={busca}
-            onChange={e => setBusca(e.target.value)}
-            placeholder="Buscar cafés, pães, salgados, doces..."
-            className="w-full pl-11 pr-10 py-3.5 bg-white border border-stone-200 rounded-2xl text-base sm:text-sm font-medium focus:border-amber-600 outline-none shadow-xs touch-manipulation"
-          />
-          <Search className="w-5 h-5 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          {busca && (
-            <button
-              onClick={() => setBusca('')}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-stone-400 hover:text-stone-600 active:scale-90 transition-transform cursor-pointer touch-manipulation"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+      {/* SEÇÃO PRINCIPAL DO CARDÁPIO */}
+      <main id="cardapio" className="max-w-6xl mx-auto px-4 sm:px-8 pt-8 sm:pt-12 space-y-6">
+        
+        {/* Cabeçalho da Seção */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] sm:text-[11px] font-bold tracking-[2px] text-[#a17e4f] uppercase mb-1">
+              SELEÇÃO ESPECIAL
+            </p>
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#38271c]">
+              Nosso Cardápio<span className="text-[#a07842]">.</span>
+            </h2>
+            <p className="text-xs sm:text-sm text-[#87735f] mt-1">
+              Pães artesanais, salgados assados e fritos, doces finos, lanches na chapa e bebidas fresquinhas.
+            </p>
+          </div>
+
+          {/* Campo de Busca de Produtos */}
+          <div className="relative w-full md:w-80">
+            <input
+              type="text"
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar produtos no cardápio..."
+              className="w-full pl-10 pr-9 py-2.5 bg-[#fffdfa] border border-[#d9cebb] rounded-xl text-xs sm:text-sm font-medium text-[#38271c] placeholder:text-[#a28c76] focus:border-[#78502b] outline-none shadow-2xs"
+            />
+            <Search className="w-4 h-4 text-[#a28c76] absolute left-3.5 top-1/2 -translate-y-1/2" />
+            {busca && (
+              <button
+                type="button"
+                onClick={() => setBusca('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-[#a28c76] hover:text-[#38271c] cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Categorias (Abas Horizontais com Toque Otimizado) */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none touch-manipulation">
+        {/* Abas de Categorias (Horizontal Scrollable Nav) */}
+        <nav aria-label="Categorias" className="flex items-center gap-2 overflow-x-auto pb-2 pt-1 scrollbar-none touch-manipulation">
           <button
             type="button"
             onClick={() => setCategoriaAtiva('todos')}
-            className={`h-11 px-4 sm:px-5 py-2 rounded-2xl text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer touch-manipulation flex items-center gap-1.5 active:scale-95 select-none ${
+            className={`px-4 py-2.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer flex items-center gap-2 ${
               categoriaAtiva === 'todos'
-                ? 'bg-amber-800 text-white shadow-md shadow-amber-900/20'
-                : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
+                ? 'bg-[#563922] text-[#fff7e9] shadow-xs'
+                : 'bg-[#fffdf9] text-[#785b40] border border-[#e6dfd1] hover:border-[#b69b70]'
             }`}
           >
-            Todos ({produtos.filter(p => p.ativo !== false).length})
+            <span>Todos</span>
+            <span className="opacity-75 text-[10px]">({produtos.filter(p => p.ativo !== false).length})</span>
           </button>
+
           {categorias.map(cat => {
             const count = produtos.filter(p => p.ativo !== false && p.categoria_id === cat.id).length;
+            const emoji = obterEmojiCategoria(cat.nome);
+            const isAtiva = categoriaAtiva === cat.id;
+
             return (
               <button
                 key={cat.id}
                 type="button"
                 onClick={() => setCategoriaAtiva(cat.id)}
-                className={`h-11 px-4 sm:px-5 py-2 rounded-2xl text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer touch-manipulation flex items-center gap-1.5 active:scale-95 select-none ${
-                  categoriaAtiva === cat.id
-                    ? 'bg-amber-800 text-white shadow-md shadow-amber-900/20'
-                    : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
+                className={`px-4 py-2.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer flex items-center gap-2 ${
+                  isAtiva
+                    ? 'bg-[#563922] text-[#fff7e9] shadow-xs'
+                    : 'bg-[#fffdf9] text-[#785b40] border border-[#e6dfd1] hover:border-[#b69b70]'
                 }`}
               >
-                <span>{cat.nome}</span>
-                {count > 0 && <span className="opacity-75 text-xs">({count})</span>}
+                <span>{emoji} {cat.nome}</span>
+                {count > 0 && <span className="opacity-75 text-[10px]">({count})</span>}
               </button>
             );
           })}
-        </div>
+        </nav>
 
-        {/* Lista de Produtos do Cardápio - Otimizada para Mobile e Toque */}
+        {/* Grade de Produtos do Cardápio */}
         {produtosFiltrados.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-3xl border border-stone-200 p-6">
-            <Coffee className="w-12 h-12 text-stone-300 mx-auto mb-3" />
-            <p className="text-sm font-bold text-stone-700">Nenhum item encontrado</p>
-            <p className="text-xs text-stone-500 mt-1">
-              Tente buscar por outro nome ou escolha outra categoria.
+          <div className="text-center py-16 bg-[#fffdfa] rounded-3xl border border-[#e6dfd1] p-8">
+            <Wheat className="w-12 h-12 text-[#d9cebb] mx-auto mb-3" />
+            <p className="font-serif text-lg font-bold text-[#38271c]">Nenhum item encontrado</p>
+            <p className="text-xs text-[#87735f] mt-1">
+              Tente buscar por outro termo ou selecione outra categoria acima.
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {produtosFiltrados.map(produto => {
               const categoria = categorias.find(c => c.id === produto.categoria_id);
               const qtdNoCarrinho = carrinho
@@ -733,113 +854,140 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
                 .reduce((sum, i) => sum + i.quantidade, 0);
 
               const estaNoCarrinho = qtdNoCarrinho > 0;
+              const emojiCat = categoria ? obterEmojiCategoria(categoria.nome) : '🌾';
 
               return (
-                <div 
-                  key={produto.id} 
-                  className={`bg-white p-4 sm:p-5 rounded-3xl border shadow-xs flex flex-col justify-between transition-all touch-manipulation group ${
+                <article
+                  key={produto.id}
+                  className={`bg-[#fffdf9] border rounded-2xl p-4 flex flex-col justify-between transition-all duration-200 group relative ${
                     estaNoCarrinho
-                      ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/15'
-                      : 'border-stone-200 hover:border-amber-300'
+                      ? 'border-[#78502b] ring-2 ring-[#78502b]/15 shadow-sm'
+                      : 'border-[#e6dfd1] hover:border-[#b69b70] hover:shadow-sm'
                   }`}
                 >
+                  {/* Topo / Placeholder Ilustrado Artesanal */}
                   <div>
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200/60">
-                        {categoria?.nome || 'Geral'}
+                    <div className="bg-[#f4eee3] border border-[#e9dfcd] rounded-xl h-28 flex flex-col items-center justify-center text-[#ab916d] mb-3 relative overflow-hidden group-hover:bg-[#f0e7d8] transition-colors">
+                      <Wheat className="w-7 h-7 text-[#b69b70] mb-1" />
+                      <span className="font-serif italic text-xs text-[#9c886f]">Feito com carinho</span>
+                      
+                      {/* Categoria chip discreto */}
+                      <span className="absolute top-2 left-2 bg-[#fffdf9]/90 backdrop-blur-xs border border-[#d9cebb] rounded-md px-2 py-0.5 text-[10px] font-semibold text-[#785b40]">
+                        {emojiCat} {categoria?.nome || 'Panificadora'}
                       </span>
+
+                      {/* Badge se tiver no pedido */}
                       {estaNoCarrinho && (
-                        <span className="text-[11px] font-black text-white bg-amber-600 px-2.5 py-0.5 rounded-full shadow-xs animate-fadeIn flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 stroke-[2.5]" />
-                          <span>{qtdNoCarrinho} no pedido</span>
+                        <span className="absolute top-2 right-2 bg-[#563922] text-[#fff7e9] text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+                          {qtdNoCarrinho} no pedido
                         </span>
                       )}
                     </div>
-                    <h3 className="font-bold text-base sm:text-lg text-stone-900 leading-snug">
+
+                    {/* Nome do Produto */}
+                    <h4 className="font-serif font-bold text-base text-[#38271c] leading-snug line-clamp-2 min-h-[2.5rem]">
                       {produto.nome}
-                    </h3>
+                    </h4>
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
-                    <span className="text-xl sm:text-2xl font-black text-stone-900 font-mono tracking-tight shrink-0">
-                      R$ {produto.preco.toFixed(2)}
-                    </span>
+                  {/* Rodapé do Card: Preço, Unidade e Botões */}
+                  <div className="mt-4 pt-3 border-t border-[#f0e8dc] flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[#a28c76] text-[11px] font-semibold block leading-none mb-1">
+                        {produto.unidade_venda || 'unidade'}
+                      </span>
+                      <strong className="text-[#78502b] font-mono font-bold text-base sm:text-lg leading-none block">
+                        R$ {Number(produto.preco).toFixed(2).replace('.', ',')}
+                      </strong>
+                    </div>
 
-                    {/* Botões de Ação com Área de Toque Generosa (Mobile Touch Targets) */}
+                    {/* Ações: Pedir ou Stepper */}
                     {!estaNoCarrinho ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => setItemParaObservacao({ produto, observacao: '' })}
-                          className="h-11 px-3 sm:px-3.5 bg-stone-100 hover:bg-stone-200 active:scale-95 text-stone-700 text-xs font-bold rounded-2xl transition-all cursor-pointer touch-manipulation flex items-center justify-center gap-1"
-                          title="Adicionar observação (ex: sem açúcar)"
+                          className="px-2 py-2 bg-[#f4eee3] hover:bg-[#e9dfcd] active:scale-95 text-[#63482e] text-[11px] font-bold rounded-lg transition-all cursor-pointer"
+                          title="Adicionar observação (ex: sem cebola)"
                         >
-                          <span>Obs</span>
+                          Obs
                         </button>
                         <button
                           type="button"
                           onClick={() => handleAdicionarItem(produto)}
-                          className="h-11 px-4 sm:px-5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white text-xs sm:text-sm font-black rounded-2xl shadow-md shadow-amber-600/25 transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation"
+                          className="px-3.5 py-2 bg-[#563922] hover:bg-[#775034] active:scale-95 text-[#fff7e9] text-xs font-bold rounded-lg shadow-2xs transition-all flex items-center gap-1 cursor-pointer"
                         >
-                          <Plus className="w-4 h-4 stroke-[2.5]" />
+                          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                           <span>Pedir</span>
                         </button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1.5 sm:gap-2">
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => setItemParaObservacao({ produto, observacao: '' })}
-                          className="h-11 px-2.5 sm:px-3 bg-amber-100/70 hover:bg-amber-200 active:scale-95 text-amber-900 text-xs font-bold rounded-2xl transition-all cursor-pointer touch-manipulation flex items-center justify-center gap-1"
-                          title="Adicionar ou alterar observação"
+                          className="px-1.5 py-1.5 bg-[#f4eee3] hover:bg-[#e9dfcd] text-[#63482e] text-[10px] font-bold rounded-md transition-all cursor-pointer"
+                          title="Alterar observação"
                         >
-                          <span>Obs</span>
+                          Obs
                         </button>
-
-                        {/* Stepper de Toque Rápido no Próprio Card */}
-                        <div className="flex items-center bg-stone-100 p-1 rounded-2xl border border-stone-200 shadow-2xs touch-manipulation">
+                        <div className="flex items-center bg-[#f4eee3] p-0.5 rounded-lg border border-[#e6dfd1]">
                           <button
                             type="button"
                             onClick={() => handleRemoverItemCard(produto.id)}
-                            className="w-9 h-9 rounded-xl bg-white hover:bg-rose-50 text-stone-700 hover:text-rose-600 active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation shadow-2xs"
-                            title="Remover 1 unidade"
+                            className="w-7 h-7 rounded-md bg-[#fffdf9] hover:bg-[#f0e8dc] text-[#563922] active:scale-90 flex items-center justify-center transition-all cursor-pointer"
                           >
-                            <Minus className="w-4 h-4 stroke-[2.5]" />
+                            <Minus className="w-3 h-3 stroke-[2.5]" />
                           </button>
-                          <span className="w-7 sm:w-8 text-center font-black text-sm font-mono text-stone-900 select-none">
+                          <span className="w-6 text-center font-bold text-xs font-mono text-[#38271c]">
                             {qtdNoCarrinho}
                           </span>
                           <button
                             type="button"
                             onClick={() => handleAdicionarItem(produto)}
-                            className="w-9 h-9 rounded-xl bg-amber-600 hover:bg-amber-700 text-white active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation shadow-xs"
-                            title="Adicionar mais 1 unidade"
+                            className="w-7 h-7 rounded-md bg-[#563922] hover:bg-[#775034] text-[#fff7e9] active:scale-90 flex items-center justify-center transition-all cursor-pointer"
                           >
-                            <Plus className="w-4 h-4 stroke-[2.5]" />
+                            <Plus className="w-3 h-3 stroke-[2.5]" />
                           </button>
                         </div>
                       </div>
                     )}
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>
         )}
+
+        {/* NOTA DE RODAPÉ (EXATAMENTE COMO NO SITE CHATGPT) */}
+        <div className="border-t border-[#e6dfd1] pt-10 pb-6 text-center">
+          <div className="flex items-center justify-center gap-2 font-serif italic text-base sm:text-lg text-[#9a8265]">
+            <Wheat className="w-5 h-5 text-[#b69b70]" />
+            <span>Um pouquinho de carinho em cada receita.</span>
+          </div>
+          <p className="max-w-xl mx-auto text-[11px] text-[#9c8e7d] leading-relaxed mt-2">
+            Produtos sujeitos à disponibilidade. Fotos ilustrativas: embalagens e sabores podem variar; 
+            confira o volume no nome do produto. Itens por peso têm o valor final calculado na pesagem.
+          </p>
+        </div>
       </main>
 
-      {/* Rodapé Oficial Sovinski Software & Automation no modo Standalone */}
-      {isStandalone && <Footer className="mt-12 pb-24 sm:pb-8" />}
+      {/* FOOTER ARTESANAL */}
+      <footer className="border-t border-[#e6dfd1] mt-10 py-8 px-6 text-center text-xs text-[#87735f] font-serif space-y-1">
+        <p className="font-bold text-[#563922]">Panificadora Moreira Sales</p>
+        <p>É sempre bom ter você por aqui.</p>
+        {isStandalone && <Footer className="mt-6 pt-4 border-t border-[#e6dfd1]/60" />}
+      </footer>
 
-      {/* Modal de Observação para o Item */}
+      {/* MODAL DE OBSERVAÇÃO PARA O ITEM */}
       {itemParaObservacao && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden p-5 animate-scaleUp">
-            <h3 className="text-base font-bold text-stone-900 mb-1">
-              Observação para: {itemParaObservacao.produto.nome}
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-[#fffdfa] border border-[#d9cebb] rounded-3xl shadow-xl w-full max-w-sm overflow-hidden p-6 animate-scaleUp">
+            <h3 className="font-serif font-bold text-base text-[#38271c] mb-1">
+              Observação: {itemParaObservacao.produto.nome}
             </h3>
-            <p className="text-xs text-stone-500 mb-3">
-              Como você gostaria que a cozinha preparasse esse item?
+            <p className="text-xs text-[#87735f] mb-3">
+              Como você gostaria que a cozinha preparasse este item?
             </p>
             <input
               type="text"
@@ -847,7 +995,7 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               value={itemParaObservacao.observacao}
               onChange={e => setItemParaObservacao({ ...itemParaObservacao, observacao: e.target.value })}
               placeholder="Ex: Sem açúcar, pão bem passado, leite gelado..."
-              className="w-full px-4 py-3 bg-stone-50 border border-stone-300 rounded-xl text-sm font-medium focus:border-amber-600 outline-none mb-4"
+              className="w-full px-4 py-3 bg-[#fdfbf7] border border-[#d9cebb] rounded-xl text-sm font-medium focus:border-[#78502b] outline-none mb-4"
               onKeyDown={e => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -859,14 +1007,14 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               <button
                 type="button"
                 onClick={() => setItemParaObservacao(null)}
-                className="flex-1 py-2.5 bg-stone-100 text-stone-700 font-bold rounded-xl text-xs hover:bg-stone-200 transition-colors"
+                className="flex-1 py-2.5 bg-[#f4eee3] text-[#63482e] font-bold rounded-xl text-xs hover:bg-[#e9dfcd] transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={() => handleAdicionarItem(itemParaObservacao.produto, itemParaObservacao.observacao)}
-                className="flex-1 py-2.5 bg-amber-600 text-white font-bold rounded-xl text-xs hover:bg-amber-700 transition-colors"
+                className="flex-1 py-2.5 bg-[#563922] text-[#fff7e9] font-bold rounded-xl text-xs hover:bg-[#775034] transition-colors cursor-pointer"
               >
                 Adicionar com Obs
               </button>
@@ -875,28 +1023,28 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
         </div>
       )}
 
-      {/* Barra Fixa Flutuante Inferior do Carrinho */}
+      {/* BARRA FIXA FLUTUANTE INFERIOR DO CARRINHO */}
       {totalItensCarrinho > 0 && (
-        <div className="fixed bottom-4 inset-x-4 max-w-3xl mx-auto z-40 animate-slideUp">
+        <div className="fixed bottom-4 inset-x-4 max-w-2xl mx-auto z-40 animate-slideUp">
           <button
             type="button"
             onClick={() => setModalCarrinhoAberto(true)}
-            className="w-full bg-stone-900 hover:bg-black text-white p-4 sm:p-4.5 rounded-3xl shadow-2xl flex items-center justify-between border-2 border-amber-500 transition-all active:scale-[0.98] cursor-pointer touch-manipulation min-h-[64px]"
+            className="w-full bg-[#563922] hover:bg-[#775034] text-[#fff7e9] p-4 rounded-2xl shadow-xl flex items-center justify-between border border-[#b69b70] transition-all active:scale-[0.99] cursor-pointer"
           >
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-amber-500 text-stone-900 font-black flex items-center justify-center text-sm shadow-md shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-[#fff7e9] text-[#563922] font-black flex items-center justify-center text-sm shadow-xs shrink-0">
                 {totalItensCarrinho}
               </div>
               <div className="text-left">
-                <p className="text-xs text-stone-300 font-medium">
+                <p className="text-[11px] text-[#e6dfd1] font-medium">
                   Comanda • Mesa {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
                 </p>
-                <p className="text-sm sm:text-base font-bold">Ver Pedido / Enviar para a Cozinha</p>
+                <p className="text-sm font-bold">Ver Pedido / Enviar para a Cozinha</p>
               </div>
             </div>
 
             <div className="text-right">
-              <span className="text-xl font-black font-mono text-amber-400">
+              <span className="text-lg font-bold font-mono text-[#fff7e9]">
                 R$ {totalCarrinho.toFixed(2)}
               </span>
             </div>
@@ -904,20 +1052,20 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
         </div>
       )}
 
-      {/* Drawer / Modal de Revisão do Pedido */}
+      {/* MODAL / DRAWER DE REVISÃO DO PEDIDO */}
       {modalCarrinhoAberto && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
-          <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden animate-slideUp">
+          <div className="bg-[#fffdfa] rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden animate-slideUp border border-[#d9cebb]">
             
             {/* Header do Carrinho */}
-            <div className="p-4 sm:p-5 bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white flex items-center justify-between shrink-0">
+            <div className="p-5 bg-[#563922] text-[#fff7e9] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
-                <ShoppingCart className="w-5 h-5 text-amber-400" />
+                <ShoppingCart className="w-5 h-5 text-[#b69b70]" />
                 <div>
-                  <h3 className="text-base sm:text-lg font-black">
+                  <h3 className="font-serif font-bold text-base sm:text-lg">
                     Comanda • Mesa {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}
                   </h3>
-                  <p className="text-xs text-amber-200">
+                  <p className="text-xs text-[#e6dfd1]">
                     Cliente: {nomeInput.trim() || `Mesa ${mesaInput}`}
                   </p>
                 </div>
@@ -925,114 +1073,112 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
               <button
                 type="button"
                 onClick={() => setModalCarrinhoAberto(false)}
-                className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation"
+                className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 flex items-center justify-center transition-all cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5 text-[#fff7e9]" />
               </button>
             </div>
 
             {/* Lista de Itens */}
-            <div className="p-4 sm:p-5 overflow-y-auto space-y-3 flex-1">
+            <div className="p-5 overflow-y-auto space-y-3 flex-1">
               {carrinho.map(item => (
-                <div key={item.id_temp} className="flex items-center justify-between p-3.5 bg-stone-50 rounded-2xl border border-stone-200">
+                <div key={item.id_temp} className="flex items-center justify-between p-3.5 bg-[#fcfaf5] rounded-xl border border-[#e6dfd1]">
                   <div className="min-w-0 pr-2">
-                    <p className="font-bold text-sm sm:text-base text-stone-900 leading-snug">{item.nome}</p>
+                    <p className="font-serif font-bold text-sm text-[#38271c] leading-snug">{item.nome}</p>
                     {item.observacao && (
-                      <p className="text-xs text-amber-700 font-semibold mt-0.5">
+                      <p className="text-xs text-[#78502b] font-medium mt-0.5">
                         Obs: {item.observacao}
                       </p>
                     )}
-                    <p className="text-xs text-stone-500 font-mono mt-0.5">
-                      R$ {item.preco_unitario.toFixed(2)} un
+                    <p className="text-xs text-[#9a8265] font-mono mt-0.5">
+                      R$ {item.preco_unitario.toFixed(2)} {item.unidade_venda ? `/${item.unidade_venda}` : ''}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="flex items-center bg-white border border-stone-300 rounded-2xl p-0.5 shadow-2xs">
+                    <div className="flex items-center bg-[#f4eee3] p-1 rounded-lg border border-[#d9cebb]">
                       <button
                         type="button"
                         onClick={() => handleAlterarQuantidade(item.id_temp, -1)}
-                        className="w-9 h-9 rounded-xl hover:bg-stone-100 text-stone-700 active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation"
+                        className="w-7 h-7 rounded bg-[#fffdfa] hover:bg-[#e9dfcd] text-[#563922] font-bold flex items-center justify-center cursor-pointer"
                       >
-                        <Minus className="w-4 h-4 stroke-[2.5]" />
+                        <Minus className="w-3.5 h-3.5" />
                       </button>
-                      <span className="w-8 text-center font-black text-sm font-mono select-none">
+                      <span className="w-7 text-center font-bold text-xs font-mono text-[#38271c]">
                         {item.quantidade}
                       </span>
                       <button
                         type="button"
                         onClick={() => handleAlterarQuantidade(item.id_temp, 1)}
-                        className="w-9 h-9 rounded-xl bg-amber-600 hover:bg-amber-700 text-white active:scale-90 flex items-center justify-center transition-all cursor-pointer touch-manipulation shadow-xs"
+                        className="w-7 h-7 rounded bg-[#563922] hover:bg-[#775034] text-[#fff7e9] font-bold flex items-center justify-center cursor-pointer"
                       >
-                        <Plus className="w-4 h-4 stroke-[2.5]" />
+                        <Plus className="w-3.5 h-3.5" />
                       </button>
                     </div>
 
-                    <span className="w-18 text-right font-black text-sm font-mono text-stone-900">
+                    <span className="font-mono font-bold text-sm text-[#78502b] min-w-[60px] text-right">
                       R$ {item.subtotal.toFixed(2)}
                     </span>
                   </div>
                 </div>
               ))}
 
-              {/* Observações Gerais */}
+              {/* Campo de Observações Gerais */}
               <div className="pt-2">
-                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
-                  Observações para a Cozinha:
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#785b40] mb-1">
+                  Observações para a Cozinha (Opcional):
                 </label>
                 <textarea
-                  rows={2}
                   value={observacoesGerais}
                   onChange={e => setObservacoesGerais(e.target.value)}
-                  placeholder="Ex: Trazer tudo junto, caprichar no gelo..."
-                  className="w-full px-3.5 py-3 bg-stone-50 border border-stone-300 rounded-xl text-sm font-medium focus:bg-white focus:border-amber-600 outline-none resize-none touch-manipulation"
+                  placeholder="Ex: Trazer tudo junto, caprichar no guardanapo..."
+                  rows={2}
+                  className="w-full p-3 bg-[#fdfbf7] border border-[#d9cebb] rounded-xl text-xs text-[#38271c] focus:border-[#78502b] outline-none"
                 />
               </div>
 
-              {/* Resumo da Identificação da Comanda */}
-              <div className="p-3.5 bg-stone-100 rounded-2xl border border-stone-200 text-xs space-y-1">
-                <div className="flex justify-between font-bold text-stone-800">
-                  <span>Mesa: {parseInt(mesaInput, 10) < 10 ? `0${parseInt(mesaInput, 10)}` : mesaInput}</span>
-                  <span>{telefoneInput ? formatPhoneDisplay(telefoneInput) : 'Sem WhatsApp'}</span>
-                </div>
-                <p className="text-stone-600 truncate">
-                  Identificação: <b>{nomeInput.trim() || `Mesa ${mesaInput}`}</b>
-                </p>
-                {clienteAtivo && (
-                  <p className="text-emerald-700 font-semibold">
-                    ✓ Vinculado ao cadastro do cliente
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Footer do Carrinho com CTA de Envio */}
-            <div className="p-4 sm:p-5 bg-stone-50 border-t border-stone-200 space-y-3 shrink-0 pb-safe">
               {erroEnvio && (
-                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 animate-fadeIn">
-                  <span className="w-2 h-2 rounded-full bg-rose-600 shrink-0" />
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{erroEnvio}</span>
                 </div>
               )}
+            </div>
 
+            {/* Rodapé do Carrinho com Total e Envio */}
+            <div className="p-5 bg-[#fcfaf5] border-t border-[#e6dfd1] space-y-3 shrink-0">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-stone-600">Total do Pedido:</span>
-                <span className="text-2xl font-black font-mono text-stone-900">
+                <span className="text-xs uppercase font-bold text-[#87735f]">Total do Pedido:</span>
+                <span className="font-mono font-bold text-2xl text-[#78502b]">
                   R$ {totalCarrinho.toFixed(2)}
                 </span>
               </div>
 
-              <button
-                type="button"
-                disabled={enviandoPedido || carrinho.length === 0}
-                onClick={handleEnviarPedidoParaCozinha}
-                className="w-full h-14 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 disabled:bg-stone-300 text-white font-black text-base rounded-2xl shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98 touch-manipulation"
-              >
-                <Send className="w-5 h-5" />
-                <span>
-                  {enviandoPedido ? 'Enviando para a Cozinha...' : 'ENVIAR PEDIDO PARA A COZINHA'}
-                </span>
-              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalCarrinhoAberto(false)}
+                  className="py-3 px-4 bg-[#f4eee3] hover:bg-[#e9dfcd] text-[#63482e] font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  Continuar Escolhendo
+                </button>
+
+                <button
+                  type="button"
+                  disabled={enviandoPedido || carrinho.length === 0}
+                  onClick={handleEnviarPedidoParaCozinha}
+                  className="py-3 px-4 bg-[#563922] hover:bg-[#775034] text-[#fff7e9] font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
+                >
+                  {enviandoPedido ? (
+                    <span>Enviando...</span>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>Enviar Pedido</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

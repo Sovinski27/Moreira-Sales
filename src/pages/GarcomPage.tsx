@@ -478,6 +478,11 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                   </p>
                   <p className="text-amber-700 font-black font-mono text-sm mt-1">
                     R$ {Number(produto.preco).toFixed(2)}
+                    {produto.unidade_venda && (
+                      <span className="text-stone-500 font-sans font-medium text-xs ml-1.5">
+                        /{produto.unidade_venda}
+                      </span>
+                    )}
                   </p>
                 </div>
 

@@ -1108,7 +1108,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                         </div>
                         <h3 className="font-bold text-lg text-stone-900">{produto.nome}</h3>
                         <div className="flex flex-wrap items-baseline gap-2 mt-1">
-                          <p className="text-amber-700 font-black text-xl font-mono">R$ {produto.preco.toFixed(2)}</p>
+                          <p className="text-amber-700 font-black text-xl font-mono">
+                            R$ {produto.preco.toFixed(2)}
+                            {produto.unidade_venda && (
+                              <span className="text-xs font-semibold text-stone-500 font-sans ml-1">
+                                / {produto.unidade_venda}
+                              </span>
+                            )}
+                          </p>
                           {produto.custo !== undefined && produto.custo > 0 ? (
                             <span className="text-xs text-red-600 font-bold bg-red-50 border border-red-200/80 px-2 py-0.5 rounded-md font-mono" title="Custo de produção unitário calculado">
                               Custo: R$ {produto.custo.toFixed(2)}

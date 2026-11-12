@@ -30,7 +30,8 @@ import {
   INITIAL_FORNECEDORES, 
   INITIAL_INSUMOS, 
   INITIAL_FICHAS_TECNICAS,
-  INITIAL_CONFIG_FISCAL
+  INITIAL_CONFIG_FISCAL,
+  obterUnidadeVendaPadrao
 } from './seedData';
 import { cleanPhone } from './whatsapp';
 
@@ -40,6 +41,7 @@ export const STORAGE_KEYS = {
   CONFIG: 'panificadora_config',
   CATEGORIAS: 'panificadora_categorias',
   PRODUTOS: 'panificadora_produtos',
+  UNIDADES_VENDA: 'panificadora_unidades_venda',
   FORNECEDORES: 'panificadora_fornecedores',
   INSUMOS: 'panificadora_insumos',
   FICHAS_TECNICAS: 'panificadora_fichas_tecnicas',
@@ -528,7 +530,7 @@ const generateUuid = (): string => {
 };
 
 export async function fetchCategorias(): Promise<Categoria[]> {
-  const localCats = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, []);
+  let localCats = getLocal<Categoria[]>(STORAGE_KEYS.CATEGORIAS, INITIAL_CATEGORIAS);
 
   if (isSupabaseConfigured && supabase) {
     try {
@@ -537,13 +539,18 @@ export async function fetchCategorias(): Promise<Categoria[]> {
         .select('*')
         .order('ordem');
 
-      if (!error && data) {
+      if (!error && data && data.length > 0) {
         setLocal(STORAGE_KEYS.CATEGORIAS, data);
         return data as Categoria[];
       }
     } catch (e) {
       console.warn('Falha ao buscar categorias no Supabase:', e);
     }
+  }
+
+  if (!localCats || localCats.length === 0) {
+    localCats = INITIAL_CATEGORIAS;
+    setLocal(STORAGE_KEYS.CATEGORIAS, localCats);
   }
 
   return localCats;
@@ -766,7 +773,8 @@ export function recalcularTodosCustosProdutos(): Produto[] {
 }
 
 export async function fetchProdutos(): Promise<Produto[]> {
-  let localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
+  let localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
+  const unidadesMap = getLocal<Record<string, string>>(STORAGE_KEYS.UNIDADES_VENDA, {});
   const fichas = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
   const insumos = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
 
@@ -777,11 +785,20 @@ export async function fetchProdutos(): Promise<Produto[]> {
         .select('*')
         .order('nome');
 
-      if (!error && data) {
+      if (!error && data && data.length > 0) {
         localProds = data.map((prod: any) => {
-          const localItem = localProds.find(lp => lp.id === prod.id);
+          const localItem = localProds.find(lp => lp.id === prod.id || lp.nome.trim().toLowerCase() === prod.nome.trim().toLowerCase());
+          const unidadeResolvida = prod.unidade_venda 
+            || localItem?.unidade_venda 
+            || unidadesMap[prod.id]
+            || unidadesMap[prod.nome.trim().toLowerCase()]
+            || obterUnidadeVendaPadrao(prod.nome) 
+            || 'unidade';
+
           return {
+            ...localItem,
             ...prod,
+            unidade_venda: unidadeResolvida,
             custo: prod.custo !== undefined && prod.custo !== null ? Number(prod.custo) : (localItem?.custo || 0)
           };
         });
@@ -791,18 +808,25 @@ export async function fetchProdutos(): Promise<Produto[]> {
     }
   }
 
-  // Garantir que a matemática real das fichas técnicas e insumos seja aplicada a todos os produtos
-  const produtosComCustoReal = localProds.map(p => {
+  // Garantir que a matemática real das fichas técnicas e unidade de venda estejam completas
+  const produtosCompletos = localProds.map(p => {
     const temFicha = fichas.some(f => f.produto_id === p.id);
-    if (temFicha) {
-      const custoReal = calcularCustoUnitarioProduto(p.id, fichas, insumos, p);
-      return { ...p, custo: custoReal };
-    }
-    return p;
+    const custoReal = temFicha ? calcularCustoUnitarioProduto(p.id, fichas, insumos, p) : (p.custo || 0);
+    const unidadeResolvida = p.unidade_venda 
+      || unidadesMap[p.id]
+      || unidadesMap[p.nome.trim().toLowerCase()]
+      || obterUnidadeVendaPadrao(p.nome) 
+      || 'unidade';
+
+    return { 
+      ...p, 
+      custo: custoReal, 
+      unidade_venda: unidadeResolvida 
+    };
   });
 
-  setLocal(STORAGE_KEYS.PRODUTOS, produtosComCustoReal);
-  return produtosComCustoReal;
+  setLocal(STORAGE_KEYS.PRODUTOS, produtosCompletos);
+  return produtosCompletos;
 }
 
 export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }): Promise<Produto> {
@@ -816,12 +840,15 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
     ? calcularCustoUnitarioProduto(prodId, fichas, insumos, produto as any)
     : (produto.custo !== undefined ? Number(produto.custo) : 0);
 
+  const unidadeDefinida = produto.unidade_venda || obterUnidadeVendaPadrao(produto.nome) || 'unidade';
+
   const newProduto: Produto = {
     ...produto,
     ativo: produto.ativo !== false,
     id: prodId,
     categoria_id: catId || produto.categoria_id,
-    custo: custoCalculado
+    custo: custoCalculado,
+    unidade_venda: unidadeDefinida
   };
 
   // 1. Salvar na nuvem do Supabase com colunas compatíveis com o banco (UUID e colunas existentes)
@@ -866,7 +893,13 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
     }
   }
 
-  // 2. Salvar imediatamente no localStorage
+  // 2. Persistir unidade de venda no mapa local para garantir integridade
+  const unidadesMap = getLocal<Record<string, string>>(STORAGE_KEYS.UNIDADES_VENDA, {});
+  unidadesMap[newProduto.id] = unidadeDefinida;
+  unidadesMap[newProduto.nome.trim().toLowerCase()] = unidadeDefinida;
+  setLocal(STORAGE_KEYS.UNIDADES_VENDA, unidadesMap);
+
+  // 3. Salvar imediatamente no localStorage
   const produtos = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []);
   const exists = produtos.some(p => p.id === newProduto.id);
   const updatedList = exists 
