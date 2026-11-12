@@ -7,7 +7,7 @@ import { isAdminSessionActive } from '../services/adminAuth';
 import { Footer } from './Footer';
 import { QrCodeMesasModal } from './QrCodeMesasModal';
 
-export type TabType = 'caixa' | 'cozinha' | 'garcom' | 'admin';
+export type TabType = 'caixa' | 'cozinha' | 'admin';
 
 interface LayoutProps {
   currentTab: TabType;
@@ -83,7 +83,7 @@ export const Layout: React.FC<LayoutProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-stone-500 font-medium mt-1 truncate">
-                  Panificadora & Confeitaria • Umuarama - PR
+                  Panificadora & Confeitaria • Moreira Sales - PR
                 </p>
               </div>
             </div>
@@ -131,22 +131,7 @@ export const Layout: React.FC<LayoutProps> = ({
                   )}
                 </button>
 
-                {/* 3. Garçom / Comanda Móvel (F4) */}
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('garcom')}
-                  className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer relative ${
-                    currentTab === 'garcom'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
-                  }`}
-                  title="Comanda Móvel do Garçom / Atendente (F4)"
-                >
-                  <UtensilsCrossed className="w-4 h-4 shrink-0" />
-                  <span>Garçom</span>
-                </button>
-
-                {/* 4. Painel do Dono (Admin) (F2) */}
+                {/* 3. Painel do Dono (Admin) (F2) */}
                 <button
                   type="button"
                   onClick={() => setCurrentTab('admin')}

@@ -255,24 +255,9 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
       <header className="bg-stone-900 text-white sticky top-0 z-30 shadow-md">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           
-          {/* Identidade e Botão Voltar */}
+          {/* Identidade Exclusiva da Comanda Móvel do Garçom */}
           <div className="flex items-center gap-2.5 min-w-0">
-            <button 
-              type="button" 
-              onClick={() => {
-                if (onVoltarAoCaixa) {
-                  onVoltarAoCaixa();
-                } else {
-                  window.location.href = '/';
-                }
-              }}
-              className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-              title="Voltar à Frente de Caixa"
-            >
-              <Store className="w-4 h-4" />
-              <span className="hidden sm:inline">Voltar ao Caixa</span>
-            </button>
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shrink-0">
               <UtensilsCrossed className="w-4 h-4" />
             </div>
             <div className="min-w-0">
@@ -593,19 +578,16 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                   <p className="text-xs text-stone-400">Qual comanda você está entregando?</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setModalTrocarComanda(false);
-                  if (!comandaNumero && onVoltarAoCaixa) {
-                    onVoltarAoCaixa();
-                  }
-                }}
-                className="text-stone-400 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
-                title="Fechar e Sair"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              {comandaNumero && (
+                <button
+                  type="button"
+                  onClick={() => setModalTrocarComanda(false)}
+                  className="text-stone-400 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Fechar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
             </div>
 
             <form onSubmit={handleSubmitSelecaoComanda} className="p-6 space-y-4">
@@ -727,16 +709,12 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                   type="button"
                   onClick={() => {
                     setModalTrocarComanda(false);
-                    if (onVoltarAoCaixa) {
-                      onVoltarAoCaixa();
-                    } else {
-                      window.location.href = '/';
-                    }
+                    setModalVerTodasComandas(true);
                   }}
                   className="w-full py-3 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
-                  <Store className="w-4 h-4" />
-                  <span>Sair desta Tela / Voltar ao Caixa</span>
+                  <Receipt className="w-4 h-4 text-amber-600" />
+                  <span>Ver Comandas em Atendimento ({mesasAbertas.length})</span>
                 </button>
               </div>
 

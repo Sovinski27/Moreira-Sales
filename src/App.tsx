@@ -81,13 +81,12 @@ export const App: React.FC = () => {
 
   const [currentTab, setCurrentTab] = useState<TabType>(() => {
     if (isModoCozinhaDireto()) return 'cozinha';
-    if (isModoGarcomDireto()) return 'garcom';
     return 'caixa';
   });
 
-  // Atalhos de teclado exclusivos do Sistema Operacional (F1: Caixa, F2: Admin, F3: Cozinha, F4: Garçom)
+  // Atalhos de teclado exclusivos do Sistema Operacional (F1: Caixa, F2: Admin, F3: Cozinha)
   useEffect(() => {
-    if (isModoClienteDireto() || isModoOnlineDireto()) return; // Clientes no cardápio/online não possuem atalhos operacionais
+    if (isModoClienteDireto() || isModoOnlineDireto() || isModoGarcomDireto()) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F1') {
@@ -99,9 +98,6 @@ export const App: React.FC = () => {
       } else if (e.key === 'F3') {
         e.preventDefault();
         setCurrentTab('cozinha');
-      } else if (e.key === 'F4') {
-        e.preventDefault();
-        setCurrentTab('garcom');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -109,7 +105,7 @@ export const App: React.FC = () => {
   }, []);
 
   // =========================================================================
-  // 0. LINK EXCLUSIVO DA COMANDA ONLINE (USUÁRIOS ACESSANDO DE CASA)
+  // 1. LINK EXCLUSIVO DA COMANDA ONLINE (USUÁRIOS ACESSANDO DE CASA)
   // =========================================================================
   if (isModoOnlineDireto()) {
     return (
@@ -120,19 +116,19 @@ export const App: React.FC = () => {
   }
 
   // =========================================================================
-  // 1. COMANDA ONLINE STANDALONE (ACESSO VIA QR CODE OU LINK DO WHATSAPP)
+  // 2. LINK EXCLUSIVO E 100% ISOLADO DO GARÇOM / ATENDENTE (/garcom)
   // =========================================================================
-  // Nenhuma navegação operacional (caixa/cozinha/admin) é montada ou exposta.
-  if (isModoOnlineDireto()) {
+  // Nenhuma navegação operacional (caixa, cozinha ou painel dono) é exposta.
+  if (isModoGarcomDireto()) {
     return (
       <LoyaltyProvider>
-        <ComandaOnlinePage />
+        <GarcomPage isStandalone />
       </LoyaltyProvider>
     );
   }
 
   // =========================================================================
-  // 2. LINK EXCLUSIVO E 100% ISOLADO DO CARDÁPIO DIGITAL (CLIENTES DAS MESAS)
+  // 3. LINK EXCLUSIVO E 100% ISOLADO DO CARDÁPIO DIGITAL (CLIENTES DAS MESAS)
   // =========================================================================
   if (isModoClienteDireto()) {
     return (
@@ -143,7 +139,7 @@ export const App: React.FC = () => {
   }
 
   // =========================================================================
-  // 3. MONITOR STANDALONE DEDICADO DA COZINHA KDS (TELA DA COZINHA)
+  // 4. MONITOR STANDALONE DEDICADO DA COZINHA KDS (TELA DA COZINHA)
   // =========================================================================
   if (isModoCozinhaDireto() && currentTab === 'cozinha') {
     return (
@@ -159,25 +155,13 @@ export const App: React.FC = () => {
   }
 
   // =========================================================================
-  // 4. COMANDA MÓVEL STANDALONE DEDICADA DO GARÇOM / ATENDENTE (CELULAR)
-  // =========================================================================
-  if (isModoGarcomDireto() && currentTab === 'garcom') {
-    return (
-      <LoyaltyProvider>
-        <GarcomPage isStandalone />
-      </LoyaltyProvider>
-    );
-  }
-
-  // =========================================================================
-  // 5. SISTEMA OPERACIONAL DA PANIFICADORA (CAIXA, COZINHA, GARÇOM, PAINEL DO DONO)
+  // 5. SISTEMA OPERACIONAL DA PANIFICADORA (CAIXA, COZINHA, PAINEL DO DONO)
   // =========================================================================
   return (
     <LoyaltyProvider>
       <Layout currentTab={currentTab} setCurrentTab={setCurrentTab}>
         {currentTab === 'caixa' && <CaixaPage />}
         {currentTab === 'cozinha' && <CozinhaPage />}
-        {currentTab === 'garcom' && <GarcomPage onVoltarAoCaixa={() => setCurrentTab('caixa')} />}
         {currentTab === 'admin' && (
           isAdminAuthenticated ? (
             <AdminDashboard 
