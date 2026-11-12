@@ -999,26 +999,6 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
               </div>
             </div>
 
-            {/* MENSAGEM AUTOMÁTICA PRONTA PARA O WHATSAPP */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <MessageSquare className="w-4 h-4 text-emerald-600" />
-                  <span>Mensagem Automática para a Panificadora</span>
-                </label>
-                <span className="text-[11px] text-stone-400">Envio opcional</span>
-              </div>
-
-              <div className="relative">
-                <textarea
-                  readOnly
-                  rows={8}
-                  value={pedidoConcluido.mensagem_whatsapp || ''}
-                  className="w-full p-3 bg-stone-900 text-stone-200 rounded-2xl font-mono text-xs focus:outline-none border border-stone-800 select-all"
-                />
-              </div>
-            </div>
-
             {/* Botões de Ação */}
             <div className="space-y-2.5">
               <button
@@ -1027,25 +1007,7 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
                 className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-md transition-transform active:scale-98 cursor-pointer"
               >
                 <Send className="w-4 h-4" />
-                <span>Enviar Pedido no WhatsApp ({WHATSAPP_PANIFICADORA_DISPLAY})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCopiarMensagem}
-                className="w-full py-3 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
-              >
-                {copiado ? (
-                  <>
-                    <CheckCheck className="w-4 h-4 text-emerald-600" />
-                    <span className="text-emerald-700 font-black">Mensagem Copiada com Sucesso!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4 text-stone-500" />
-                    <span>Copiar Texto do Pedido</span>
-                  </>
-                )}
+                <span>Enviar Pedido para a Panificadora</span>
               </button>
 
               <button
