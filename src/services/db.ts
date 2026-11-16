@@ -18,7 +18,8 @@ import {
   NotaFiscal,
   ReceitaMetadata,
   PedidoOnline,
-  PedidoOnlineDetalhes
+  PedidoOnlineDetalhes,
+  Colaborador
 } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { 
@@ -53,6 +54,8 @@ export const STORAGE_KEYS = {
   MESAS_ABERTAS: 'panificadora_mesas_abertas',
   CONFIG_FISCAL: 'panificadora_config_fiscal',
   NOTAS_FISCAIS: 'panificadora_notas_fiscais',
+  COLABORADORES: 'panificadora_colaboradores',
+  GARCOM_SESSAO: 'panificadora_garcom_sessao',
 };
 
 // --- MOCK / LOCAL STORAGE ENGINE ---
@@ -962,6 +965,8 @@ export async function fetchMesasAbertas(): Promise<MesaAberta[]> {
     
     for (const ped of pedidosAtivos) {
       const mesaExistente = mesas.find(m => m.mesa_numero === ped.mesa_numero);
+      const garcomNomePed = ped.garcom_nome || ped.itens?.[0]?.garcom_nome;
+      const garcomIdPed = ped.garcom_id || ped.itens?.[0]?.garcom_id;
       if (!mesaExistente) {
         const novaMesa: MesaAberta = {
           id: generateUuid(),
@@ -969,6 +974,8 @@ export async function fetchMesasAbertas(): Promise<MesaAberta[]> {
           mesa_numero: ped.mesa_numero,
           cliente_nome: ped.cliente_nome || `Mesa ${ped.mesa_numero}`,
           cliente_telefone: ped.cliente_telefone || '',
+          garcom_id: garcomIdPed,
+          garcom_nome: garcomNomePed,
           carrinho: (ped.itens || []).map(i => ({
             id_temp: i.id_temp,
             produto: {
@@ -979,7 +986,9 @@ export async function fetchMesasAbertas(): Promise<MesaAberta[]> {
               ativo: true
             },
             quantidade: i.quantidade,
-            subtotal: i.subtotal
+            subtotal: i.subtotal,
+            peso_gramas: i.peso_gramas,
+            medida_label: i.medida_label
           })),
           itens: ped.itens || [],
           total: ped.total || 0,
@@ -990,11 +999,24 @@ export async function fetchMesasAbertas(): Promise<MesaAberta[]> {
         mesas.push(novaMesa);
         // Persistir no Supabase em segundo plano
         saveMesaAberta(novaMesa);
+      } else if (garcomNomePed && !mesaExistente.garcom_nome) {
+        mesaExistente.garcom_nome = garcomNomePed;
+        mesaExistente.garcom_id = garcomIdPed;
       }
     }
   } catch (crossErr) {
     console.warn('Erro ao sincronizar mesas com pedidos ativos:', crossErr);
   }
+
+  // Extrair garçom dos itens caso tenha vindo do Supabase sem coluna direta
+  mesas = mesas.map(m => {
+    const itemComGarcom = (m.itens || []).find((i: any) => i?.garcom_nome);
+    return {
+      ...m,
+      garcom_nome: m.garcom_nome || itemComGarcom?.garcom_nome,
+      garcom_id: m.garcom_id || itemComGarcom?.garcom_id
+    };
+  });
 
   setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesas);
   return mesas;
@@ -1004,6 +1026,12 @@ export async function saveMesaAberta(mesa: any): Promise<MesaAberta> {
   const mesaId = (mesa.id && isUuid(mesa.id)) ? mesa.id : generateUuid();
   const numMesa = typeof mesa.mesa_numero === 'number' ? mesa.mesa_numero : parseInt(mesa.mesa_numero, 10) || 1;
 
+  const itensComMeta = (mesa.itens || mesa.carrinho || []).map((i: any) => ({
+    ...i,
+    garcom_id: i.garcom_id || mesa.garcom_id,
+    garcom_nome: i.garcom_nome || mesa.garcom_nome
+  }));
+
   const newMesa: MesaAberta = {
     ...mesa,
     id: mesaId,
@@ -1012,11 +1040,13 @@ export async function saveMesaAberta(mesa: any): Promise<MesaAberta> {
     cliente_nome: mesa.cliente_nome || `Mesa ${numMesa}`,
     cliente_telefone: mesa.cliente_telefone || '',
     carrinho: mesa.carrinho || [],
-    itens: mesa.itens || mesa.carrinho || [],
+    itens: itensComMeta,
     total: typeof mesa.total === 'number' ? mesa.total : 0,
     status: 'ocupada',
     aberto_em: mesa.aberto_em || new Date().toISOString(),
-    criado_em: mesa.criado_em || new Date().toISOString()
+    criado_em: mesa.criado_em || new Date().toISOString(),
+    garcom_id: mesa.garcom_id,
+    garcom_nome: mesa.garcom_nome
   };
 
   // 1. Salvar no Supabase estritamente com as colunas válidas da tabela
@@ -1161,8 +1191,16 @@ export async function fetchPedidosCozinha(): Promise<PedidoCozinha[]> {
         .select('*')
         .order('criado_em', { ascending: false });
       if (!error && data) {
-        setLocal(STORAGE_KEYS.PEDIDOS_COZINHA, data);
-        return data as PedidoCozinha[];
+        const mapped = (data as PedidoCozinha[]).map(p => {
+          const itemGarcom = (p.itens || []).find(i => i.garcom_nome);
+          return {
+            ...p,
+            garcom_nome: p.garcom_nome || itemGarcom?.garcom_nome,
+            garcom_id: p.garcom_id || itemGarcom?.garcom_id
+          };
+        });
+        setLocal(STORAGE_KEYS.PEDIDOS_COZINHA, mapped);
+        return mapped;
       }
     } catch (e) {
       console.warn('Falha ao buscar pedidos da cozinha no Supabase:', e);
@@ -1173,18 +1211,28 @@ export async function fetchPedidosCozinha(): Promise<PedidoCozinha[]> {
 
 export async function savePedidoCozinha(pedido: Partial<PedidoCozinha>): Promise<PedidoCozinha> {
   const pedId = (pedido.id && isUuid(pedido.id)) ? pedido.id : generateUuid();
+  const itensComGarcom = (pedido.itens || []).map(i => ({
+    ...i,
+    garcom_id: i.garcom_id || pedido.garcom_id,
+    garcom_nome: i.garcom_nome || pedido.garcom_nome
+  }));
+
   const newPedido: PedidoCozinha = {
     id: pedId,
     mesa_numero: pedido.mesa_numero || 1,
+    cliente_id: pedido.cliente_id,
     cliente_nome: pedido.cliente_nome || 'Cliente',
     cliente_telefone: pedido.cliente_telefone || '',
-    itens: pedido.itens || [],
-    total: pedido.total !== undefined ? pedido.total : (pedido.itens || []).reduce((acc, i) => acc + (i.subtotal || 0), 0),
+    itens: itensComGarcom,
+    total: pedido.total !== undefined ? pedido.total : itensComGarcom.reduce((acc, i) => acc + (i.subtotal || 0), 0),
     status: pedido.status || 'pendente',
     observacoes: pedido.observacoes || '',
     alerta_silenciado: pedido.alerta_silenciado !== undefined ? pedido.alerta_silenciado : false,
     criado_em: pedido.criado_em || new Date().toISOString(),
-    atualizado_em: new Date().toISOString()
+    atualizado_em: new Date().toISOString(),
+    online_detalhes: pedido.online_detalhes,
+    garcom_id: pedido.garcom_id || itensComGarcom[0]?.garcom_id,
+    garcom_nome: pedido.garcom_nome || itensComGarcom[0]?.garcom_nome
   };
 
   if (isSupabaseConfigured && supabase) {
@@ -1337,8 +1385,16 @@ export async function criarPedidoCardapio(params: {
   clienteId?: string;
   itens: ItemPedidoCozinha[];
   observacoes?: string;
+  garcomId?: string;
+  garcomNome?: string;
 }): Promise<PedidoCozinha> {
   const total = params.itens.reduce((acc, i) => acc + (i.subtotal || 0), 0);
+
+  const itensEnriquecidos = params.itens.map(i => ({
+    ...i,
+    garcom_id: params.garcomId || i.garcom_id,
+    garcom_nome: params.garcomNome || i.garcom_nome
+  }));
 
   // 1. Salvar o pedido para a cozinha (KDS) com alerta ativo (alerta_silenciado: false)
   const pedido = await savePedidoCozinha({
@@ -1346,28 +1402,33 @@ export async function criarPedidoCardapio(params: {
     cliente_id: params.clienteId,
     cliente_nome: params.clienteNome,
     cliente_telefone: params.clienteTelefone,
-    itens: params.itens,
+    itens: itensEnriquecidos,
     total,
     status: 'pendente',
     observacoes: params.observacoes,
-    alerta_silenciado: false
+    alerta_silenciado: false,
+    garcom_id: params.garcomId,
+    garcom_nome: params.garcomNome
   });
 
   // 2. Vincular com o sistema de Mesas Abertas do Caixa
   const mesas = await fetchMesasAbertas();
   const mesaExistente = mesas.find((m: MesaAberta) => m.mesa_numero === params.mesaNumero);
 
-  const novosItensCarrinho: ItemCarrinho[] = params.itens.map(item => ({
+  const novosItensCarrinho: ItemCarrinho[] = itensEnriquecidos.map(item => ({
     id_temp: item.id_temp,
     produto: {
       id: item.produto_id,
       categoria_id: '',
       nome: item.nome,
       preco: item.preco_unitario,
-      ativo: true
+      ativo: true,
+      unidade_venda: item.unidade_venda
     },
     quantidade: item.quantidade,
-    subtotal: item.subtotal
+    subtotal: item.subtotal,
+    peso_gramas: item.peso_gramas,
+    medida_label: item.medida_label
   }));
 
   if (mesaExistente) {
@@ -1382,7 +1443,9 @@ export async function criarPedidoCardapio(params: {
       cliente_telefone: mesaExistente.cliente_telefone || params.clienteTelefone,
       carrinho: carrinhoAtualizado,
       total: totalAtualizado,
-      pedidos_ids: pedidosIds
+      pedidos_ids: pedidosIds,
+      garcom_id: params.garcomId || mesaExistente.garcom_id,
+      garcom_nome: params.garcomNome || mesaExistente.garcom_nome
     });
   } else {
     await saveMesaAberta({
@@ -1394,7 +1457,9 @@ export async function criarPedidoCardapio(params: {
       carrinho: novosItensCarrinho,
       total: total,
       pedidos_ids: [pedido.id],
-      criado_em: new Date().toISOString()
+      criado_em: new Date().toISOString(),
+      garcom_id: params.garcomId,
+      garcom_nome: params.garcomNome
     });
   }
 
@@ -1408,11 +1473,12 @@ export async function criarPedidoCardapio(params: {
 
   if (targetCliId) {
     try {
+      const origemAtendimento = params.garcomNome ? `Garçom ${params.garcomNome}` : 'Cardápio Digital';
       await registerCompra(
         targetCliId,
         total,
         true,
-        `Mesa ${params.mesaNumero} (Cardápio Digital): ${params.itens.map(i => `${i.quantidade}x ${i.nome}`).join(', ')}`,
+        `Mesa ${params.mesaNumero} (${origemAtendimento}): ${params.itens.map(i => `${i.quantidade}x ${i.nome}`).join(', ')}`,
         novosItensCarrinho,
         `Mesa ${params.mesaNumero}`
       );
@@ -1427,6 +1493,120 @@ export async function criarPedidoCardapio(params: {
   }
 
   return pedido;
+}
+
+// ==========================================
+// MÓDULO: GESTÃO DE ACESSOS (COLABORADORES / GARÇONS)
+// ==========================================
+const SUPABASE_COLABORADORES_ROW_ID = 999;
+
+export async function fetchColaboradores(): Promise<Colaborador[]> {
+  let listaLocal = getLocal<Colaborador[]>(STORAGE_KEYS.COLABORADORES, []);
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('configuracoes_fidelidade')
+        .select('mensagem_whatsapp')
+        .eq('id', SUPABASE_COLABORADORES_ROW_ID)
+        .single();
+
+      if (!error && data && data.mensagem_whatsapp) {
+        const parsed = JSON.parse(data.mensagem_whatsapp);
+        if (Array.isArray(parsed)) {
+          listaLocal = parsed as Colaborador[];
+          setLocal(STORAGE_KEYS.COLABORADORES, listaLocal);
+          return listaLocal;
+        }
+      }
+    } catch (e) {
+      // ignore if row 999 not yet created or offline
+    }
+  }
+
+  return listaLocal;
+}
+
+async function syncColaboradoresToSupabase(lista: Colaborador[]): Promise<void> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('configuracoes_fidelidade')
+        .upsert({
+          id: SUPABASE_COLABORADORES_ROW_ID,
+          meta_compras_mes: 0,
+          valor_minimo_pontuacao: 5,
+          premio_descricao: 'COLABORADORES_ACESSO',
+          mensagem_whatsapp: JSON.stringify(lista),
+          mensagem_resgate: 'v1',
+          atualizado_em: new Date().toISOString()
+        });
+    } catch (e) {
+      console.warn('Erro ao sincronizar colaboradores no Supabase:', e);
+    }
+  }
+}
+
+export async function saveColaborador(dados: {
+  id?: string;
+  nome: string;
+  codigo_acesso: string;
+  senha: string;
+  cargo?: string;
+  ativo?: boolean;
+}): Promise<Colaborador> {
+  const atuais = await fetchColaboradores();
+  const idFinal = dados.id || generateUuid();
+
+  const novo: Colaborador = {
+    id: idFinal,
+    nome: dados.nome.trim(),
+    codigo_acesso: dados.codigo_acesso.trim(),
+    senha: dados.senha.trim(),
+    cargo: dados.cargo || 'Garçom / Atendente',
+    ativo: dados.ativo !== false,
+    criado_em: atuais.find(c => c.id === idFinal)?.criado_em || new Date().toISOString()
+  };
+
+  const jaExiste = atuais.some(c => c.id === idFinal);
+  const novaLista = jaExiste
+    ? atuais.map(c => c.id === idFinal ? novo : c)
+    : [...atuais, novo];
+
+  setLocal(STORAGE_KEYS.COLABORADORES, novaLista);
+  await syncColaboradoresToSupabase(novaLista);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('colaboradores_atualizados'));
+  }
+
+  return novo;
+}
+
+export async function deleteColaborador(id: string): Promise<void> {
+  const atuais = await fetchColaboradores();
+  const novaLista = atuais.filter(c => c.id !== id);
+  setLocal(STORAGE_KEYS.COLABORADORES, novaLista);
+  await syncColaboradoresToSupabase(novaLista);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('colaboradores_atualizados'));
+  }
+}
+
+export async function autenticarColaborador(codigoAcesso: string, senha: string): Promise<Colaborador | null> {
+  const codigoLimpo = codigoAcesso.trim().toLowerCase();
+  const senhaLimpa = senha.trim();
+  if (!codigoLimpo || !senhaLimpa) return null;
+
+  const colaboradores = await fetchColaboradores();
+  const encontrado = colaboradores.find(
+    c => c.ativo !== false &&
+         c.codigo_acesso.trim().toLowerCase() === codigoLimpo &&
+         c.senha.trim() === senhaLimpa
+  );
+
+  return encontrado || null;
 }
 
 // ==========================================

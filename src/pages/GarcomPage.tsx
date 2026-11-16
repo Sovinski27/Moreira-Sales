@@ -21,17 +21,27 @@ import {
   Store,
   MessageSquare,
   Timer,
-  Globe
+  Globe,
+  Scale,
+  KeyRound,
+  LogOut,
+  Eye,
+  EyeOff,
+  UserCheck
 } from 'lucide-react';
-import { Produto, Categoria, ItemPedidoCozinha, MesaAberta, ItemCarrinho } from '../types';
+import { Produto, Categoria, ItemPedidoCozinha, MesaAberta, Colaborador } from '../types';
 import { 
   fetchProdutos, 
   fetchCategorias, 
   fetchMesasAbertas, 
   criarPedidoCardapio, 
+  autenticarColaborador,
+  fetchColaboradores,
   getLocal, 
+  setLocal,
   STORAGE_KEYS 
 } from '../services/db';
+import { PesoProdutoModal, ehProdutoPorPeso, ResultadoPesoProduto } from '../components/PesoProdutoModal';
 
 interface GarcomPageProps {
   isStandalone?: boolean;
@@ -61,6 +71,22 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
   const [observacoesGerais, setObservacoesGerais] = useState<string>('');
   const [itemParaObs, setItemParaObs] = useState<ItemPedidoCozinha | null>(null);
 
+  // Autenticação do Garçom (ID e Senha cadastrados no Painel Admin)
+  const [garcomLogado, setGarcomLogado] = useState<Colaborador | null>(() =>
+    getLocal<Colaborador | null>(STORAGE_KEYS.GARCOM_SESSAO, null)
+  );
+  const [loginIdInput, setLoginIdInput] = useState<string>('');
+  const [loginSenhaInput, setLoginSenhaInput] = useState<string>('');
+  const [mostrarSenhaLogin, setMostrarSenhaLogin] = useState<boolean>(false);
+  const [autenticando, setAutenticando] = useState<boolean>(false);
+  const [erroLogin, setErroLogin] = useState<string | null>(null);
+
+  // Modal de Peso / Desmembrar Produto
+  const [modalPesoConfig, setModalPesoConfig] = useState<{ isOpen: boolean; produto?: Produto | null }>({
+    isOpen: false,
+    produto: null
+  });
+
   // Modais de Controle
   const [modalTrocarComanda, setModalTrocarComanda] = useState<boolean>(true);
   const [modalVerTodasComandas, setModalVerTodasComandas] = useState<boolean>(false);
@@ -71,6 +97,52 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
   const [enviando, setEnviando] = useState<boolean>(false);
   const [sucessoMsg, setSucessoMsg] = useState<string | null>(null);
   const [erroMsg, setErroMsg] = useState<string | null>(null);
+
+  // Validar sessão ativa do garçom com a lista atualizada do Admin
+  useEffect(() => {
+    fetchColaboradores().then(lista => {
+      if (garcomLogado) {
+        const aindaAtivo = lista.find(c => c.id === garcomLogado.id && c.ativo !== false);
+        if (!aindaAtivo && lista.length > 0) {
+          setGarcomLogado(null);
+          setLocal(STORAGE_KEYS.GARCOM_SESSAO, null);
+        }
+      }
+    });
+  }, [garcomLogado?.id]);
+
+  const handleLoginGarcom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErroLogin(null);
+
+    if (!loginIdInput.trim() || !loginSenhaInput.trim()) {
+      setErroLogin('Informe seu ID de colaborador e sua senha.');
+      return;
+    }
+
+    setAutenticando(true);
+    try {
+      const colab = await autenticarColaborador(loginIdInput, loginSenhaInput);
+      if (!colab) {
+        setErroLogin('ID ou senha incorretos, ou acesso bloqueado pelo administrador.');
+        return;
+      }
+      setGarcomLogado(colab);
+      setLocal(STORAGE_KEYS.GARCOM_SESSAO, colab);
+      setLoginIdInput('');
+      setLoginSenhaInput('');
+    } catch (err) {
+      console.error('Erro no login do garçom:', err);
+      setErroLogin('Falha ao validar acesso. Tente novamente.');
+    } finally {
+      setAutenticando(false);
+    }
+  };
+
+  const handleLogoutGarcom = () => {
+    setGarcomLogado(null);
+    setLocal(STORAGE_KEYS.GARCOM_SESSAO, null);
+  };
 
   // Carregar produtos, categorias e comandas
   const recarregarDados = useCallback(() => {
@@ -127,15 +199,20 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
     handleSelecionarComanda(num, clienteNome.trim() || undefined);
   };
 
-  // Adicionar produto ao lançamento
-  const adicionarItem = (produto: Produto) => {
+  // Adicionar produto ao lançamento (abre seletor de peso se for item por kg / 100g)
+  const adicionarItem = (produto: Produto, forcarModalPeso: boolean = false) => {
     if (!comandaNumero) {
       setModalTrocarComanda(true);
       return;
     }
 
+    if (forcarModalPeso || ehProdutoPorPeso(produto)) {
+      setModalPesoConfig({ isOpen: true, produto });
+      return;
+    }
+
     setItensLancamento(prev => {
-      const idx = prev.findIndex(item => item.produto_id === produto.id && !item.observacao);
+      const idx = prev.findIndex(item => item.produto_id === produto.id && !item.observacao && !item.peso_gramas);
       if (idx >= 0) {
         const novo = [...prev];
         novo[idx].quantidade += 1;
@@ -148,7 +225,10 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
         nome: produto.nome,
         preco_unitario: Number(produto.preco) || 0,
         quantidade: 1,
-        subtotal: Number(produto.preco) || 0
+        subtotal: Number(produto.preco) || 0,
+        unidade_venda: produto.unidade_venda || 'unidade',
+        garcom_id: garcomLogado?.id,
+        garcom_nome: garcomLogado?.nome
       };
       return [...prev, novoItem];
     });
@@ -156,6 +236,31 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
     // Feedback tátil em celular se disponível
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(30);
+    }
+  };
+
+  // Adicionar item calculado por peso / medida
+  const handleConfirmarItemPorPeso = (res: ResultadoPesoProduto) => {
+    const novoItem: ItemPedidoCozinha = {
+      id_temp: `item-peso-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      produto_id: res.produto.id,
+      nome: res.nomeFormatado,
+      preco_unitario: res.precoCalculado,
+      quantidade: 1,
+      subtotal: res.precoCalculado,
+      observacao: res.observacao,
+      unidade_venda: res.produto.unidade_venda || 'kg',
+      peso_gramas: res.pesoGramas,
+      medida_label: res.medidaLabel,
+      garcom_id: garcomLogado?.id,
+      garcom_nome: garcomLogado?.nome
+    };
+
+    setItensLancamento(prev => [...prev, novoItem]);
+    setModalPesoConfig({ isOpen: false, produto: null });
+
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(40);
     }
   };
 
@@ -201,7 +306,9 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
         mesaNumero: comandaNumero,
         clienteNome: clienteNome.trim() || `Comanda ${comandaNumero}`,
         itens: itensLancamento,
-        observacoes: observacoesGerais.trim() || undefined
+        observacoes: observacoesGerais.trim() || undefined,
+        garcomId: garcomLogado?.id,
+        garcomNome: garcomLogado?.nome
       });
 
       // Feedback de Sucesso
@@ -248,6 +355,104 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
     return `${h}h ${min % 60}m`;
   };
 
+  // =========================================================================
+  // TELA DE LOGIN OBRIGATÓRIO DO GARÇOM (ID E SENHA DEFINIDOS NO ADMIN)
+  // =========================================================================
+  if (!garcomLogado) {
+    return (
+      <div className="min-h-screen bg-stone-950 text-white flex flex-col justify-between p-4 selection:bg-emerald-500">
+        <div className="max-w-md w-full mx-auto my-auto py-8">
+          <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
+            <div className="text-center space-y-2">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 text-emerald-400 flex items-center justify-center mx-auto shadow-inner">
+                <UtensilsCrossed className="w-8 h-8" />
+              </div>
+              <span className="inline-block text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Acesso Exclusivo • Comanda Móvel
+              </span>
+              <h1 className="text-2xl font-black tracking-tight text-white">
+                Identificação do Garçom
+              </h1>
+              <p className="text-xs text-stone-400 leading-relaxed">
+                Insira seu <strong className="text-stone-200">ID de Acesso</strong> e sua{' '}
+                <strong className="text-stone-200">Senha</strong> cadastrados na administração da Panificadora Moreira Sales.
+              </p>
+            </div>
+
+            {erroLogin && (
+              <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs font-bold flex items-center gap-2.5">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{erroLogin}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleLoginGarcom} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-stone-400 mb-1.5">
+                  ID do Colaborador *
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    value={loginIdInput}
+                    onChange={e => setLoginIdInput(e.target.value)}
+                    placeholder="Ex: 101, joao..."
+                    className="w-full pl-10 pr-4 py-3.5 bg-stone-950 border border-stone-700 rounded-2xl text-sm font-mono font-bold text-white placeholder:text-stone-600 focus:border-emerald-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-400">
+                    Senha de Acesso *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarSenhaLogin(!mostrarSenhaLogin)}
+                    className="text-[11px] font-bold text-stone-400 hover:text-white flex items-center gap-1 cursor-pointer"
+                  >
+                    {mostrarSenhaLogin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    <span>{mostrarSenhaLogin ? 'Ocultar' : 'Mostrar'}</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type={mostrarSenhaLogin ? 'text' : 'password'}
+                    required
+                    value={loginSenhaInput}
+                    onChange={e => setLoginSenhaInput(e.target.value)}
+                    placeholder="Digite sua senha..."
+                    className="w-full pl-10 pr-4 py-3.5 bg-stone-950 border border-stone-700 rounded-2xl text-sm font-mono font-bold text-white placeholder:text-stone-600 focus:border-emerald-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={autenticando}
+                className="w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-stone-700 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 active:scale-98 transition-all cursor-pointer mt-2"
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>{autenticando ? 'Verificando acesso...' : 'Entrar no Sistema de Garçom'}</span>
+              </button>
+            </form>
+
+            <div className="pt-3 border-t border-stone-800 text-center">
+              <p className="text-[11px] text-stone-500">
+                Panificadora Moreira Sales • Todos os pedidos ficam vinculados ao seu perfil de atendimento.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#FDFBF7] text-stone-900 flex flex-col pb-28">
       
@@ -264,17 +469,25 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
               <h1 className="text-sm sm:text-base font-black tracking-tight leading-none truncate flex items-center gap-1.5">
                 <span>Comanda Móvel</span>
                 <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 border border-emerald-500/40">
-                  Garçom
+                  {garcomLogado.nome}
                 </span>
               </h1>
               <p className="text-[11px] text-stone-400 truncate">
-                Panificadora Moreira Sales
+                ID: {garcomLogado.codigo_acesso} • Panificadora Moreira Sales
               </p>
             </div>
           </div>
 
-          {/* Seletor / Indicador da Comanda Ativa */}
+          {/* Seletor / Indicador da Comanda Ativa + Botão Sair */}
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleLogoutGarcom}
+              className="p-2 rounded-xl bg-stone-800 hover:bg-rose-950 text-stone-400 hover:text-rose-300 border border-stone-700 transition-colors cursor-pointer"
+              title={`Sair / Trocar Garçom (${garcomLogado.nome})`}
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
             <button
               type="button"
               onClick={() => setModalVerTodasComandas(true)}
@@ -382,24 +595,42 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
           </div>
         )}
 
-        {/* Barra de Busca de Produtos Rápida */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={busca}
-            onChange={e => setBusca(e.target.value)}
-            placeholder="Buscar produto por nome (Ex: Café, Misto, Suco)..."
-            className="w-full pl-10 pr-4 py-3 bg-white border border-stone-200 rounded-2xl text-sm font-medium text-stone-900 placeholder:text-stone-400 focus:outline-none focus:border-amber-600 shadow-2xs"
-          />
-          {busca && (
-            <button
-              onClick={() => setBusca('')}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 p-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+        {/* Barra de Busca de Produtos Rápida + Botão Desmembrar por Peso */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar produto (Ex: Pão, Café, Misto)..."
+              className="w-full pl-10 pr-8 py-3 bg-white border border-stone-200 rounded-2xl text-sm font-medium text-stone-900 placeholder:text-stone-400 focus:outline-none focus:border-amber-600 shadow-2xs"
+            />
+            {busca && (
+              <button
+                onClick={() => setBusca('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (!comandaNumero) {
+                setModalTrocarComanda(true);
+                return;
+              }
+              setModalPesoConfig({ isOpen: true, produto: null });
+            }}
+            className="px-3.5 py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-1.5 shadow-xs shrink-0 active:scale-95 transition-all cursor-pointer"
+            title="Desmembrar produto por peso (Ex: 200g de mussarela ou pão)"
+          >
+            <Scale className="w-4 h-4" />
+            <span>Por Peso (g/kg)</span>
+          </button>
         </div>
 
         {/* Pílulas de Categorias com Rolagem Horizontal Suave */}
@@ -436,6 +667,7 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
           {produtosFiltrados.map(produto => {
             const qtdNoPedidoAtual = getQtdSelecionada(produto.id);
             const estaSelecionado = qtdNoPedidoAtual > 0;
+            const isPorPeso = ehProdutoPorPeso(produto);
 
             return (
               <div
@@ -458,9 +690,17 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                   className="cursor-pointer"
                   onClick={() => adicionarItem(produto)}
                 >
-                  <p className="font-bold text-stone-900 text-sm leading-snug line-clamp-2 min-h-[2.5rem]">
-                    {produto.nome}
-                  </p>
+                  <div className="flex items-start justify-between gap-1">
+                    <p className="font-bold text-stone-900 text-sm leading-snug line-clamp-2 min-h-[2.5rem]">
+                      {produto.nome}
+                    </p>
+                    {isPorPeso && (
+                      <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-black shrink-0 flex items-center gap-0.5">
+                        <Scale className="w-2.5 h-2.5" />
+                        Peso
+                      </span>
+                    )}
+                  </div>
                   <p className="text-amber-700 font-black font-mono text-sm mt-1">
                     R$ {Number(produto.preco).toFixed(2)}
                     {produto.unidade_venda && (
@@ -471,9 +711,9 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                   </p>
                 </div>
 
-                {/* Controles de Quantidade */}
+                {/* Controles de Quantidade ou Peso */}
                 <div className="flex items-center justify-between gap-1 mt-3 pt-2 border-t border-stone-100">
-                  {estaSelecionado ? (
+                  {estaSelecionado && !isPorPeso ? (
                     <>
                       <button
                         type="button"
@@ -499,14 +739,26 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                       </button>
                     </>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => adicionarItem(produto)}
-                      className="w-full py-1.5 px-3 bg-stone-100 hover:bg-amber-600 hover:text-white text-stone-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Adicionar</span>
-                    </button>
+                    <div className="flex items-center gap-1 w-full">
+                      <button
+                        type="button"
+                        onClick={() => adicionarItem(produto)}
+                        className="flex-1 py-1.5 px-2.5 bg-stone-100 hover:bg-amber-600 hover:text-white text-stone-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer"
+                      >
+                        {isPorPeso ? <Scale className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                        <span>{isPorPeso ? 'Informar Peso' : 'Adicionar'}</span>
+                      </button>
+                      {!isPorPeso && (
+                        <button
+                          type="button"
+                          onClick={() => adicionarItem(produto, true)}
+                          className="p-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/70 transition-colors cursor-pointer"
+                          title="Desmembrar este produto por peso (g/kg)"
+                        >
+                          <Scale className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -970,6 +1222,15 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL DE PESO / DESMEMBRAR PRODUTO */}
+      <PesoProdutoModal
+        isOpen={modalPesoConfig.isOpen}
+        produto={modalPesoConfig.produto}
+        produtosCatalogo={produtos}
+        onClose={() => setModalPesoConfig({ isOpen: false, produto: null })}
+        onConfirm={handleConfirmarItemPorPeso}
+      />
 
     </div>
   );

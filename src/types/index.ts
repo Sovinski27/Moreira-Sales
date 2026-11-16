@@ -52,6 +52,18 @@ export interface ItemCarrinho {
   produto: Produto;
   quantidade: number;
   subtotal: number;
+  peso_gramas?: number;
+  medida_label?: string;
+}
+
+export interface Colaborador {
+  id: string;
+  nome: string;
+  codigo_acesso: string;
+  senha: string;
+  cargo?: string;
+  ativo: boolean;
+  criado_em: string;
 }
 
 export interface ConfiguracaoFidelidade {
@@ -202,6 +214,8 @@ export interface MesaAberta {
   aberto_em?: string;
   is_online?: boolean;
   online_detalhes?: PedidoOnlineDetalhes;
+  garcom_id?: string;
+  garcom_nome?: string;
 }
 
 export type PedidoCozinhaStatus = 'pendente' | 'preparando' | 'pronto' | 'entregue' | 'cancelado';
@@ -215,6 +229,10 @@ export interface ItemPedidoCozinha {
   subtotal: number;
   observacao?: string;
   unidade_venda?: string;
+  peso_gramas?: number;
+  medida_label?: string;
+  garcom_id?: string;
+  garcom_nome?: string;
 }
 
 export interface PedidoCozinha {
@@ -231,6 +249,8 @@ export interface PedidoCozinha {
   observacoes?: string;
   alerta_silenciado?: boolean;
   online_detalhes?: PedidoOnlineDetalhes;
+  garcom_id?: string;
+  garcom_nome?: string;
 }
 
 export type TipoCustoFixo = 'mensal' | 'percentual';

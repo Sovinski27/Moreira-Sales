@@ -32,6 +32,7 @@ import {
 } from '../services/db';
 import { cleanPhone, formatPhoneDisplay } from '../services/whatsapp';
 import { Footer } from '../components/Footer';
+import { PesoProdutoModal, ehProdutoPorPeso, ResultadoPesoProduto } from '../components/PesoProdutoModal';
 
 interface CardapioDigitalPageProps {
   mesaInicial?: number;
@@ -104,8 +105,12 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
   const [enviandoPedido, setEnviandoPedido] = useState(false);
   const [erroEnvio, setErroEnvio] = useState<string | null>(null);
 
-  // Observação para item específico
+  // Observação para item específico e Modal de Peso
   const [itemParaObservacao, setItemParaObservacao] = useState<{ produto: Produto; observacao: string } | null>(null);
+  const [modalPesoCardapio, setModalPesoCardapio] = useState<{ isOpen: boolean; produto?: Produto | null }>({
+    isOpen: false,
+    produto: null
+  });
 
   // Pedidos enviados desta mesa para a cozinha
   const [pedidosAtivosMesa, setPedidosAtivosMesa] = useState<PedidoCozinha[]>([]);
@@ -291,14 +296,19 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
     }
   }, [acessouCardapio, mesaNumeroAtual, ultimoPedidoEnviado?.id]);
 
-  // Adicionar item ao carrinho
+  // Adicionar item ao carrinho (abre seletor de peso se for item por kg / 100g)
   const handleAdicionarItem = (produto: Produto, observacao?: string) => {
+    if (ehProdutoPorPeso(produto) && !observacao) {
+      setModalPesoCardapio({ isOpen: true, produto });
+      return;
+    }
+
     setCarrinho(prev => {
-      const idxExistente = prev.findIndex(item => item.produto_id === produto.id && item.observacao === (observacao || ''));
+      const idxExistente = prev.findIndex(item => item.produto_id === produto.id && item.observacao === (observacao || '') && !item.peso_gramas);
       if (idxExistente >= 0) {
         const novo = [...prev];
         novo[idxExistente].quantidade += 1;
-        novo[idxExistente].subtotal = novo[idxExistente].quantidade * produto.preco;
+        novo[idxExistente].subtotal = Number((novo[idxExistente].quantidade * produto.preco).toFixed(2));
         return novo;
       } else {
         return [
@@ -317,6 +327,25 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
       }
     });
     setItemParaObservacao(null);
+  };
+
+  const handleConfirmarPesoCardapio = (res: ResultadoPesoProduto) => {
+    setCarrinho(prev => [
+      ...prev,
+      {
+        id_temp: `item-peso-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        produto_id: res.produto.id,
+        nome: res.nomeFormatado,
+        quantidade: 1,
+        preco_unitario: res.precoCalculado,
+        subtotal: res.precoCalculado,
+        observacao: res.observacao,
+        unidade_venda: res.produto.unidade_venda || 'kg',
+        peso_gramas: res.pesoGramas,
+        medida_label: res.medidaLabel
+      }
+    ]);
+    setModalPesoCardapio({ isOpen: false, produto: null });
   };
 
   // Alterar quantidade no carrinho
@@ -1183,6 +1212,15 @@ export const CardapioDigitalPage: React.FC<CardapioDigitalPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL DE PESO / MEDIDA PROPORCIONAL */}
+      <PesoProdutoModal
+        isOpen={modalPesoCardapio.isOpen}
+        produto={modalPesoCardapio.produto}
+        produtosCatalogo={produtos}
+        onClose={() => setModalPesoCardapio({ isOpen: false, produto: null })}
+        onConfirm={handleConfirmarPesoCardapio}
+      />
     </div>
   );
 };

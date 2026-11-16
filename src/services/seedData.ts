@@ -302,7 +302,16 @@ export const UNIDADES_VENDA_MAP: Record<string, string> = {
   'agua sem gas': 'unidade',
   'água sem gás': 'unidade',
   'agua com gas': 'unidade',
-  'água com gás': 'unidade'
+  'água com gás': 'unidade',
+  // Frios e Itens por Peso comuns
+  'mussarela': 'kg',
+  'muçarela': 'kg',
+  'queijo mussarela': 'kg',
+  'presunto': 'kg',
+  'apresuntado': 'kg',
+  'mortadela': 'kg',
+  'salame': 'kg',
+  'peito de peru': 'kg'
 };
 
 export function obterUnidadeVendaPadrao(nomeProduto: string): string {
@@ -315,7 +324,7 @@ export function obterUnidadeVendaPadrao(nomeProduto: string): string {
     .replace(/[\u0300-\u036f]/g, '');
   if (UNIDADES_VENDA_MAP[normalized]) return UNIDADES_VENDA_MAP[normalized];
 
-  if (normalized.includes('kg') || normalized.includes('quilo')) return 'kg';
+  if (normalized.includes('kg') || normalized.includes('quilo') || normalized.includes('mussarela') || normalized.includes('mucarela') || normalized.includes('presunto') || normalized.includes('mortadela')) return 'kg';
   if (normalized.includes('100 g') || normalized.includes('100g')) return '100 g';
   if (normalized.includes('300 ml') || normalized.includes('suco')) return '300 ml';
   return 'unidade';

@@ -12,6 +12,7 @@ import { BiReports } from '../components/BiReports';
 import { CmvDashboard } from '../components/CmvDashboard';
 import { GestaoFiscalTab } from '../components/GestaoFiscalTab';
 import { ChecklistTab } from '../components/ChecklistTab';
+import { GestaoAcessosTab } from '../components/GestaoAcessosTab';
 import { fetchProdutos, fetchCategorias, saveProduto, saveCategoria, deleteProduto, deleteCategoria } from '../services/db';
 import { 
   Users,
@@ -73,7 +74,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [clienteSelecionadoId, setClienteSelecionadoId] = useState<string | null>(null);
 
   // Abas do Painel
-  const [activeSubTab, setActiveSubTab] = useState<'ranking' | 'churn' | 'clientes' | 'config' | 'catalogo' | 'bi' | 'cmv' | 'fiscal' | 'checklist'>('ranking');
+  const [activeSubTab, setActiveSubTab] = useState<'ranking' | 'churn' | 'clientes' | 'config' | 'catalogo' | 'bi' | 'cmv' | 'fiscal' | 'checklist' | 'acessos'>('ranking');
   const tabsContainerRef = useRef<HTMLDivElement>(null);
 
   const scrollTabs = (direction: 'left' | 'right') => {
@@ -483,6 +484,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           >
             <Package className="w-4 h-4" />
             <span>Catálogo & Produtos</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('acessos')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+              activeSubTab === 'acessos'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+            }`}
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>Acessos & Garçons</span>
           </button>
 
           <button
@@ -1459,6 +1473,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       {/* CONTEÚDO DA ABA CHECKLIST OPERACIONAL */}
       {activeSubTab === 'checklist' && (
         <ChecklistTab />
+      )}
+
+      {/* CONTEÚDO DA ABA ACESSOS & GARÇONS */}
+      {activeSubTab === 'acessos' && (
+        <GestaoAcessosTab />
       )}
       </div>
 

@@ -11,6 +11,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { QrCodeMesasModal } from '../components/QrCodeMesasModal';
 import { ModalEmissaoNfe } from '../components/ModalEmissaoNfe';
 import { ModalComandaOnlineCaixa } from '../components/ModalComandaOnlineCaixa';
+import { PesoProdutoModal, ehProdutoPorPeso, ResultadoPesoProduto } from '../components/PesoProdutoModal';
 import { fetchConfigFiscal, emitirNotaFiscal, formatarCpf } from '../services/nfeService';
 import { 
   UserCheck, 
@@ -52,7 +53,8 @@ import {
   Globe,
   Copy,
   CheckCheck,
-  X
+  X,
+  Scale
 } from 'lucide-react';
 
 export const CaixaPage: React.FC = () => {
@@ -83,6 +85,12 @@ export const CaixaPage: React.FC = () => {
   const [pedidosOnline, setPedidosOnline] = useState<PedidoOnline[]>([]);
   const [modalOnlineCaixaAberto, setModalOnlineCaixaAberto] = useState(false);
   const [linkOnlineCopiado, setLinkOnlineCopiado] = useState(false);
+
+  // Modal de Peso / Desmembrar Produto no Caixa
+  const [modalPesoCaixa, setModalPesoCaixa] = useState<{ isOpen: boolean; produto?: Produto | null }>({
+    isOpen: false,
+    produto: null
+  });
 
   // Estados do Catálogo e Carrinho com Hidratação Instantânea (Zero Delay)
   const [produtos, setProdutos] = useState<Produto[]>(() => getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, []));
@@ -533,9 +541,14 @@ export const CaixaPage: React.FC = () => {
     }
   };
 
-  const adicionarAoCarrinho = (produto: Produto) => {
+  const adicionarAoCarrinho = (produto: Produto, ignorarModalPeso: boolean = false) => {
+    if (!ignorarModalPeso && ehProdutoPorPeso(produto)) {
+      setModalPesoCaixa({ isOpen: true, produto });
+      return;
+    }
+
     setCarrinho(prev => {
-      const existente = prev.find(item => item.produto.id === produto.id);
+      const existente = prev.find(item => item.produto.id === produto.id && !item.peso_gramas);
       if (produto.controlar_estoque && produto.estoque_atual !== undefined) {
         const qtdAtual = existente ? existente.quantidade : 0;
         if (qtdAtual >= produto.estoque_atual) {
@@ -545,13 +558,35 @@ export const CaixaPage: React.FC = () => {
       }
       if (existente) {
         return prev.map(item => 
-          item.produto.id === produto.id 
-            ? { ...item, quantidade: item.quantidade + 1, subtotal: (item.quantidade + 1) * produto.preco }
+          item.id_temp === existente.id_temp 
+            ? { ...item, quantidade: item.quantidade + 1, subtotal: Number(((item.quantidade + 1) * produto.preco).toFixed(2)) }
             : item
         );
       }
-      return [...prev, { id_temp: Date.now().toString(), produto, quantidade: 1, subtotal: produto.preco }];
+      return [...prev, { id_temp: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, produto, quantidade: 1, subtotal: produto.preco }];
     });
+  };
+
+  const handleConfirmarPesoCaixa = (res: ResultadoPesoProduto) => {
+    const produtoComPeso: Produto = {
+      ...res.produto,
+      id: `${res.produto.id}-peso-${Date.now()}`,
+      nome: res.nomeFormatado,
+      preco: res.precoCalculado
+    };
+
+    setCarrinho(prev => [
+      ...prev,
+      {
+        id_temp: `peso-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        produto: produtoComPeso,
+        quantidade: 1,
+        subtotal: res.precoCalculado,
+        peso_gramas: res.pesoGramas,
+        medida_label: res.medidaLabel
+      }
+    ]);
+    setModalPesoCaixa({ isOpen: false, produto: null });
   };
 
   const alterarQuantidade = (id_temp: string, delta: number) => {
@@ -1233,6 +1268,11 @@ export const CaixaPage: React.FC = () => {
                               {mesa.cliente_nome}
                             </span>
                           )}
+                          {mesa.garcom_nome && (
+                            <span className="text-[9px] text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded font-bold truncate max-w-full">
+                              Garçom: {mesa.garcom_nome}
+                            </span>
+                          )}
                           <span className="text-rose-900 font-black font-mono text-xs">
                             {mesa.total > 0 ? `R$ ${mesa.total.toFixed(2)}` : 'Em atendimento'}
                           </span>
@@ -1328,8 +1368,17 @@ export const CaixaPage: React.FC = () => {
           </button>
         </form>
 
-        <div className="flex gap-2 overflow-x-auto pb-4 mb-4 border-b border-stone-200 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-stone-100 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300 hover:[&::-webkit-scrollbar-thumb]:bg-stone-400 [&::-webkit-scrollbar-thumb]:rounded-full">
-          <span className="text-xs font-bold text-stone-500 uppercase tracking-wider py-2 pr-2 shrink-0 flex items-center">Rápido:</span>
+        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-4 border-b border-stone-200 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-stone-100 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-300 hover:[&::-webkit-scrollbar-thumb]:bg-stone-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+          <button
+            type="button"
+            onClick={() => setModalPesoCaixa({ isOpen: true, produto: null })}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs sm:text-sm rounded-xl shadow-xs flex items-center gap-1.5 transition-all shrink-0 cursor-pointer active:scale-95"
+            title="Desmembrar produto por peso em gramas ou quilos (Ex: 200g de mussarela ou pão)"
+          >
+            <Scale className="w-4 h-4" />
+            <span>Desmembrar por Peso (g/kg)</span>
+          </button>
+          <span className="text-xs font-bold text-stone-500 uppercase tracking-wider py-2 pl-2 pr-1 shrink-0 flex items-center">Rápido:</span>
           {[5, 10, 15, 20, 30, 50].map((val) => (
             <button
               key={val}
@@ -1341,7 +1390,7 @@ export const CaixaPage: React.FC = () => {
                   preco: val,
                   categoria_id: '',
                   ativo: true
-                });
+                }, true);
               }}
               className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-xl border border-stone-200 transition-colors shrink-0"
             >
@@ -2215,10 +2264,15 @@ export const CaixaPage: React.FC = () => {
                       Ocupada
                     </span>
                   </div>
-                  <p className="text-xs text-stone-300 flex items-center gap-2 mt-0.5">
+                  <p className="text-xs text-stone-300 flex items-center gap-2 mt-0.5 flex-wrap">
                     <span>Cliente: <strong className="text-white">{mesaComandaModal.cliente_nome || 'Consumidor'}</strong></span>
                     {mesaComandaModal.cliente_telefone && (
                       <span className="font-mono text-stone-400">• {formatPhoneDisplay(mesaComandaModal.cliente_telefone)}</span>
+                    )}
+                    {mesaComandaModal.garcom_nome && (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-[10px]">
+                        Garçom: {mesaComandaModal.garcom_nome}
+                      </span>
                     )}
                   </p>
                 </div>
@@ -2473,6 +2527,16 @@ export const CaixaPage: React.FC = () => {
           setModalOnlineCaixaAberto(false);
           window.open(window.location.origin + window.location.pathname + '?modo=online', '_blank');
         }}
+      />
+
+      {/* MODAL DE DESMEMBRAMENTO DE PRODUTO POR PESO (G / KG) */}
+      <PesoProdutoModal
+        isOpen={modalPesoCaixa.isOpen}
+        produto={modalPesoCaixa.produto}
+        produtosCatalogo={produtos}
+        mostrarCampoObservacao={false}
+        onClose={() => setModalPesoCaixa({ isOpen: false, produto: null })}
+        onConfirm={handleConfirmarPesoCaixa}
       />
     </div>
   );

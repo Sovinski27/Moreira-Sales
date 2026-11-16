@@ -216,15 +216,22 @@ export const CozinhaPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Cliente */}
-        <div className="text-xs text-stone-600 mb-2 flex items-center justify-between">
-          <span className="truncate font-semibold">
-            {pedido.cliente_nome || `Mesa ${pedido.mesa_numero}`}
-          </span>
-          {pedido.cliente_telefone && (
-            <span className="text-[10px] text-stone-400 font-mono">
-              {pedido.cliente_telefone}
+        {/* Cliente e Garçom Responsável */}
+        <div className="text-xs text-stone-600 mb-2 space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate font-semibold">
+              {pedido.cliente_nome || `Mesa ${pedido.mesa_numero}`}
             </span>
+            {pedido.cliente_telefone && (
+              <span className="text-[10px] text-stone-400 font-mono">
+                {pedido.cliente_telefone}
+              </span>
+            )}
+          </div>
+          {(pedido.garcom_nome || pedido.itens?.[0]?.garcom_nome) && (
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-black">
+              <span>👤 Garçom: {pedido.garcom_nome || pedido.itens?.[0]?.garcom_nome}</span>
+            </div>
           )}
         </div>
 

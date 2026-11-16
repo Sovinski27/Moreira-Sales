@@ -25,7 +25,8 @@ import {
   Phone,
   User,
   Coffee,
-  CheckCheck
+  CheckCheck,
+  Scale
 } from 'lucide-react';
 import { Produto, Categoria, ItemPedidoCozinha, PedidoOnline, FormaPagamentoOnline } from '../types';
 import { 
@@ -37,6 +38,7 @@ import {
 } from '../services/db';
 import { cleanPhone, formatPhoneDisplay, getWhatsAppUrl, WHATSAPP_PANIFICADORA, WHATSAPP_PANIFICADORA_DISPLAY } from '../services/whatsapp';
 import { Footer } from '../components/Footer';
+import { PesoProdutoModal, ehProdutoPorPeso, ResultadoPesoProduto } from '../components/PesoProdutoModal';
 
 interface ComandaOnlinePageProps {
   isStandalone?: boolean;
@@ -66,6 +68,10 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
   // 2. Itens do Pedido (Carrinho Online)
   const [carrinho, setCarrinho] = useState<ItemPedidoCozinha[]>([]);
   const [modalObsItem, setModalObsItem] = useState<{ produto: Produto; observacao: string } | null>(null);
+  const [modalPesoOnline, setModalPesoOnline] = useState<{ aberto: boolean; produto: Produto | null }>({
+    aberto: false,
+    produto: null
+  });
 
   // 3. Modalidade, Local de Entrega e Pagamento
   const [tipoAtendimento, setTipoAtendimento] = useState<'retirada' | 'entrega'>('entrega');
@@ -166,7 +172,12 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
   };
 
   // Adicionar item ao carrinho
-  const adicionarItem = (produto: Produto, observacao?: string) => {
+  const adicionarItem = (produto: Produto, observacao?: string, ignorarModalPeso?: boolean) => {
+    if (!ignorarModalPeso && ehProdutoPorPeso(produto)) {
+      setModalPesoOnline({ aberto: true, produto });
+      return;
+    }
+
     setCarrinho(prev => {
       const idx = prev.findIndex(i => i.produto_id === produto.id && (i.observacao || '') === (observacao || ''));
       if (idx >= 0) {
@@ -187,6 +198,30 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
       };
       return [...prev, novoItem];
     });
+
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(30);
+    }
+  };
+
+  // Adicionar item desmembrado por peso/medida (ex: 200g de mussarela ou pão)
+  const handleConfirmarPesoOnline = (res: ResultadoPesoProduto) => {
+    setCarrinho(prev => [
+      ...prev,
+      {
+        id_temp: `peso-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        produto_id: res.produto.id,
+        nome: res.nomeFormatado,
+        preco_unitario: res.precoCalculado,
+        quantidade: 1,
+        subtotal: res.precoCalculado,
+        observacao: res.observacao,
+        unidade_venda: res.medidaLabel,
+        peso_gramas: res.pesoGramas,
+        medida_label: res.medidaLabel
+      }
+    ]);
+    setModalPesoOnline({ aberto: false, produto: null });
 
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(30);
@@ -618,10 +653,19 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
                             onClick={() => adicionarItem(prod)}
                             className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-2xs transition-transform active:scale-95 cursor-pointer"
                           >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Adicionar</span>
+                            {ehProdutoPorPeso(prod) ? <Scale className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                            <span>{ehProdutoPorPeso(prod) ? 'Escolher Peso' : 'Adicionar'}</span>
                           </button>
                         )}
+
+                        <button
+                          type="button"
+                          onClick={() => setModalPesoOnline({ aberto: true, produto: prod })}
+                          className="p-2 text-amber-700 hover:bg-amber-50 rounded-xl transition-colors cursor-pointer shrink-0 border border-amber-200/70"
+                          title="Desmembrar por peso (g / kg)"
+                        >
+                          <Scale className="w-4 h-4" />
+                        </button>
 
                         <button
                           type="button"
@@ -1064,6 +1108,15 @@ export const ComandaOnlinePage: React.FC<ComandaOnlinePageProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL DE DESMEMBRAR PRODUTO POR PESO / MEDIDA */}
+      <PesoProdutoModal
+        isOpen={modalPesoOnline.aberto}
+        onClose={() => setModalPesoOnline({ aberto: false, produto: null })}
+        produto={modalPesoOnline.produto}
+        produtosCatalogo={produtos}
+        onConfirm={handleConfirmarPesoOnline}
+      />
 
       {/* RODAPÉ */}
       <Footer />
