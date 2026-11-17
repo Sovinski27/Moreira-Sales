@@ -482,21 +482,28 @@ export async function registerCompra(
   });
   setLocal(STORAGE_KEYS.CLIENTES, updatedClientes);
 
-  // Sincronizar compra e histórico no Supabase
+  // Sincronizar compra e histórico no Supabase (compras não possui coluna forma_pagamento no schema)
   if (isSupabaseConfigured && supabase) {
     (async () => {
       try {
-        await supabase.from('compras').insert([{
+        const pgtoLabel = forma_pagamento ? `[${forma_pagamento.toUpperCase()}]` : '';
+        const detalhesSync = pgtoLabel && !(newCompra.detalhes || '').includes(pgtoLabel)
+          ? `${newCompra.detalhes ? `${newCompra.detalhes} ` : ''}${pgtoLabel}`
+          : (newCompra.detalhes || null);
+
+        const { error: compErr } = await supabase.from('compras').insert([{
           id: newCompra.id,
           cliente_id: newCompra.cliente_id,
           valor: newCompra.valor,
           custo_total: newCompra.custo_total,
           data_compra: newCompra.data_compra,
           criado_em: newCompra.criado_em,
-          detalhes: newCompra.detalhes,
-          pontuou_fidelidade: newCompra.pontuou_fidelidade,
-          forma_pagamento: newCompra.forma_pagamento
+          detalhes: detalhesSync,
+          pontuou_fidelidade: newCompra.pontuou_fidelidade
         }]);
+        if (compErr) {
+          console.warn('Erro ao inserir compra no Supabase:', compErr.message);
+        }
 
         await supabase
           .from('clientes')
@@ -939,98 +946,377 @@ export async function deleteProduto(id: string): Promise<void> {
   }
 }
 // --- MESAS ABERTAS ---
-export async function fetchMesasAbertas(): Promise<MesaAberta[]> {
-  let mesas: MesaAberta[] = [];
+const mesasRecemLiberadas = new Map<number, number>();
+const syncMesasInFlight = new Set<number>();
+const LIBERACAO_GUARD_MS = 15000;
+
+function limparGuardMesasLiberadas(): void {
+  const agora = Date.now();
+  for (const [num, ts] of mesasRecemLiberadas.entries()) {
+    if (agora - ts > LIBERACAO_GUARD_MS) {
+      mesasRecemLiberadas.delete(num);
+    }
+  }
+}
+
+function deduplicarItensPorTempId<T extends { id_temp?: string }>(itens: T[]): T[] {
+  const vistos = new Set<string>();
+  const resultado: T[] = [];
+  for (const item of itens) {
+    if (!item) continue;
+    const key = item.id_temp ? String(item.id_temp) : '';
+    if (key) {
+      if (vistos.has(key)) continue;
+      vistos.add(key);
+    }
+    resultado.push(item);
+  }
+  return resultado;
+}
+
+function converterParaItemCarrinho(it: any, idx: number): ItemCarrinho {
+  if (it?.produto && typeof it.produto === 'object' && it.produto.nome) {
+    const qtd = Number(it.quantidade) || 1;
+    const preco = Number(it.produto.preco) || (Number(it.subtotal) / qtd) || 0;
+    const subtotal = it.subtotal !== undefined && it.subtotal !== null ? Number(it.subtotal) : Number((qtd * preco).toFixed(2));
+    return {
+      id_temp: it.id_temp || `item-${idx}-${it.produto.id || it.produto.nome}`,
+      produto: {
+        ...it.produto,
+        id: it.produto.id || `prod-${idx}`,
+        categoria_id: it.produto.categoria_id || '',
+        nome: it.produto.nome,
+        preco,
+        ativo: true,
+        unidade_venda: it.produto.unidade_venda || it.unidade_venda
+      },
+      quantidade: qtd,
+      subtotal: Number(subtotal.toFixed(2)),
+      peso_gramas: it.peso_gramas,
+      medida_label: it.medida_label
+    };
+  }
+
+  const nome = it?.nome || 'Produto';
+  const qtd = Number(it?.quantidade) || 1;
+  const preco = Number(it?.preco_unitario) || Number(it?.preco) || (Number(it?.subtotal) / qtd) || 0;
+  const subtotal = it?.subtotal !== undefined && it?.subtotal !== null ? Number(it.subtotal) : Number((qtd * preco).toFixed(2));
+  return {
+    id_temp: it?.id_temp || `item-${idx}-${it?.produto_id || nome}`,
+    produto: {
+      id: it?.produto_id || `prod-${idx}`,
+      categoria_id: '',
+      nome,
+      preco,
+      ativo: true,
+      unidade_venda: it?.unidade_venda
+    },
+    quantidade: qtd,
+    subtotal: Number(subtotal.toFixed(2)),
+    peso_gramas: it?.peso_gramas,
+    medida_label: it?.medida_label
+  };
+}
+
+function converterParaItemMeta(it: any, idx: number, mesa?: any): any {
+  const garcomId = it?.garcom_id || mesa?.garcom_id;
+  const garcomNome = it?.garcom_nome || mesa?.garcom_nome;
+  if (it?.produto && typeof it.produto === 'object') {
+    const qtd = Number(it.quantidade) || 1;
+    const preco = Number(it.produto.preco) || (Number(it.subtotal) / qtd) || 0;
+    const subtotal = it.subtotal !== undefined && it.subtotal !== null ? Number(it.subtotal) : Number((qtd * preco).toFixed(2));
+    return {
+      id_temp: it.id_temp || `item-${idx}-${it.produto.id || it.produto.nome}`,
+      produto: it.produto,
+      produto_id: it.produto.id,
+      nome: it.produto.nome,
+      preco_unitario: preco,
+      quantidade: qtd,
+      subtotal: Number(subtotal.toFixed(2)),
+      unidade_venda: it.produto.unidade_venda || it.unidade_venda,
+      peso_gramas: it.peso_gramas,
+      medida_label: it.medida_label,
+      garcom_id: garcomId,
+      garcom_nome: garcomNome
+    };
+  }
+  return {
+    ...it,
+    garcom_id: garcomId,
+    garcom_nome: garcomNome
+  };
+}
+
+function isNomeGenericoMesa(nome?: string): boolean {
+  if (!nome) return true;
+  const n = nome.trim().toLowerCase();
+  return !n || /^mesa\s*\d+$/.test(n) || /^comanda\s*\d+$/.test(n) || n === 'consumidor' || n === 'cliente';
+}
+
+function consolidarMesasPorNumero(mesasBrutas: MesaAberta[]): {
+  consolidadas: MesaAberta[];
+  gruposComDuplicatas: Array<{ principal: MesaAberta; duplicataIds: string[] }>;
+} {
+  const porNumero = new Map<number, MesaAberta[]>();
+  for (const m of mesasBrutas) {
+    if (!m) continue;
+    const num = typeof m.mesa_numero === 'number' ? m.mesa_numero : parseInt(String(m.mesa_numero), 10);
+    if (isNaN(num) || num <= 0) continue;
+    const lista = porNumero.get(num) || [];
+    lista.push({ ...m, mesa_numero: num });
+    porNumero.set(num, lista);
+  }
+
+  const consolidadas: MesaAberta[] = [];
+  const gruposComDuplicatas: Array<{ principal: MesaAberta; duplicataIds: string[] }> = [];
+
+  for (const [num, grupo] of porNumero.entries()) {
+    // Ordenar para escolher registro principal determinístico (mais antigo primeiro ou UUID válido)
+    const ordenado = [...grupo].sort((a, b) => {
+      const tA = a.criado_em ? new Date(a.criado_em).getTime() : 0;
+      const tB = b.criado_em ? new Date(b.criado_em).getTime() : 0;
+      return tA - tB;
+    });
+
+    const base = ordenado[0];
+    const todosCarrinhoRaw: ItemCarrinho[] = [];
+    const todosPedidosIds = new Set<string>();
+    let melhorNome = base.cliente_nome || `Mesa ${num}`;
+    let melhorTelefone = base.cliente_telefone || '';
+    let melhorGarcomId = base.garcom_id;
+    let melhorGarcomNome = base.garcom_nome;
+    let primeiroCriadoEm = base.criado_em || base.aberto_em || new Date().toISOString();
+
+    for (const m of ordenado) {
+      const listaFonte = (Array.isArray(m.carrinho) && m.carrinho.length > 0)
+        ? m.carrinho
+        : (Array.isArray(m.itens) ? m.itens : []);
+
+      listaFonte.forEach((it: any, idx: number) => {
+        todosCarrinhoRaw.push(converterParaItemCarrinho(it, idx));
+      });
+
+      if (Array.isArray(m.pedidos_ids)) {
+        m.pedidos_ids.forEach(pid => { if (pid) todosPedidosIds.add(pid); });
+      }
+      if (isNomeGenericoMesa(melhorNome) && !isNomeGenericoMesa(m.cliente_nome)) {
+        melhorNome = m.cliente_nome!;
+      }
+      if (!melhorTelefone && m.cliente_telefone) {
+        melhorTelefone = m.cliente_telefone;
+      }
+      const itemGarcom = (m.itens || []).find((i: any) => i?.garcom_nome);
+      if (!melhorGarcomNome && (m.garcom_nome || itemGarcom?.garcom_nome)) {
+        melhorGarcomNome = m.garcom_nome || itemGarcom?.garcom_nome;
+        melhorGarcomId = m.garcom_id || itemGarcom?.garcom_id;
+      }
+      if (m.criado_em && new Date(m.criado_em).getTime() < new Date(primeiroCriadoEm).getTime()) {
+        primeiroCriadoEm = m.criado_em;
+      }
+    }
+
+    const carrinhoLimpo = deduplicarItensPorTempId(todosCarrinhoRaw);
+    const totalCalculado = carrinhoLimpo.length > 0
+      ? Number(carrinhoLimpo.reduce((acc, i) => acc + (Number(i.subtotal) || 0), 0).toFixed(2))
+      : Number(base.total || 0);
+
+    const mesaConsolidada: MesaAberta = {
+      ...base,
+      mesa_id: base.mesa_id || `mesa-${num}`,
+      mesa_numero: num,
+      cliente_nome: melhorNome,
+      cliente_telefone: melhorTelefone,
+      garcom_id: melhorGarcomId,
+      garcom_nome: melhorGarcomNome,
+      carrinho: carrinhoLimpo,
+      itens: carrinhoLimpo.map((c, idx) => converterParaItemMeta(c, idx, { garcom_id: melhorGarcomId, garcom_nome: melhorGarcomNome })),
+      pedidos_ids: Array.from(todosPedidosIds),
+      total: totalCalculado,
+      status: 'ocupada',
+      criado_em: primeiroCriadoEm,
+      aberto_em: base.aberto_em || primeiroCriadoEm
+    };
+
+    consolidadas.push(mesaConsolidada);
+
+    if (ordenado.length > 1) {
+      const duplicataIds = ordenado.slice(1).map(m => m.id).filter(id => isUuid(id));
+      gruposComDuplicatas.push({ principal: mesaConsolidada, duplicataIds });
+    }
+  }
+
+  return { consolidadas, gruposComDuplicatas };
+}
+
+export async function fetchMesasAbertas(options?: { skipKitchenSync?: boolean }): Promise<MesaAberta[]> {
+  limparGuardMesasLiberadas();
+
+  let mesasBrutas: MesaAberta[] = [];
+  let supabaseSuccess = false;
 
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase.from('mesas_abertas').select('*');
       if (!error && data) {
-        mesas = data as MesaAberta[];
+        supabaseSuccess = true;
+        mesasBrutas = data as MesaAberta[];
       }
     } catch (e) {
       console.warn('Falha ao buscar mesas abertas no Supabase:', e);
     }
   }
 
-  if (mesas.length === 0) {
-    mesas = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
+  if (!supabaseSuccess) {
+    mesasBrutas = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
+  }
+
+  // Filtrar mesas recém-liberadas para evitar ressurreição durante propagação
+  mesasBrutas = mesasBrutas.filter(m => !mesasRecemLiberadas.has(Number(m.mesa_numero)));
+
+  // Consolidar linhas duplicadas da mesma comanda (ex: múltiplas linhas para mesa_numero 80)
+  const { consolidadas: mesas, gruposComDuplicatas } = consolidarMesasPorNumero(mesasBrutas);
+
+  if (supabaseSuccess && supabase && gruposComDuplicatas.length > 0) {
+    for (const grupo of gruposComDuplicatas) {
+      const num = grupo.principal.mesa_numero;
+      if (syncMesasInFlight.has(num)) continue;
+      syncMesasInFlight.add(num);
+      (async () => {
+        try {
+          if (isUuid(grupo.principal.id)) {
+            await supabase.from('mesas_abertas').upsert({
+              id: grupo.principal.id,
+              mesa_id: grupo.principal.mesa_id,
+              mesa_numero: grupo.principal.mesa_numero,
+              cliente_nome: grupo.principal.cliente_nome,
+              cliente_telefone: grupo.principal.cliente_telefone,
+              carrinho: grupo.principal.carrinho,
+              itens: grupo.principal.itens,
+              total: grupo.principal.total,
+              status: 'ocupada'
+            });
+          }
+          if (grupo.duplicataIds.length > 0) {
+            await supabase.from('mesas_abertas').delete().in('id', grupo.duplicataIds);
+          }
+        } catch (errDup) {
+          console.warn('Erro ao limpar duplicatas de mesa no Supabase:', errDup);
+        } finally {
+          syncMesasInFlight.delete(num);
+        }
+      })();
+    }
   }
 
   // Sincronização inteligente com pedidos ativos da cozinha (KDS):
-  // Se houver pedido em preparo ou pendente para uma mesa, ela É OBRIGATORIAMENTE OCUPADA!
-  try {
-    const pedidos = await fetchPedidosCozinha();
-    const pedidosAtivos = pedidos.filter(p => p.status === 'pendente' || p.status === 'preparando' || p.status === 'pronto');
-    
-    for (const ped of pedidosAtivos) {
-      const mesaExistente = mesas.find(m => m.mesa_numero === ped.mesa_numero);
-      const garcomNomePed = ped.garcom_nome || ped.itens?.[0]?.garcom_nome;
-      const garcomIdPed = ped.garcom_id || ped.itens?.[0]?.garcom_id;
-      if (!mesaExistente) {
-        const novaMesa: MesaAberta = {
-          id: generateUuid(),
-          mesa_id: `mesa-${ped.mesa_numero}`,
-          mesa_numero: ped.mesa_numero,
-          cliente_nome: ped.cliente_nome || `Mesa ${ped.mesa_numero}`,
-          cliente_telefone: ped.cliente_telefone || '',
-          garcom_id: garcomIdPed,
-          garcom_nome: garcomNomePed,
-          carrinho: (ped.itens || []).map(i => ({
-            id_temp: i.id_temp,
-            produto: {
-              id: i.produto_id,
-              categoria_id: '',
-              nome: i.nome,
-              preco: i.preco_unitario,
-              ativo: true
-            },
-            quantidade: i.quantidade,
-            subtotal: i.subtotal,
-            peso_gramas: i.peso_gramas,
-            medida_label: i.medida_label
-          })),
-          itens: ped.itens || [],
-          total: ped.total || 0,
-          status: 'ocupada',
-          criado_em: ped.criado_em || new Date().toISOString(),
-          aberto_em: ped.criado_em || new Date().toISOString()
-        };
-        mesas.push(novaMesa);
-        // Persistir no Supabase em segundo plano
-        saveMesaAberta(novaMesa);
-      } else if (garcomNomePed && !mesaExistente.garcom_nome) {
-        mesaExistente.garcom_nome = garcomNomePed;
-        mesaExistente.garcom_id = garcomIdPed;
-      }
-    }
-  } catch (crossErr) {
-    console.warn('Erro ao sincronizar mesas com pedidos ativos:', crossErr);
-  }
+  // Apenas recria mesa se NÃO houver registro em mesas_abertas para aquele mesa_numero e não estiver em liberação recente.
+  if (!options?.skipKitchenSync) {
+    try {
+      const pedidos = await fetchPedidosCozinha();
+      const pedidosAtivos = pedidos.filter(
+        p =>
+          (p.status === 'pendente' || p.status === 'preparando' || p.status === 'pronto') &&
+          !mesasRecemLiberadas.has(Number(p.mesa_numero))
+      );
 
-  // Extrair garçom dos itens caso tenha vindo do Supabase sem coluna direta
-  mesas = mesas.map(m => {
-    const itemComGarcom = (m.itens || []).find((i: any) => i?.garcom_nome);
-    return {
-      ...m,
-      garcom_nome: m.garcom_nome || itemComGarcom?.garcom_nome,
-      garcom_id: m.garcom_id || itemComGarcom?.garcom_id
-    };
-  });
+      const ativosPorMesa = new Map<number, PedidoCozinha[]>();
+      for (const ped of pedidosAtivos) {
+        const list = ativosPorMesa.get(ped.mesa_numero) || [];
+        list.push(ped);
+        ativosPorMesa.set(ped.mesa_numero, list);
+      }
+
+      for (const [numMesa, pedsMesa] of ativosPorMesa.entries()) {
+        const mesaExistente = mesas.find(m => m.mesa_numero === numMesa);
+        const pedMaisRecente = pedsMesa[0];
+        const garcomNomePed = pedMaisRecente.garcom_nome || pedMaisRecente.itens?.[0]?.garcom_nome;
+        const garcomIdPed = pedMaisRecente.garcom_id || pedMaisRecente.itens?.[0]?.garcom_id;
+
+        if (!mesaExistente) {
+          const itensCombinados = deduplicarItensPorTempId(
+            pedsMesa.flatMap(p => p.itens || [])
+          );
+          const carrinhoCombinado = itensCombinados.map((i, idx) => converterParaItemCarrinho(i, idx));
+          const totalCombinado = Number(
+            carrinhoCombinado.reduce((acc, i) => acc + (Number(i.subtotal) || 0), 0).toFixed(2)
+          );
+
+          const novaMesa: MesaAberta = {
+            id: generateUuid(),
+            mesa_id: `mesa-${numMesa}`,
+            mesa_numero: numMesa,
+            cliente_nome: pedMaisRecente.cliente_nome || `Mesa ${numMesa}`,
+            cliente_telefone: pedMaisRecente.cliente_telefone || '',
+            garcom_id: garcomIdPed,
+            garcom_nome: garcomNomePed,
+            carrinho: carrinhoCombinado,
+            itens: itensCombinados,
+            pedidos_ids: pedsMesa.map(p => p.id),
+            total: totalCombinado,
+            status: 'ocupada',
+            criado_em: pedsMesa[pedsMesa.length - 1]?.criado_em || new Date().toISOString(),
+            aberto_em: pedsMesa[pedsMesa.length - 1]?.criado_em || new Date().toISOString()
+          };
+          mesas.push(novaMesa);
+
+          if (!syncMesasInFlight.has(numMesa)) {
+            syncMesasInFlight.add(numMesa);
+            saveMesaAberta(novaMesa).finally(() => syncMesasInFlight.delete(numMesa));
+          }
+        } else if (garcomNomePed && !mesaExistente.garcom_nome) {
+          mesaExistente.garcom_nome = garcomNomePed;
+          mesaExistente.garcom_id = garcomIdPed;
+        }
+      }
+    } catch (crossErr) {
+      console.warn('Erro ao sincronizar mesas com pedidos ativos:', crossErr);
+    }
+  }
 
   setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesas);
   return mesas;
 }
 
 export async function saveMesaAberta(mesa: any): Promise<MesaAberta> {
-  const mesaId = (mesa.id && isUuid(mesa.id)) ? mesa.id : generateUuid();
   const numMesa = typeof mesa.mesa_numero === 'number' ? mesa.mesa_numero : parseInt(mesa.mesa_numero, 10) || 1;
+  mesasRecemLiberadas.delete(numMesa);
 
-  const itensComMeta = (mesa.itens || mesa.carrinho || []).map((i: any) => ({
-    ...i,
-    garcom_id: i.garcom_id || mesa.garcom_id,
-    garcom_nome: i.garcom_nome || mesa.garcom_nome
-  }));
+  let mesaId = (mesa.id && isUuid(mesa.id)) ? mesa.id : generateUuid();
+  let duplicateIdsToDelete: string[] = [];
+
+  // Verificar se já existe linha para este mesa_numero no Supabase para evitar linhas duplicadas
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data: existentes } = await supabase
+        .from('mesas_abertas')
+        .select('id')
+        .eq('mesa_numero', numMesa);
+
+      if (existentes && existentes.length > 0) {
+        const jaTemId = existentes.find((r: any) => r.id === mesaId);
+        mesaId = jaTemId ? mesaId : existentes[0].id;
+        duplicateIdsToDelete = existentes
+          .filter((r: any) => r.id !== mesaId)
+          .map((r: any) => r.id);
+      }
+    } catch (e) {
+      // ignore lookup fallback
+    }
+  }
+
+  // Usar sempre carrinho atualizado como fonte da verdade quando fornecido (evita itens antigos em mesa.itens)
+  const fonteBruta = Array.isArray(mesa.carrinho)
+    ? mesa.carrinho
+    : (Array.isArray(mesa.itens) ? mesa.itens : []);
+
+  const carrinhoLimpo: ItemCarrinho[] = deduplicarItensPorTempId<ItemCarrinho>(
+    fonteBruta.map((it: any, idx: number) => converterParaItemCarrinho(it, idx))
+  );
+
+  const itensComMeta = carrinhoLimpo.map((c, idx) => converterParaItemMeta(c, idx, mesa));
+  const totalCalculado = carrinhoLimpo.length > 0
+    ? Number(carrinhoLimpo.reduce((acc, i) => acc + (Number(i.subtotal) || 0), 0).toFixed(2))
+    : (typeof mesa.total === 'number' ? Number(mesa.total.toFixed(2)) : 0);
 
   const newMesa: MesaAberta = {
     ...mesa,
@@ -1039,9 +1325,9 @@ export async function saveMesaAberta(mesa: any): Promise<MesaAberta> {
     mesa_numero: numMesa,
     cliente_nome: mesa.cliente_nome || `Mesa ${numMesa}`,
     cliente_telefone: mesa.cliente_telefone || '',
-    carrinho: mesa.carrinho || [],
+    carrinho: carrinhoLimpo,
     itens: itensComMeta,
-    total: typeof mesa.total === 'number' ? mesa.total : 0,
+    total: totalCalculado,
     status: 'ocupada',
     aberto_em: mesa.aberto_em || new Date().toISOString(),
     criado_em: mesa.criado_em || new Date().toISOString(),
@@ -1069,25 +1355,26 @@ export async function saveMesaAberta(mesa: any): Promise<MesaAberta> {
         .upsert(payload)
         .select()
         .single();
-
+      
       if (!error && data) {
         newMesa.id = data.id;
       }
       if (error) {
         console.warn('Erro ao salvar mesa aberta no Supabase:', error.message);
       }
+
+      if (duplicateIdsToDelete.length > 0) {
+        await supabase.from('mesas_abertas').delete().in('id', duplicateIdsToDelete);
+      }
     } catch (e) {
       console.warn('Falha ao salvar mesa aberta no Supabase:', e);
     }
   }
 
-  // 2. Salvar no localStorage
-  const mesas = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
-  const exists = mesas.some((m: MesaAberta) => m.mesa_numero === newMesa.mesa_numero || m.id === newMesa.id);
-  const updatedList = exists 
-    ? mesas.map((m: MesaAberta) => (m.mesa_numero === newMesa.mesa_numero || m.id === newMesa.id) ? newMesa : m)
-    : [...mesas, newMesa];
-  setLocal(STORAGE_KEYS.MESAS_ABERTAS, updatedList);
+  // 2. Salvar no localStorage garantindo no máximo 1 entrada por mesa_numero
+  const mesasLocais = getLocal<MesaAberta[]>(STORAGE_KEYS.MESAS_ABERTAS, []);
+  const semDuplicatas = mesasLocais.filter((m: MesaAberta) => m.mesa_numero !== newMesa.mesa_numero && m.id !== newMesa.id);
+  setLocal(STORAGE_KEYS.MESAS_ABERTAS, [...semDuplicatas, newMesa]);
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('mesas_atualizadas'));
@@ -1106,56 +1393,24 @@ export async function liberarMesaTotal(id: string, mesaNumero?: number): Promise
       num = mesaEncontrada.mesa_numero;
     } else if (!isUuid(id)) {
       const parsed = parseInt(id.replace(/\D/g, ''), 10);
-      if (!isNaN(parsed) && parsed > 0 && parsed < 1000) {
+      if (!isNaN(parsed) && parsed > 0 && parsed < 10000) {
         num = parsed;
       }
     }
   }
 
-  // 2. Deletar do Supabase (mesas_abertas e concluir pedidos_cozinha da mesa)
-  if (isSupabaseConfigured && supabase) {
-    try {
-      if (isUuid(id)) {
-        await supabase.from('mesas_abertas').delete().eq('id', id);
-      }
-      if (num) {
-        await supabase.from('mesas_abertas').delete().eq('mesa_numero', num);
-      }
-    } catch (e) {
-      console.warn('Falha ao deletar mesa aberta no Supabase:', e);
-    }
-
-    if (num) {
-      try {
-        await supabase
-          .from('pedidos_cozinha')
-          .update({ 
-            status: 'entregue', 
-            alerta_silenciado: true, 
-            atualizado_em: new Date().toISOString() 
-          })
-          .eq('mesa_numero', num)
-          .in('status', ['pendente', 'preparando', 'pronto']);
-      } catch (errKds) {
-        console.warn('Falha ao finalizar pedidos da cozinha no Supabase:', errKds);
-      }
-    }
+  // Registrar guarda imediata para que polling simultâneo não ressuscite a mesa durante a exclusão
+  if (num) {
+    mesasRecemLiberadas.set(num, Date.now());
   }
 
-  // 3. Deletar mesa do localStorage
-  const mesasRestantes = mesasAtuais.filter((m: MesaAberta) => {
-    if (m.id === id || m.mesa_id === id) return false;
-    if (num && m.mesa_numero === num) return false;
-    return true;
-  });
-  setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesasRestantes);
-
-  // 4. Concluir pedidos da cozinha no localStorage para essa mesa não ser ressuscitada
+  // 2. PRIMEIRO concluir todos os pedidos ativos da cozinha dessa mesa (localStorage + Supabase)
+  // Isso garante que fetchMesasAbertas nunca encontre pedido ativo sem linha em mesas_abertas.
   if (num) {
     const pedidosLocais = getLocal<PedidoCozinha[]>(STORAGE_KEYS.PEDIDOS_COZINHA, []);
     let alterou = false;
     const pedidosAtualizados = pedidosLocais.map(p => {
-      if (p.mesa_numero === num && (p.status === 'pendente' || p.status === 'preparando' || p.status === 'pronto')) {
+      if (p.mesa_numero === num && p.status !== 'entregue' && p.status !== 'cancelado') {
         alterou = true;
         return {
           ...p,
@@ -1169,12 +1424,70 @@ export async function liberarMesaTotal(id: string, mesaNumero?: number): Promise
     if (alterou) {
       setLocal(STORAGE_KEYS.PEDIDOS_COZINHA, pedidosAtualizados);
     }
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from('pedidos_cozinha')
+          .update({
+            status: 'entregue',
+            alerta_silenciado: true,
+            atualizado_em: new Date().toISOString()
+          })
+          .eq('mesa_numero', num)
+          .neq('status', 'entregue')
+          .neq('status', 'cancelado');
+      } catch (errKds) {
+        console.warn('Falha ao finalizar pedidos da cozinha no Supabase:', errKds);
+      }
+    }
+
+    // Se for Comanda Online (#99), marcar pedidos online pendentes locais como entregues
+    if (num === 99) {
+      const onlineAtuais = getLocal<PedidoOnline[]>(STORAGE_KEYS.PEDIDOS_ONLINE, []);
+      let alterouOnline = false;
+      const onlineAtualizados = onlineAtuais.map(po => {
+        if (po.status !== 'entregue' && po.status !== 'pago' && po.status !== 'cancelado') {
+          alterouOnline = true;
+          return { ...po, status: 'entregue' as const };
+        }
+        return po;
+      });
+      if (alterouOnline) {
+        setLocal(STORAGE_KEYS.PEDIDOS_ONLINE, onlineAtualizados);
+      }
+    }
+  }
+
+  // 3. Remover mesa do localStorage imediatamente
+  const mesasRestantes = mesasAtuais.filter((m: MesaAberta) => {
+    if (m.id === id || m.mesa_id === id) return false;
+    if (num && m.mesa_numero === num) return false;
+    return true;
+  });
+  setLocal(STORAGE_KEYS.MESAS_ABERTAS, mesasRestantes);
+
+  // 4. Deletar TODAS as linhas correspondentes em mesas_abertas no Supabase
+  if (isSupabaseConfigured && supabase) {
+    try {
+      if (isUuid(id)) {
+        await supabase.from('mesas_abertas').delete().eq('id', id);
+      }
+      if (num) {
+        await supabase.from('mesas_abertas').delete().eq('mesa_numero', num);
+      }
+    } catch (e) {
+      console.warn('Falha ao deletar mesa aberta no Supabase:', e);
+    }
   }
 
   // 5. Notificar todas as páginas e componentes
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('mesas_atualizadas'));
     window.dispatchEvent(new CustomEvent('pedidos_cozinha_atualizados'));
+    if (num === 99) {
+      window.dispatchEvent(new CustomEvent('pedidos_online_atualizados'));
+    }
   }
 }
 
@@ -1411,8 +1724,8 @@ export async function criarPedidoCardapio(params: {
     garcom_nome: params.garcomNome
   });
 
-  // 2. Vincular com o sistema de Mesas Abertas do Caixa
-  const mesas = await fetchMesasAbertas();
+  // 2. Vincular com o sistema de Mesas Abertas do Caixa (skipKitchenSync evita duplicar itens recém-enviados à cozinha)
+  const mesas = await fetchMesasAbertas({ skipKitchenSync: true });
   const mesaExistente = mesas.find((m: MesaAberta) => m.mesa_numero === params.mesaNumero);
 
   const novosItensCarrinho: ItemCarrinho[] = itensEnriquecidos.map(item => ({
@@ -1426,22 +1739,28 @@ export async function criarPedidoCardapio(params: {
       unidade_venda: item.unidade_venda
     },
     quantidade: item.quantidade,
-    subtotal: item.subtotal,
+    subtotal: Number((item.subtotal || 0).toFixed(2)),
     peso_gramas: item.peso_gramas,
     medida_label: item.medida_label
   }));
 
   if (mesaExistente) {
-    const carrinhoAtualizado = [...(mesaExistente.carrinho || []), ...novosItensCarrinho];
-    const totalAtualizado = carrinhoAtualizado.reduce((sum, item) => sum + (item.subtotal || 0), 0);
-    const pedidosIds = [...(mesaExistente.pedidos_ids || []), pedido.id];
+    const carrinhoAtualizado = deduplicarItensPorTempId([
+      ...(mesaExistente.carrinho || []),
+      ...novosItensCarrinho
+    ]);
+    const totalAtualizado = Number(
+      carrinhoAtualizado.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0).toFixed(2)
+    );
+    const pedidosIds = Array.from(new Set([...(mesaExistente.pedidos_ids || []), pedido.id]));
 
     await saveMesaAberta({
       ...mesaExistente,
       cliente_id: params.clienteId || mesaExistente.cliente_id,
-      cliente_nome: mesaExistente.cliente_nome || params.clienteNome,
+      cliente_nome: isNomeGenericoMesa(mesaExistente.cliente_nome) ? (params.clienteNome || mesaExistente.cliente_nome) : mesaExistente.cliente_nome,
       cliente_telefone: mesaExistente.cliente_telefone || params.clienteTelefone,
       carrinho: carrinhoAtualizado,
+      itens: undefined,
       total: totalAtualizado,
       pedidos_ids: pedidosIds,
       garcom_id: params.garcomId || mesaExistente.garcom_id,
@@ -1455,7 +1774,7 @@ export async function criarPedidoCardapio(params: {
       cliente_nome: params.clienteNome,
       cliente_telefone: params.clienteTelefone,
       carrinho: novosItensCarrinho,
-      total: total,
+      total: Number(total.toFixed(2)),
       pedidos_ids: [pedido.id],
       criado_em: new Date().toISOString(),
       garcom_id: params.garcomId,
@@ -1717,8 +2036,8 @@ export async function savePedidoOnline(dados: {
     }
   });
 
-  // 3. Vincular também na comanda online das mesas abertas do Caixa
-  const mesas = await fetchMesasAbertas();
+  // 3. Vincular também na comanda online das mesas abertas do Caixa (skipKitchenSync evita duplicação)
+  const mesas = await fetchMesasAbertas({ skipKitchenSync: true });
   const mesaOnlineExistente = mesas.find((m: MesaAberta) => m.mesa_numero === 99);
 
   const novosItensCarrinho: ItemCarrinho[] = dados.itens.map(item => ({
@@ -1728,22 +2047,31 @@ export async function savePedidoOnline(dados: {
       categoria_id: '',
       nome: item.nome,
       preco: item.preco_unitario,
-      ativo: true
+      ativo: true,
+      unidade_venda: item.unidade_venda
     },
     quantidade: item.quantidade,
-    subtotal: item.subtotal
+    subtotal: Number((item.subtotal || 0).toFixed(2)),
+    peso_gramas: item.peso_gramas,
+    medida_label: item.medida_label
   }));
 
   if (mesaOnlineExistente) {
-    const carrinhoAtualizado = [...(mesaOnlineExistente.carrinho || []), ...novosItensCarrinho];
-    const totalAtualizado = carrinhoAtualizado.reduce((sum, item) => sum + (item.subtotal || 0), 0);
-    const pedidosIds = [...(mesaOnlineExistente.pedidos_ids || []), pedidoCozinha.id];
+    const carrinhoAtualizado = deduplicarItensPorTempId([
+      ...(mesaOnlineExistente.carrinho || []),
+      ...novosItensCarrinho
+    ]);
+    const totalAtualizado = Number(
+      carrinhoAtualizado.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0).toFixed(2)
+    );
+    const pedidosIds = Array.from(new Set([...(mesaOnlineExistente.pedidos_ids || []), pedidoCozinha.id]));
 
     await saveMesaAberta({
       ...mesaOnlineExistente,
       cliente_nome: `${dados.clienteNome} (e outros)`,
       cliente_telefone: dados.clienteTelefone,
       carrinho: carrinhoAtualizado,
+      itens: undefined,
       total: totalAtualizado,
       pedidos_ids: pedidosIds,
       is_online: true
@@ -1755,7 +2083,7 @@ export async function savePedidoOnline(dados: {
       cliente_nome: dados.clienteNome,
       cliente_telefone: dados.clienteTelefone,
       carrinho: novosItensCarrinho,
-      total,
+      total: Number(total.toFixed(2)),
       pedidos_ids: [pedidoCozinha.id],
       criado_em: agora,
       is_online: true

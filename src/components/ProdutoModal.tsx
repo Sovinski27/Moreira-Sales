@@ -54,13 +54,16 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
     const mudouProduto = isOpen && produto?.id !== prevProdutoIdRef.current;
 
     if (acabouDeAbrir || mudouProduto) {
+      setErroValidacao(null);
       if (produto) {
+        const precoNum = Number(produto.preco);
+        const custoNum = Number(produto.custo);
         setNome(produto.nome || '');
-        setPreco(produto.preco !== undefined ? produto.preco.toFixed(2) : '');
-        setCusto(produto.custo !== undefined ? produto.custo.toFixed(2) : '');
+        setPreco(produto.preco !== undefined && produto.preco !== null && !isNaN(precoNum) ? precoNum.toFixed(2) : '');
+        setCusto(produto.custo !== undefined && produto.custo !== null && !isNaN(custoNum) ? custoNum.toFixed(2) : '');
         setUnidadeVenda(produto.unidade_venda || 'unidade');
-        setControlarEstoque(produto.controlar_estoque || false);
-        setEstoqueAtual(produto.estoque_atual !== undefined ? String(produto.estoque_atual) : '');
+        setControlarEstoque(Boolean(produto.controlar_estoque));
+        setEstoqueAtual(produto.estoque_atual !== undefined && produto.estoque_atual !== null ? String(produto.estoque_atual) : '');
         setCategoriaId(produto.categoria_id || '');
       } else {
         setNome('');
@@ -90,6 +93,16 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
       });
     }
   }, [categoriasProp, produto?.categoria_id]);
+
+  // Bloquear rolagem do fundo enquanto o modal estiver aberto (deve ficar ANTES de qualquer return condicional)
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -155,17 +168,6 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
       estoque_atual: !isNaN(estoqueNum as any) ? estoqueNum : undefined
     });
   };
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
 
   return createPortal(
     <div 
