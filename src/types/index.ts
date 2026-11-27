@@ -52,6 +52,7 @@ export interface ItemCarrinho {
   produto: Produto;
   quantidade: number;
   subtotal: number;
+  observacao?: string;
   peso_gramas?: number;
   medida_label?: string;
 }

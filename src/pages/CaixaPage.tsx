@@ -686,6 +686,7 @@ export const CaixaPage: React.FC = () => {
           },
           quantidade: qtd,
           subtotal: Number(subtotal.toFixed(2)),
+          observacao: it.observacao,
           peso_gramas: it.peso_gramas,
           medida_label: it.medida_label
         });
@@ -712,6 +713,7 @@ export const CaixaPage: React.FC = () => {
         },
         quantidade: qtd,
         subtotal: Number(subtotal.toFixed(2)),
+        observacao: it.observacao,
         peso_gramas: it.peso_gramas,
         medida_label: it.medida_label
       });
@@ -2387,6 +2389,11 @@ export const CaixaPage: React.FC = () => {
                           <div>
                             <p className="font-bold text-stone-900 text-sm">{item.produto.nome}</p>
                             <p className="text-xs text-stone-500 font-mono">R$ {item.produto.preco.toFixed(2)} un.</p>
+                            {item.observacao && (
+                              <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200/70 rounded-md px-1.5 py-0.5 mt-1 inline-block font-medium">
+                                Obs: {item.observacao}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <span className="font-black font-mono text-stone-900 text-sm">

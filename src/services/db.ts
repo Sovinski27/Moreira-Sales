@@ -992,6 +992,7 @@ function converterParaItemCarrinho(it: any, idx: number): ItemCarrinho {
       },
       quantidade: qtd,
       subtotal: Number(subtotal.toFixed(2)),
+      observacao: it.observacao,
       peso_gramas: it.peso_gramas,
       medida_label: it.medida_label
     };
@@ -1013,6 +1014,7 @@ function converterParaItemCarrinho(it: any, idx: number): ItemCarrinho {
     },
     quantidade: qtd,
     subtotal: Number(subtotal.toFixed(2)),
+    observacao: it?.observacao,
     peso_gramas: it?.peso_gramas,
     medida_label: it?.medida_label
   };
@@ -1033,6 +1035,7 @@ function converterParaItemMeta(it: any, idx: number, mesa?: any): any {
       preco_unitario: preco,
       quantidade: qtd,
       subtotal: Number(subtotal.toFixed(2)),
+      observacao: it.observacao,
       unidade_venda: it.produto.unidade_venda || it.unidade_venda,
       peso_gramas: it.peso_gramas,
       medida_label: it.medida_label,
@@ -1740,6 +1743,7 @@ export async function criarPedidoCardapio(params: {
     },
     quantidade: item.quantidade,
     subtotal: Number((item.subtotal || 0).toFixed(2)),
+    observacao: item.observacao,
     peso_gramas: item.peso_gramas,
     medida_label: item.medida_label
   }));
@@ -1812,6 +1816,139 @@ export async function criarPedidoCardapio(params: {
   }
 
   return pedido;
+}
+
+export async function atualizarItensComandaGarcom(params: {
+  mesaNumero: number;
+  carrinhoAtualizado: ItemCarrinho[];
+  garcomId?: string;
+  garcomNome?: string;
+}): Promise<{ mesa: MesaAberta | null; comandaEncerrada: boolean }> {
+  const mesas = await fetchMesasAbertas({ skipKitchenSync: true });
+  const mesaExistente = mesas.find((m: MesaAberta) => m.mesa_numero === params.mesaNumero);
+
+  const idsOriginaisMesa = new Set(
+    (mesaExistente?.carrinho || [])
+      .map(i => i.id_temp)
+      .filter((id): id is string => Boolean(id))
+  );
+
+  const carrinhoLimpo: ItemCarrinho[] = deduplicarItensPorTempId(
+    (params.carrinhoAtualizado || [])
+      .filter(item => item && Number(item.quantidade) > 0)
+      .map((item, idx) => {
+        const qtd = Number(item.quantidade) || 1;
+        const preco = Number(item.produto?.preco) || 0;
+        const obsLimpa = item.observacao?.trim() || undefined;
+        return {
+          ...item,
+          id_temp: item.id_temp || `item-${idx}-${item.produto?.id || item.produto?.nome}`,
+          quantidade: qtd,
+          subtotal: Number((qtd * preco).toFixed(2)),
+          observacao: obsLimpa
+        };
+      })
+  );
+
+  // Sincronizar alterações e remoções nos pedidos ativos da Cozinha (KDS)
+  const pedidos = await fetchPedidosCozinha();
+  const pedidosAtivosMesa = pedidos.filter(
+    p =>
+      p.mesa_numero === params.mesaNumero &&
+      p.status !== 'entregue' &&
+      p.status !== 'cancelado'
+  );
+
+  if (carrinhoLimpo.length === 0) {
+    // Todos os itens foram removidos: cancelar pedidos ativos na cozinha e liberar a comanda
+    for (const ped of pedidosAtivosMesa) {
+      await savePedidoCozinha({
+        ...ped,
+        itens: [],
+        total: 0,
+        status: 'cancelado',
+        alerta_silenciado: true
+      });
+    }
+
+    await liberarMesaTotal(
+      mesaExistente?.id || `mesa-${params.mesaNumero}`,
+      params.mesaNumero
+    );
+
+    return { mesa: null, comandaEncerrada: true };
+  }
+
+  const mapaCarrinho = new Map<string, ItemCarrinho>();
+  carrinhoLimpo.forEach(item => {
+    if (item.id_temp) mapaCarrinho.set(item.id_temp, item);
+  });
+
+  for (const ped of pedidosAtivosMesa) {
+    let alterouPedido = false;
+    const itensAtualizadosPedido: ItemPedidoCozinha[] = [];
+
+    for (const pi of ped.itens || []) {
+      const editado = pi.id_temp ? mapaCarrinho.get(pi.id_temp) : undefined;
+      if (editado) {
+        const novaObs = editado.observacao?.trim() || undefined;
+        const obsAnterior = pi.observacao?.trim() || undefined;
+        if (
+          pi.quantidade !== editado.quantidade ||
+          Number(pi.subtotal) !== Number(editado.subtotal) ||
+          obsAnterior !== novaObs
+        ) {
+          alterouPedido = true;
+        }
+        itensAtualizadosPedido.push({
+          ...pi,
+          quantidade: editado.quantidade,
+          preco_unitario: Number(editado.produto.preco) || pi.preco_unitario,
+          subtotal: editado.subtotal,
+          observacao: novaObs
+        });
+      } else if (pi.id_temp && idsOriginaisMesa.has(pi.id_temp)) {
+        // Item estava na comanda e foi explicitamente retirado pelo garçom
+        alterouPedido = true;
+      } else {
+        // Preserva item caso pertença a estrutura sem id_temp mapeado na mesa
+        itensAtualizadosPedido.push(pi);
+      }
+    }
+
+    if (alterouPedido) {
+      const novoTotalPed = Number(
+        itensAtualizadosPedido.reduce((acc, it) => acc + (Number(it.subtotal) || 0), 0).toFixed(2)
+      );
+      await savePedidoCozinha({
+        ...ped,
+        itens: itensAtualizadosPedido,
+        total: novoTotalPed,
+        status: itensAtualizadosPedido.length === 0 ? 'cancelado' : ped.status,
+        alerta_silenciado: itensAtualizadosPedido.length === 0 ? true : ped.alerta_silenciado
+      });
+    }
+  }
+
+  const totalAtualizado = Number(
+    carrinhoLimpo.reduce((acc, item) => acc + (Number(item.subtotal) || 0), 0).toFixed(2)
+  );
+
+  const mesaSalva = await saveMesaAberta({
+    ...(mesaExistente || {
+      mesa_id: `mesa-${params.mesaNumero}`,
+      mesa_numero: params.mesaNumero,
+      cliente_nome: `Comanda ${params.mesaNumero}`,
+      criado_em: new Date().toISOString()
+    }),
+    carrinho: carrinhoLimpo,
+    itens: undefined,
+    total: totalAtualizado,
+    garcom_id: mesaExistente?.garcom_id || params.garcomId,
+    garcom_nome: mesaExistente?.garcom_nome || params.garcomNome
+  });
+
+  return { mesa: mesaSalva, comandaEncerrada: false };
 }
 
 // ==========================================

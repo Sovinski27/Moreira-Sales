@@ -27,14 +27,17 @@ import {
   LogOut,
   Eye,
   EyeOff,
-  UserCheck
+  UserCheck,
+  Pencil,
+  Save
 } from 'lucide-react';
-import { Produto, Categoria, ItemPedidoCozinha, MesaAberta, Colaborador } from '../types';
+import { Produto, Categoria, ItemPedidoCozinha, ItemCarrinho, MesaAberta, Colaborador } from '../types';
 import { 
   fetchProdutos, 
   fetchCategorias, 
   fetchMesasAbertas, 
   criarPedidoCardapio, 
+  atualizarItensComandaGarcom,
   autenticarColaborador,
   fetchColaboradores,
   getLocal, 
@@ -42,6 +45,17 @@ import {
   STORAGE_KEYS 
 } from '../services/db';
 import { PesoProdutoModal, ehProdutoPorPeso, ResultadoPesoProduto } from '../components/PesoProdutoModal';
+
+const OBS_RAPIDAS_GARCOM = [
+  'Sem cebola',
+  'Sem tomate',
+  'Sem queijo',
+  'Bem passado',
+  'Quente',
+  'Sem gelo',
+  'Pouco açúcar',
+  'Para viagem'
+];
 
 interface GarcomPageProps {
   isStandalone?: boolean;
@@ -69,7 +83,14 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
   // Itens selecionados neste atendimento do garçom
   const [itensLancamento, setItensLancamento] = useState<ItemPedidoCozinha[]>([]);
   const [observacoesGerais, setObservacoesGerais] = useState<string>('');
-  const [itemParaObs, setItemParaObs] = useState<ItemPedidoCozinha | null>(null);
+  const [obsAbertaRascunhoId, setObsAbertaRascunhoId] = useState<string | null>(null);
+
+  // Edição de itens já lançados na comanda (observações, quantidade e retirada)
+  const [mesaEditandoNumero, setMesaEditandoNumero] = useState<number | null>(null);
+  const [itensLancadosEditando, setItensLancadosEditando] = useState<ItemCarrinho[]>([]);
+  const [obsAbertaLancadoId, setObsAbertaLancadoId] = useState<string | null>(null);
+  const [confirmRemoverLancadoId, setConfirmRemoverLancadoId] = useState<string | null>(null);
+  const [salvandoEdicaoLancados, setSalvandoEdicaoLancados] = useState<boolean>(false);
 
   // Autenticação do Garçom (ID e Senha cadastrados no Painel Admin)
   const [garcomLogado, setGarcomLogado] = useState<Colaborador | null>(() =>
@@ -264,7 +285,7 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
     }
   };
 
-  // Remover ou diminuir produto
+  // Remover ou diminuir produto do rascunho atual
   const removerItem = (idTemp: string) => {
     setItensLancamento(prev => {
       const item = prev.find(i => i.id_temp === idTemp);
@@ -276,8 +297,174 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
           subtotal: Number(((i.quantidade - 1) * i.preco_unitario).toFixed(2))
         } : i);
       }
-      return prev.filter(i => i.id_temp !== idTemp);
+      const restante = prev.filter(i => i.id_temp !== idTemp);
+      if (restante.length === 0) setModalRevisarPedido(false);
+      return restante;
     });
+  };
+
+  // Aumentar quantidade de um item específico do rascunho atual
+  const incrementarItemRascunho = (idTemp: string) => {
+    setItensLancamento(prev =>
+      prev.map(i =>
+        i.id_temp === idTemp
+          ? {
+              ...i,
+              quantidade: i.quantidade + 1,
+              subtotal: Number(((i.quantidade + 1) * i.preco_unitario).toFixed(2))
+            }
+          : i
+      )
+    );
+  };
+
+  // Retirar linha inteira do rascunho atual
+  const excluirLinhaRascunho = (idTemp: string) => {
+    setItensLancamento(prev => {
+      const restante = prev.filter(i => i.id_temp !== idTemp);
+      if (restante.length === 0) setModalRevisarPedido(false);
+      return restante;
+    });
+    if (obsAbertaRascunhoId === idTemp) setObsAbertaRascunhoId(null);
+  };
+
+  // Atualizar observação de um item do rascunho atual
+  const atualizarObsRascunho = (idTemp: string, novaObs: string) => {
+    setItensLancamento(prev =>
+      prev.map(i => (i.id_temp === idTemp ? { ...i, observacao: novaObs } : i))
+    );
+  };
+
+  // Alternar chip de observação rápida
+  const toggleChipObservacao = (textoAtual: string | undefined, chip: string): string => {
+    const partes = (textoAtual || '')
+      .split(',')
+      .map(p => p.trim())
+      .filter(Boolean);
+    const jaExiste = partes.some(p => p.toLowerCase() === chip.toLowerCase());
+    if (jaExiste) {
+      return partes.filter(p => p.toLowerCase() !== chip.toLowerCase()).join(', ');
+    }
+    return [...partes, chip].join(', ');
+  };
+
+  // Comanda alvo sendo editada no Modal de Itens Lançados
+  const comandaAlvoEdicao = useMemo(() => {
+    const numAlvo = mesaEditandoNumero ?? comandaNumero;
+    if (!numAlvo) return null;
+    return mesasAbertas.find(m => m.mesa_numero === numAlvo) || null;
+  }, [mesasAbertas, mesaEditandoNumero, comandaNumero]);
+
+  // Abrir modal de edição de itens já lançados na comanda
+  const abrirModalEditarLancados = (mesaAlvo?: MesaAberta | null) => {
+    const alvo = mesaAlvo || comandaExistente;
+    if (!alvo) return;
+    setMesaEditandoNumero(alvo.mesa_numero);
+    const copia: ItemCarrinho[] = (alvo.carrinho || []).map(item => ({
+      ...item,
+      produto: { ...item.produto }
+    }));
+    setItensLancadosEditando(copia);
+    setObsAbertaLancadoId(null);
+    setConfirmRemoverLancadoId(null);
+    setModalVerTodasComandas(false);
+    setModalItensAnteriores(true);
+  };
+
+  const fecharModalEditarLancados = () => {
+    setModalItensAnteriores(false);
+    setMesaEditandoNumero(null);
+    setObsAbertaLancadoId(null);
+    setConfirmRemoverLancadoId(null);
+  };
+
+  const alterarQuantidadeLancado = (idTemp: string, delta: number) => {
+    setItensLancadosEditando(prev => {
+      const alvo = prev.find(i => i.id_temp === idTemp);
+      if (!alvo) return prev;
+      const novaQtd = alvo.quantidade + delta;
+      if (novaQtd <= 0) {
+        setConfirmRemoverLancadoId(idTemp);
+        return prev;
+      }
+      setConfirmRemoverLancadoId(null);
+      return prev.map(i =>
+        i.id_temp === idTemp
+          ? {
+              ...i,
+              quantidade: novaQtd,
+              subtotal: Number((novaQtd * Number(i.produto.preco || 0)).toFixed(2))
+            }
+          : i
+      );
+    });
+  };
+
+  const atualizarObsLancado = (idTemp: string, novaObs: string) => {
+    setItensLancadosEditando(prev =>
+      prev.map(i => (i.id_temp === idTemp ? { ...i, observacao: novaObs } : i))
+    );
+  };
+
+  const removerItemLancado = (idTemp: string) => {
+    setItensLancadosEditando(prev => prev.filter(i => i.id_temp !== idTemp));
+    if (confirmRemoverLancadoId === idTemp) setConfirmRemoverLancadoId(null);
+    if (obsAbertaLancadoId === idTemp) setObsAbertaLancadoId(null);
+  };
+
+  const totalEditandoLancados = useMemo(() => {
+    return Number(
+      itensLancadosEditando.reduce((sum, i) => sum + Number(i.subtotal || 0), 0).toFixed(2)
+    );
+  }, [itensLancadosEditando]);
+
+  const houveAlteracaoLancados = useMemo(() => {
+    if (!comandaAlvoEdicao) return false;
+    const originais = comandaAlvoEdicao.carrinho || [];
+    if (originais.length !== itensLancadosEditando.length) return true;
+    return originais.some((orig, idx) => {
+      const atual = itensLancadosEditando[idx];
+      if (!atual) return true;
+      return (
+        orig.id_temp !== atual.id_temp ||
+        orig.quantidade !== atual.quantidade ||
+        (orig.observacao || '').trim() !== (atual.observacao || '').trim()
+      );
+    });
+  }, [comandaAlvoEdicao, itensLancadosEditando]);
+
+  const handleSalvarEdicaoLancados = async () => {
+    if (!comandaAlvoEdicao || salvandoEdicaoLancados) return;
+    setSalvandoEdicaoLancados(true);
+    try {
+      const num = comandaAlvoEdicao.mesa_numero;
+      const numFmt = num < 10 ? `0${num}` : String(num);
+      const res = await atualizarItensComandaGarcom({
+        mesaNumero: num,
+        carrinhoAtualizado: itensLancadosEditando,
+        garcomId: garcomLogado?.id,
+        garcomNome: garcomLogado?.nome
+      });
+
+      fecharModalEditarLancados();
+      recarregarDados();
+
+      setSucessoMsg(
+        res.comandaEncerrada
+          ? `Todos os itens foram retirados e a Comanda ${numFmt} foi encerrada.`
+          : `Comanda ${numFmt} atualizada na cozinha e no caixa!`
+      );
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([40, 40, 40]);
+      }
+      setTimeout(() => setSucessoMsg(null), 4000);
+    } catch (err) {
+      console.error('Erro ao salvar alterações dos itens lançados:', err);
+      setErroMsg('Não foi possível salvar as alterações. Tente novamente.');
+      setTimeout(() => setErroMsg(null), 4000);
+    } finally {
+      setSalvandoEdicaoLancados(false);
+    }
   };
 
   // Obter quantidade de um produto específico já selecionada no carrinho atual
@@ -527,31 +714,38 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
 
         {/* Barra de Status da Comanda Ativa */}
         {comandaNumero && (
-          <div className="bg-stone-800/90 border-t border-stone-700/80 px-4 py-2">
-            <div className="max-w-3xl mx-auto flex items-center justify-between text-xs">
+          <div className="bg-stone-800/95 border-t border-stone-700/80 px-4 py-2">
+            <div className="max-w-3xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                 <span className="text-stone-300 truncate">
                   Atendendo: <strong className="text-white">{clienteNome || `Comanda ${comandaNumero}`}</strong>
                 </span>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
                 {comandaExistente && (
                   <button
                     type="button"
-                    onClick={() => setModalItensAnteriores(true)}
-                    className="text-[10px] text-amber-300 underline font-bold ml-1 hover:text-amber-200 cursor-pointer"
+                    onClick={() => abrirModalEditarLancados(comandaExistente)}
+                    className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 font-bold text-[11px] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Ver, adicionar observação ou retirar itens já lançados nesta comanda"
                   >
-                    (Ver R$ {comandaExistente.total.toFixed(2)} já consumido)
+                    <Pencil className="w-3 h-3" />
+                    <span>
+                      Editar lançados ({(comandaExistente.carrinho || []).length}) • R$ {comandaExistente.total.toFixed(2)}
+                    </span>
                   </button>
                 )}
-              </div>
 
-              <button
-                type="button"
-                onClick={() => setModalTrocarComanda(true)}
-                className="text-[11px] text-stone-400 hover:text-white font-medium flex items-center gap-1"
-              >
-                Trocar Comanda ➜
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setModalTrocarComanda(true)}
+                  className="text-[11px] text-stone-400 hover:text-white font-medium flex items-center gap-1 cursor-pointer"
+                >
+                  Trocar ➜
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -977,72 +1171,197 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 2: REVISAR E CONFIRMAR LANÇAMENTO DO GARÇOM                       */}
+      {/* MODAL 2: REVISAR E CONFIRMAR LANÇAMENTO DO GARÇOM                         */}
       {/* ========================================================================= */}
       {modalRevisarPedido && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh]">
-            
-            <div className="bg-gradient-to-r from-stone-900 to-stone-800 text-white p-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-black text-lg">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={() => setModalRevisarPedido(false)}
+        >
+          <div
+            className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[92vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="bg-gradient-to-r from-stone-900 to-stone-800 text-white p-5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-black text-lg shrink-0 font-mono">
                   {comandaNumero && comandaNumero < 10 ? `0${comandaNumero}` : comandaNumero}
                 </div>
-                <div>
-                  <h3 className="text-base font-black">Lançamento • Comanda {comandaNumero}</h3>
-                  <p className="text-xs text-stone-300">Cliente: {clienteNome || `Comanda ${comandaNumero}`}</p>
+                <div className="min-w-0">
+                  <h3 className="text-base font-black truncate">Lançamento • Comanda {comandaNumero}</h3>
+                  <p className="text-xs text-stone-300 truncate">
+                    Cliente: {clienteNome || `Comanda ${comandaNumero}`}
+                  </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setModalRevisarPedido(false)}
-                className="text-stone-400 hover:text-white p-1"
+                aria-label="Fechar revisão"
+                className="w-10 h-10 rounded-xl text-stone-400 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1 space-y-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-stone-500">
-                Itens a serem lançados agora:
-              </h4>
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-stone-500">
+                  Itens a lançar ({totalItensLancamento})
+                </h4>
+                <span className="text-[11px] text-stone-500">
+                  Toque em Obs. para adicionar observação
+                </span>
+              </div>
 
-              <div className="bg-stone-50 rounded-2xl border border-stone-200 divide-y divide-stone-200 overflow-hidden">
-                {itensLancamento.map(item => (
-                  <div key={item.id_temp} className="p-3.5 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 font-bold font-mono text-xs flex items-center justify-center">
-                        {item.quantidade}x
-                      </span>
-                      <div>
-                        <p className="font-bold text-stone-900 text-sm">{item.nome}</p>
-                        <p className="text-xs text-stone-500 font-mono">R$ {item.preco_unitario.toFixed(2)} un.</p>
-                        {item.observacao && (
-                          <p className="text-[11px] text-amber-700 italic mt-0.5 font-medium">
-                            Obs: {item.observacao}
+              <div className="space-y-2.5">
+                {itensLancamento.map(item => {
+                  const obsAberta = obsAbertaRascunhoId === item.id_temp;
+                  const isPeso = Boolean(item.peso_gramas);
+
+                  return (
+                    <div
+                      key={item.id_temp}
+                      className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200 space-y-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-stone-900 text-sm leading-snug">
+                            {item.nome}
                           </p>
-                        )}
+                          <p className="text-xs text-stone-500 font-mono tabular-nums mt-0.5">
+                            R$ {item.preco_unitario.toFixed(2)} {isPeso ? 'porção' : 'un.'}
+                          </p>
+                          {item.observacao && !obsAberta && (
+                            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200/80 rounded-lg px-2 py-1 mt-1.5 inline-flex items-center gap-1 font-medium">
+                              <MessageSquare className="w-3 h-3 shrink-0 text-amber-600" />
+                              <span>{item.observacao}</span>
+                            </p>
+                          )}
+                        </div>
+
+                        <span className="font-black font-mono tabular-nums text-stone-900 text-sm shrink-0">
+                          R$ {item.subtotal.toFixed(2)}
+                        </span>
                       </div>
+
+                      {/* Ações do item (Quantidade, Observação, Retirar) */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-stone-200/70">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => removerItem(item.id_temp)}
+                            aria-label="Diminuir quantidade"
+                            className="w-9 h-9 rounded-xl bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+                          >
+                            <Minus className="w-4 h-4" />
+                          </button>
+                          <span className="min-w-[2rem] text-center font-mono tabular-nums font-black text-sm text-stone-900">
+                            {item.quantidade}x
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => incrementarItemRascunho(item.id_temp)}
+                            aria-label="Aumentar quantidade"
+                            className="w-9 h-9 rounded-xl bg-white hover:bg-emerald-50 border border-stone-200 hover:border-emerald-300 text-emerald-700 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setObsAbertaRascunhoId(obsAberta ? null : item.id_temp)
+                            }
+                            className={`h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 border transition-colors cursor-pointer ${
+                              obsAberta || item.observacao
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : 'bg-white text-stone-700 border-stone-200 hover:border-amber-300 hover:bg-amber-50'
+                            }`}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>{item.observacao ? 'Editar Obs.' : 'Obs.'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => excluirLinhaRascunho(item.id_temp)}
+                            aria-label={`Retirar ${item.nome}`}
+                            title="Retirar item do lançamento"
+                            className="w-9 h-9 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-600 flex items-center justify-center active:scale-95 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Editor inline de Observação */}
+                      {obsAberta && (
+                        <div className="pt-2.5 border-t border-stone-200/80 space-y-2 animate-fadeIn">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={item.observacao || ''}
+                              onChange={e => atualizarObsRascunho(item.id_temp, e.target.value)}
+                              placeholder="Ex: Sem cebola, bem quente, cortar ao meio..."
+                              autoFocus
+                              className="flex-1 px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-medium text-stone-900 placeholder:text-stone-400 focus:border-amber-600 outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setObsAbertaRascunhoId(null)}
+                              className="px-3 py-2 rounded-xl bg-stone-900 text-white text-xs font-bold cursor-pointer shrink-0"
+                            >
+                              OK
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {OBS_RAPIDAS_GARCOM.map(chip => {
+                              const ativo = (item.observacao || '')
+                                .toLowerCase()
+                                .includes(chip.toLowerCase());
+                              return (
+                                <button
+                                  key={chip}
+                                  type="button"
+                                  onClick={() =>
+                                    atualizarObsRascunho(
+                                      item.id_temp,
+                                      toggleChipObservacao(item.observacao, chip)
+                                    )
+                                  }
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                                    ativo
+                                      ? 'bg-amber-600 text-white border-amber-600'
+                                      : 'bg-white text-stone-700 border-stone-200 hover:border-amber-400'
+                                  }`}
+                                >
+                                  {chip}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <span className="font-black font-mono text-stone-900 text-sm">
-                      R$ {item.subtotal.toFixed(2)}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Campo de Observações Gerais da Cozinha */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1.5 flex items-center gap-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1.5 flex items-center gap-1.5">
                   <MessageSquare className="w-3.5 h-3.5 text-stone-400" />
-                  Observações para a Chapa/Cozinha (Opcional)
+                  Observações gerais para a cozinha (Opcional)
                 </label>
                 <input
                   type="text"
                   value={observacoesGerais}
                   onChange={e => setObservacoesGerais(e.target.value)}
-                  placeholder="Ex: Caprichar no queijo, café com pouco açúcar..."
-                  className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium text-stone-900 focus:border-amber-600 focus:bg-white outline-none"
+                  placeholder="Ex: Trazer tudo junto, cliente com pressa..."
+                  className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium text-stone-900 focus:border-amber-600 focus:bg-white outline-none"
                 />
               </div>
 
@@ -1053,36 +1372,34 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                     Valor deste lançamento
                   </span>
                   <span className="text-[11px] text-emerald-700">
-                    {totalItensLancamento} {totalItensLancamento === 1 ? 'item' : 'itens'} adicionados
+                    {totalItensLancamento} {totalItensLancamento === 1 ? 'item' : 'itens'} selecionados
                   </span>
                 </div>
-                <span className="text-2xl font-black font-mono text-emerald-900">
+                <span className="text-2xl font-black font-mono tabular-nums text-emerald-900">
                   R$ {totalValorLancamento.toFixed(2)}
                 </span>
               </div>
-
             </div>
 
-            <div className="p-4 bg-stone-50 border-t border-stone-200 flex items-center gap-2">
+            <div className="p-4 bg-stone-50 border-t border-stone-200 flex items-center gap-2.5 shrink-0">
               <button
                 type="button"
                 onClick={() => setModalRevisarPedido(false)}
-                className="py-3 px-4 rounded-xl text-stone-600 hover:bg-stone-200 font-bold text-xs"
+                className="min-h-[48px] px-4 rounded-2xl text-stone-700 bg-white border border-stone-300 hover:bg-stone-100 font-bold text-xs sm:text-sm cursor-pointer"
               >
                 Voltar
               </button>
 
               <button
                 type="button"
-                disabled={enviando}
+                disabled={enviando || itensLancamento.length === 0}
                 onClick={handleConfirmarEnvio}
-                className="flex-1 py-4 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
+                className="flex-1 min-h-[48px] px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>{enviando ? 'Enviando...' : 'Confirmar e Enviar Pedido'}</span>
               </button>
             </div>
-
           </div>
         </div>
       )}
@@ -1091,10 +1408,15 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
       {/* MODAL 3: TODAS AS COMANDAS ABERTAS NA CASA                                */}
       {/* ========================================================================= */}
       {modalVerTodasComandas && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[85vh]">
-            
-            <div className="bg-stone-900 text-white p-5 flex items-center justify-between">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={() => setModalVerTodasComandas(false)}
+        >
+          <div
+            className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[88vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="bg-stone-900 text-white p-5 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <Receipt className="w-5 h-5 text-amber-400" />
                 <div>
@@ -1105,7 +1427,8 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
               <button
                 type="button"
                 onClick={() => setModalVerTodasComandas(false)}
-                className="text-stone-400 hover:text-white p-1"
+                aria-label="Fechar lista de comandas"
+                className="w-10 h-10 rounded-xl text-stone-400 hover:text-white hover:bg-white/10 flex items-center justify-center cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1116,33 +1439,56 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
                 <div
                   key={mesa.id}
                   onClick={() => handleSelecionarComanda(mesa.mesa_numero, mesa.cliente_nome)}
-                  className="p-3.5 bg-stone-50 hover:bg-amber-50/60 border border-stone-200 hover:border-amber-300 rounded-2xl flex items-center justify-between cursor-pointer transition-colors"
+                  className="p-3.5 bg-stone-50 hover:bg-amber-50/60 border border-stone-200 hover:border-amber-300 rounded-2xl space-y-2.5 cursor-pointer transition-colors"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center font-black text-amber-800 text-base">
-                      {mesa.mesa_numero < 10 ? `0${mesa.mesa_numero}` : mesa.mesa_numero}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center font-black font-mono text-amber-800 text-base shrink-0">
+                        {mesa.mesa_numero < 10 ? `0${mesa.mesa_numero}` : mesa.mesa_numero}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-stone-900 text-sm truncate">
+                          {mesa.cliente_nome || `Comanda ${mesa.mesa_numero}`}
+                        </p>
+                        <p className="text-xs text-stone-500 flex items-center gap-2 mt-0.5">
+                          <span className="flex items-center gap-1 font-mono tabular-nums">
+                            <Timer className="w-3 h-3 text-stone-400" />
+                            {formatTempo(mesa.criado_em)}
+                          </span>
+                          <span>• {(mesa.carrinho || []).length} item(s)</span>
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-bold text-stone-900 text-sm">
-                        {mesa.cliente_nome || `Comanda ${mesa.mesa_numero}`}
-                      </p>
-                      <p className="text-xs text-stone-500 flex items-center gap-2 mt-0.5">
-                        <span className="flex items-center gap-1 font-mono">
-                          <Timer className="w-3 h-3 text-stone-400" />
-                          {formatTempo(mesa.criado_em)}
-                        </span>
-                        <span>• {(mesa.carrinho || []).length} item(s)</span>
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="text-right">
-                    <span className="font-black font-mono text-stone-900 text-sm block">
+                    <span className="font-black font-mono tabular-nums text-stone-900 text-sm shrink-0">
                       R$ {mesa.total.toFixed(2)}
                     </span>
-                    <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full inline-block mt-0.5">
-                      Atender ➜
-                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-stone-200/70">
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        abrirModalEditarLancados(mesa);
+                      }}
+                      className="flex-1 min-h-[40px] px-3 rounded-xl bg-white hover:bg-amber-50 border border-stone-300 hover:border-amber-400 text-stone-800 font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Editar / Retirar Itens</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        handleSelecionarComanda(mesa.mesa_numero, mesa.cliente_nome);
+                      }}
+                      className="flex-1 min-h-[40px] px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Lançar Mais Itens</span>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1154,71 +1500,320 @@ export const GarcomPage: React.FC<GarcomPageProps> = ({
               )}
             </div>
 
-            <div className="p-4 bg-stone-50 border-t border-stone-200">
+            <div className="p-4 bg-stone-50 border-t border-stone-200 shrink-0">
               <button
                 type="button"
                 onClick={() => {
                   setModalVerTodasComandas(false);
                   setModalTrocarComanda(true);
                 }}
-                className="w-full py-3.5 bg-amber-600 hover:bg-amber-500 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                className="w-full min-h-[46px] bg-amber-600 hover:bg-amber-500 text-white rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xs cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
                 <span>Abrir Nova Comanda</span>
               </button>
             </div>
-
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 4: ITENS ANTERIORES DA COMANDA (HISTÓRICO DE CONSUMO)             */}
+      {/* MODAL 4: EDITAR ITENS JÁ LANÇADOS NA COMANDA (OBS., QTD. E RETIRADA)      */}
       {/* ========================================================================= */}
-      {modalItensAnteriores && comandaExistente && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[85vh]">
-            
-            <div className="bg-stone-900 text-white p-5 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-black">Comanda {comandaExistente.mesa_numero} • Já Consumido</h3>
-                <p className="text-xs text-stone-400">Total acumulado: R$ {comandaExistente.total.toFixed(2)}</p>
+      {modalItensAnteriores && comandaAlvoEdicao && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-xs animate-fadeIn"
+          onClick={fecharModalEditarLancados}
+        >
+          <div
+            className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[92vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Cabeçalho fixo */}
+            <div className="bg-stone-900 text-white p-5 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center font-black font-mono text-amber-300 text-lg shrink-0">
+                  {comandaAlvoEdicao.mesa_numero < 10
+                    ? `0${comandaAlvoEdicao.mesa_numero}`
+                    : comandaAlvoEdicao.mesa_numero}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-black truncate">
+                    Editar Pedido • Comanda {comandaAlvoEdicao.mesa_numero}
+                  </h3>
+                  <p className="text-xs text-stone-300 truncate">
+                    {comandaAlvoEdicao.cliente_nome || `Comanda ${comandaAlvoEdicao.mesa_numero}`} •{' '}
+                    {itensLancadosEditando.length}{' '}
+                    {itensLancadosEditando.length === 1 ? 'item' : 'itens'}
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
-                onClick={() => setModalItensAnteriores(false)}
-                className="text-stone-400 hover:text-white p-1"
+                onClick={fecharModalEditarLancados}
+                aria-label="Fechar edição da comanda"
+                className="w-10 h-10 rounded-xl text-stone-400 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-4 overflow-y-auto flex-1 space-y-2">
-              {(comandaExistente.carrinho || []).map((item, idx) => (
-                <div key={idx} className="p-3 bg-stone-50 rounded-xl border border-stone-200/80 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold font-mono text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                      {item.quantidade}x
-                    </span>
-                    <span className="font-bold text-stone-800">{item.produto.nome}</span>
-                  </div>
-                  <span className="font-mono font-bold text-stone-900">
-                    R$ {item.subtotal.toFixed(2)}
-                  </span>
+            {/* Lista editável de itens já lançados */}
+            <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-3">
+              <div className="px-3.5 py-2.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs text-amber-900 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  Altere quantidades, adicione <strong>observações</strong> ou <strong>retire itens</strong>. Ao salvar, a comanda é atualizada automaticamente na <strong>Cozinha</strong> e no <strong>Caixa</strong>.
+                </p>
+              </div>
+
+              {itensLancadosEditando.length === 0 ? (
+                <div className="text-center py-10 px-4 bg-rose-50/60 border border-dashed border-rose-200 rounded-2xl space-y-2">
+                  <Trash2 className="w-7 h-7 text-rose-500 mx-auto" />
+                  <p className="text-sm font-bold text-rose-900">
+                    Todos os itens foram retirados desta comanda
+                  </p>
+                  <p className="text-xs text-rose-700 max-w-xs mx-auto">
+                    Toque em <strong>Salvar e Encerrar Comanda</strong> abaixo para confirmar a retirada ou em <strong>Cancelar</strong> para desfazer.
+                  </p>
                 </div>
-              ))}
+              ) : (
+                <div className="space-y-2.5">
+                  {itensLancadosEditando.map(item => {
+                    const obsAberta = obsAbertaLancadoId === item.id_temp;
+                    const confirmandoRemocao = confirmRemoverLancadoId === item.id_temp;
+                    const isPeso = Boolean(item.peso_gramas);
+
+                    return (
+                      <div
+                        key={item.id_temp}
+                        className={`p-3.5 rounded-2xl border transition-all space-y-2.5 ${
+                          confirmandoRemocao
+                            ? 'bg-rose-50/80 border-rose-300'
+                            : 'bg-stone-50 border-stone-200'
+                        }`}
+                      >
+                        {/* Topo: Nome, preço unitário, observação atual e subtotal */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-stone-900 text-sm leading-snug">
+                              {item.produto.nome}
+                            </p>
+                            <p className="text-xs text-stone-500 font-mono tabular-nums mt-0.5">
+                              R$ {Number(item.produto.preco || 0).toFixed(2)} {isPeso ? 'porção' : 'un.'}
+                            </p>
+
+                            {item.observacao && !obsAberta && (
+                              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200/80 rounded-lg px-2 py-1 mt-1.5 inline-flex items-center gap-1 font-medium">
+                                <MessageSquare className="w-3 h-3 shrink-0 text-amber-600" />
+                                <span>{item.observacao}</span>
+                              </p>
+                            )}
+                          </div>
+
+                          <span className="font-mono tabular-nums font-black text-stone-900 text-sm shrink-0">
+                            R$ {Number(item.subtotal || 0).toFixed(2)}
+                          </span>
+                        </div>
+
+                        {/* Confirmação inline de retirada OU barra de controles */}
+                        {confirmandoRemocao ? (
+                          <div className="pt-2.5 border-t border-rose-200 flex items-center justify-between gap-2 animate-fadeIn">
+                            <span className="text-xs font-bold text-rose-800">
+                              Retirar este item do pedido?
+                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setConfirmRemoverLancadoId(null)}
+                                className="min-h-[36px] px-3 rounded-xl bg-white border border-stone-300 text-stone-700 font-bold text-xs cursor-pointer"
+                              >
+                                Não
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removerItemLancado(item.id_temp)}
+                                className="min-h-[36px] px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
+                              >
+                                Confirmar Retirada
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-stone-200/70">
+                            {/* Stepper de quantidade */}
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => alterarQuantidadeLancado(item.id_temp, -1)}
+                                aria-label="Diminuir quantidade"
+                                className="w-9 h-9 rounded-xl bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+                              >
+                                <Minus className="w-4 h-4" />
+                              </button>
+                              <span className="min-w-[2rem] text-center font-mono tabular-nums font-black text-sm text-stone-900">
+                                {item.quantidade}x
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => alterarQuantidadeLancado(item.id_temp, 1)}
+                                aria-label="Aumentar quantidade"
+                                className="w-9 h-9 rounded-xl bg-white hover:bg-emerald-50 border border-stone-200 hover:border-emerald-300 text-emerald-700 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+                              >
+                                <Plus className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {/* Botões de Observação e Retirar */}
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setObsAbertaLancadoId(obsAberta ? null : item.id_temp)
+                                }
+                                className={`h-9 px-3 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 border transition-colors cursor-pointer ${
+                                  obsAberta || item.observacao
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                    : 'bg-white text-stone-700 border-stone-200 hover:border-amber-300 hover:bg-amber-50'
+                                }`}
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>{item.observacao ? 'Editar Obs.' : 'Observação'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setObsAbertaLancadoId(null);
+                                  setConfirmRemoverLancadoId(item.id_temp);
+                                }}
+                                aria-label={`Retirar ${item.produto.nome}`}
+                                className="h-9 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs inline-flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Retirar</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Editor inline de Observação */}
+                        {obsAberta && !confirmandoRemocao && (
+                          <div className="pt-2.5 border-t border-stone-200/80 space-y-2 animate-fadeIn">
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={item.observacao || ''}
+                                onChange={e => atualizarObsLancado(item.id_temp, e.target.value)}
+                                placeholder="Ex: Sem cebola, bem passado, para viagem..."
+                                autoFocus
+                                className="flex-1 px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-medium text-stone-900 placeholder:text-stone-400 focus:border-amber-600 outline-none"
+                              />
+                              {item.observacao && (
+                                <button
+                                  type="button"
+                                  onClick={() => atualizarObsLancado(item.id_temp, '')}
+                                  className="px-2.5 py-2 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-700 text-xs font-bold cursor-pointer shrink-0"
+                                  title="Limpar observação"
+                                >
+                                  Limpar
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setObsAbertaLancadoId(null)}
+                                className="px-3 py-2 rounded-xl bg-stone-900 text-white text-xs font-bold cursor-pointer shrink-0"
+                              >
+                                OK
+                              </button>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1.5">
+                              {OBS_RAPIDAS_GARCOM.map(chip => {
+                                const ativo = (item.observacao || '')
+                                  .toLowerCase()
+                                  .includes(chip.toLowerCase());
+                                return (
+                                  <button
+                                    key={chip}
+                                    type="button"
+                                    onClick={() =>
+                                      atualizarObsLancado(
+                                        item.id_temp,
+                                        toggleChipObservacao(item.observacao, chip)
+                                      )
+                                    }
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                                      ativo
+                                        ? 'bg-amber-600 text-white border-amber-600'
+                                        : 'bg-white text-stone-700 border-stone-200 hover:border-amber-400'
+                                    }`}
+                                  >
+                                    {chip}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            <div className="p-4 bg-stone-50 border-t border-stone-200">
-              <button
-                type="button"
-                onClick={() => setModalItensAnteriores(false)}
-                className="w-full py-3 bg-stone-800 hover:bg-stone-700 text-white rounded-xl font-bold text-xs"
-              >
-                Fechar e Continuar Lançamento
-              </button>
-            </div>
+            {/* Rodapé fixo com total atualizado e ação de salvar */}
+            <div className="p-4 bg-stone-50 border-t border-stone-200 space-y-3 shrink-0">
+              <div className="flex items-center justify-between px-1">
+                <div>
+                  <span className="text-xs font-semibold text-stone-500 block">
+                    Total atualizado da comanda
+                  </span>
+                  {houveAlteracaoLancados && (
+                    <span className="text-[11px] font-semibold text-amber-700">
+                      Existem alterações pendentes para salvar
+                    </span>
+                  )}
+                </div>
+                <span className="text-xl font-black font-mono tabular-nums text-stone-900">
+                  R$ {totalEditandoLancados.toFixed(2)}
+                </span>
+              </div>
 
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={fecharModalEditarLancados}
+                  disabled={salvandoEdicaoLancados}
+                  className="min-h-[48px] px-4 rounded-2xl bg-white hover:bg-stone-100 border border-stone-300 text-stone-700 font-bold text-xs sm:text-sm cursor-pointer"
+                >
+                  {houveAlteracaoLancados ? 'Cancelar' : 'Fechar'}
+                </button>
+
+                {houveAlteracaoLancados && (
+                  <button
+                    type="button"
+                    onClick={handleSalvarEdicaoLancados}
+                    disabled={salvandoEdicaoLancados}
+                    className={`flex-1 min-h-[48px] px-5 rounded-2xl text-white font-black text-sm flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all cursor-pointer ${
+                      itensLancadosEditando.length === 0
+                        ? 'bg-rose-600 hover:bg-rose-700'
+                        : 'bg-emerald-600 hover:bg-emerald-500'
+                    }`}
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>
+                      {salvandoEdicaoLancados
+                        ? 'Salvando...'
+                        : itensLancadosEditando.length === 0
+                          ? 'Salvar e Encerrar Comanda'
+                          : 'Salvar Alterações'}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
