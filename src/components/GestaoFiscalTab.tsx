@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Receipt,
   ShieldCheck,
@@ -17,7 +18,9 @@ import {
   Download,
   AlertCircle,
   Ban,
-  FileText
+  FileText,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { ConfiguracaoFiscal, NotaFiscal, ItemNotaFiscal } from '../types';
 import {
@@ -50,6 +53,7 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
   const [loading, setLoading] = useState(true);
   const [filtroBusca, setFiltroBusca] = useState('');
   const [filtroStatus, setFiltroStatus] = useState<'todas' | 'autorizada' | 'cancelada'>('todas');
+  const [mostrarTodas, setMostrarTodas] = useState(false);
   const [copiadoId, setCopiadoId] = useState<string | null>(null);
 
   // Modal de WhatsApp
@@ -271,6 +275,10 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
     });
   }, [notas, filtroBusca, filtroStatus]);
 
+  const notasVisiveis = useMemo(() => {
+    return mostrarTodas ? notasFiltradas : notasFiltradas.slice(0, 5);
+  }, [notasFiltradas, mostrarTodas]);
+
   const formatMoney = (val: number) => `R$ ${val.toFixed(2).replace('.', ',')}`;
 
   if (loading) {
@@ -429,7 +437,7 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {notasFiltradas.map(nota => {
+                {notasVisiveis.map(nota => {
                   const chaveFormat = formatarChaveAcesso(nota.chave_acesso);
                   const isCopiado = copiadoId === nota.id;
 
@@ -584,14 +592,41 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
                 })}
               </tbody>
             </table>
+
+            {notasFiltradas.length > 5 && (
+              <div className="px-6 py-4 bg-stone-50/80 border-t border-stone-200/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <p className="text-xs font-medium text-stone-500 tabular-nums">
+                  {mostrarTodas
+                    ? `Exibindo todas as ${notasFiltradas.length} notas fiscais`
+                    : `Exibindo as últimas 5 de ${notasFiltradas.length} notas fiscais`}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMostrarTodas(prev => !prev)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-stone-100 border border-stone-300 text-stone-800 text-xs sm:text-sm font-bold shadow-2xs transition-colors cursor-pointer"
+                >
+                  {mostrarTodas ? (
+                    <>
+                      <ChevronUp className="w-4 h-4 text-stone-500" />
+                      <span>Mostrar apenas as últimas 5</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4 text-amber-600" />
+                      <span>Ver tudo ({notasFiltradas.length} notas)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* MODAL DE EDIÇÃO DA NOTA FISCAL */}
-      {notaEditando && (
+      {/* MODAL DE EDIÇÃO DA NOTA FISCAL (PORTAL NO BODY PARA CENTRALIZAR NA VIEWPORT) */}
+      {notaEditando && typeof document !== 'undefined' && createPortal(
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-stone-950/60 backdrop-blur-sm animate-fadeIn"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-stone-950/60 backdrop-blur-sm"
           onClick={fecharModalEdicao}
         >
           <div
@@ -858,13 +893,14 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* MODAL RÁPIDO DE REENVIO WHATSAPP */}
-      {modalEnvioWhats.isOpen && modalEnvioWhats.nota && (
+      {/* MODAL RÁPIDO DE REENVIO WHATSAPP (PORTAL NO BODY) */}
+      {modalEnvioWhats.isOpen && modalEnvioWhats.nota && typeof document !== 'undefined' && createPortal(
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-950/60 backdrop-blur-sm animate-fadeIn"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-stone-950/60 backdrop-blur-sm"
           onClick={() => {
             setModalEnvioWhats({ isOpen: false, nota: null, telefone: '' });
             setErroWhats(null);
@@ -936,7 +972,8 @@ export const GestaoFiscalTab: React.FC<GestaoFiscalTabProps> = ({ webhookUrlWhat
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
