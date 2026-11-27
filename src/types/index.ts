@@ -44,6 +44,7 @@ export interface Produto {
   unidade_venda?: 'kg' | '100 g' | 'unidade' | '300 ml' | string;
   controlar_estoque?: boolean;
   estoque_atual?: number;
+  emitir_nota_fiscal?: boolean;
   ativo: boolean;
 }
 

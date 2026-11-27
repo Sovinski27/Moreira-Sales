@@ -56,6 +56,7 @@ export const STORAGE_KEYS = {
   NOTAS_FISCAIS: 'panificadora_notas_fiscais',
   COLABORADORES: 'panificadora_colaboradores',
   GARCOM_SESSAO: 'panificadora_garcom_sessao',
+  PRODUTOS_COM_NOTA: 'panificadora_produtos_com_nota',
 };
 
 // --- MOCK / LOCAL STORAGE ENGINE ---
@@ -966,11 +967,90 @@ export function recalcularTodosCustosProdutos(): Produto[] {
   return localProds;
 }
 
+const CLOUD_PRODUTOS_COM_NOTA_ID = 998;
+
+export async function fetchProdutosComNotaIds(): Promise<string[]> {
+  const localIds = getLocal<string[]>(STORAGE_KEYS.PRODUTOS_COM_NOTA, []);
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('configuracoes_fidelidade')
+        .select('mensagem_whatsapp')
+        .eq('id', CLOUD_PRODUTOS_COM_NOTA_ID)
+        .maybeSingle();
+
+      if (!error && data && data.mensagem_whatsapp) {
+        const parsed = JSON.parse(data.mensagem_whatsapp);
+        if (Array.isArray(parsed)) {
+          const cleanIds = parsed.filter((x): x is string => typeof x === 'string' && x.length > 0);
+          setLocal(STORAGE_KEYS.PRODUTOS_COM_NOTA, cleanIds);
+          return cleanIds;
+        }
+      }
+    } catch (e) {
+      console.warn('Falha ao buscar produtos com NF-e no Supabase, usando local:', e);
+    }
+  }
+
+  return Array.isArray(localIds) ? localIds : [];
+}
+
+export async function saveProdutosComNotaIds(ids: string[]): Promise<string[]> {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  setLocal(STORAGE_KEYS.PRODUTOS_COM_NOTA, uniqueIds);
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase
+        .from('configuracoes_fidelidade')
+        .upsert({
+          id: CLOUD_PRODUTOS_COM_NOTA_ID,
+          meta_compras_mes: 0,
+          valor_minimo_pontuacao: 0,
+          premio_descricao: 'PRODUTOS_COM_NOTA_FISCAL',
+          mensagem_whatsapp: JSON.stringify(uniqueIds),
+          mensagem_resgate: 'v1',
+          atualizado_em: new Date().toISOString()
+        });
+    } catch (e) {
+      console.warn('Falha ao salvar produtos com NF-e no Supabase:', e);
+    }
+  }
+
+  // Atualizar cache local de produtos imediatamente
+  const notaSet = new Set(uniqueIds);
+  const prodsLocais = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
+  if (prodsLocais.length > 0) {
+    setLocal(
+      STORAGE_KEYS.PRODUTOS,
+      prodsLocais.map(p => ({ ...p, emitir_nota_fiscal: notaSet.has(p.id) }))
+    );
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('produtos_atualizados'));
+    window.dispatchEvent(new CustomEvent('catalogo_atualizado'));
+  }
+
+  return uniqueIds;
+}
+
+export async function setProdutoEmitirNota(produtoId: string, emitir: boolean): Promise<string[]> {
+  const atuais = await fetchProdutosComNotaIds();
+  const next = emitir
+    ? Array.from(new Set([...atuais, produtoId]))
+    : atuais.filter(id => id !== produtoId);
+  return saveProdutosComNotaIds(next);
+}
+
 export async function fetchProdutos(): Promise<Produto[]> {
   let localProds = getLocal<Produto[]>(STORAGE_KEYS.PRODUTOS, INITIAL_PRODUTOS);
   const unidadesMap = getLocal<Record<string, string>>(STORAGE_KEYS.UNIDADES_VENDA, {});
   const fichas = getLocal<FichaTecnica[]>(STORAGE_KEYS.FICHAS_TECNICAS, []);
   const insumos = getLocal<Insumo[]>(STORAGE_KEYS.INSUMOS, []);
+  const produtosComNotaIds = await fetchProdutosComNotaIds();
+  const notaSet = new Set(produtosComNotaIds);
 
   if (isSupabaseConfigured && supabase) {
     try {
@@ -993,7 +1073,8 @@ export async function fetchProdutos(): Promise<Produto[]> {
             ...localItem,
             ...prod,
             unidade_venda: unidadeResolvida,
-            custo: prod.custo !== undefined && prod.custo !== null ? Number(prod.custo) : (localItem?.custo || 0)
+            custo: prod.custo !== undefined && prod.custo !== null ? Number(prod.custo) : (localItem?.custo || 0),
+            emitir_nota_fiscal: notaSet.has(prod.id)
           };
         });
       }
@@ -1002,7 +1083,7 @@ export async function fetchProdutos(): Promise<Produto[]> {
     }
   }
 
-  // Garantir que a matemática real das fichas técnicas e unidade de venda estejam completas
+  // Garantir que a matemática real das fichas técnicas, unidade de venda e flag fiscal estejam completas
   const produtosCompletos = localProds.map(p => {
     const temFicha = fichas.some(f => f.produto_id === p.id);
     const custoReal = temFicha ? calcularCustoUnitarioProduto(p.id, fichas, insumos, p) : (p.custo || 0);
@@ -1015,7 +1096,8 @@ export async function fetchProdutos(): Promise<Produto[]> {
     return { 
       ...p, 
       custo: custoReal, 
-      unidade_venda: unidadeResolvida 
+      unidade_venda: unidadeResolvida,
+      emitir_nota_fiscal: notaSet.has(p.id)
     };
   });
 
@@ -1042,7 +1124,8 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
     id: prodId,
     categoria_id: catId || produto.categoria_id,
     custo: custoCalculado,
-    unidade_venda: unidadeDefinida
+    unidade_venda: unidadeDefinida,
+    emitir_nota_fiscal: Boolean(produto.emitir_nota_fiscal)
   };
 
   // 1. Salvar na nuvem do Supabase com colunas compatíveis com o banco (UUID e colunas existentes)
@@ -1085,6 +1168,11 @@ export async function saveProduto(produto: Omit<Produto, 'id'> & { id?: string }
     } catch (e) {
       console.warn('Falha ao salvar produto no Supabase:', e);
     }
+  }
+
+  // 1.5 Sincronizar flag fiscal do produto na nuvem e localmente
+  if (produto.emitir_nota_fiscal !== undefined) {
+    await setProdutoEmitirNota(newProduto.id, Boolean(produto.emitir_nota_fiscal));
   }
 
   // 2. Persistir unidade de venda no mapa local para garantir integridade

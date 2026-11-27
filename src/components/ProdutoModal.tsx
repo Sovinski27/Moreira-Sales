@@ -10,7 +10,8 @@ import {
   AlertCircle,
   Info,
   Scale,
-  Package
+  Package,
+  Receipt
 } from 'lucide-react';
 import { Produto, Categoria } from '../types';
 import { saveCategoria } from '../services/db';
@@ -27,6 +28,7 @@ interface ProdutoModalProps {
     custo?: number;
     controlar_estoque?: boolean;
     estoque_atual?: number;
+    emitir_nota_fiscal?: boolean;
   }) => void;
   categorias?: Categoria[];
   onCategoriaCriada?: () => void;
@@ -49,6 +51,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
   const [categoriaId, setCategoriaId] = useState('');
   const [controlarEstoque, setControlarEstoque] = useState(false);
   const [estoqueAtual, setEstoqueAtual] = useState('');
+  const [emitirNotaFiscal, setEmitirNotaFiscal] = useState(false);
 
   // Categorias locais e estado de criação rápida
   const [listaCategorias, setListaCategorias] = useState<Categoria[]>(categoriasProp || []);
@@ -84,6 +87,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
         );
         setUnidadeVenda(produto.unidade_venda || 'unidade');
         setControlarEstoque(Boolean(produto.controlar_estoque));
+        setEmitirNotaFiscal(Boolean(produto.emitir_nota_fiscal));
         setEstoqueAtual(
           produto.estoque_atual !== undefined && produto.estoque_atual !== null
             ? String(produto.estoque_atual)
@@ -96,6 +100,7 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
         setCusto('');
         setUnidadeVenda('unidade');
         setControlarEstoque(false);
+        setEmitirNotaFiscal(false);
         setEstoqueAtual('');
         const initialCat =
           categoriasProp && categoriasProp.length > 0
@@ -202,7 +207,8 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
       unidade_venda: unidadeVenda.trim() || 'unidade',
       custo: custoNum !== undefined && !isNaN(custoNum) ? custoNum : undefined,
       controlar_estoque: controlarEstoque,
-      estoque_atual: estoqueNum !== undefined && !isNaN(estoqueNum) ? estoqueNum : undefined
+      estoque_atual: estoqueNum !== undefined && !isNaN(estoqueNum) ? estoqueNum : undefined,
+      emitir_nota_fiscal: emitirNotaFiscal
     });
   };
 
@@ -545,6 +551,39 @@ export const ProdutoModal: React.FC<ProdutoModalProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* 6. Emissão de Nota Fiscal (NFC-e) */}
+            <div className="pt-5 border-t border-stone-100">
+              <div className={`rounded-2xl border p-4 sm:p-5 transition-colors ${
+                emitirNotaFiscal
+                  ? 'border-emerald-300 bg-emerald-50/60'
+                  : 'border-stone-200 bg-stone-50/70'
+              }`}>
+                <label className="flex items-center gap-3.5 cursor-pointer select-none">
+                  <div className="relative inline-flex items-center shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={emitirNotaFiscal}
+                      onChange={e => setEmitirNotaFiscal(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-stone-300 rounded-full peer peer-focus:ring-4 peer-focus:ring-emerald-600/20 peer-checked:bg-emerald-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:shadow-sm after:transition-all peer-checked:after:translate-x-5" />
+                  </div>
+
+                  <div className="flex items-start gap-2.5">
+                    <Receipt className={`w-4 h-4 mt-0.5 shrink-0 ${emitirNotaFiscal ? 'text-emerald-600' : 'text-stone-500'}`} />
+                    <div>
+                      <span className="block text-sm font-semibold text-stone-800">
+                        Emitir Nota Fiscal (NFC-e) para este produto
+                      </span>
+                      <span className="block text-xs text-stone-500">
+                        A nota fiscal no Caixa só será emitida quando este ou outro produto marcado estiver no pedido
+                      </span>
+                    </div>
+                  </div>
+                </label>
               </div>
             </div>
           </div>

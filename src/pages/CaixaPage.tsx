@@ -141,12 +141,55 @@ export const CaixaPage: React.FC = () => {
   const [notasNovoCliente, setNotasNovoCliente] = useState('');
   const [formaPagamento, setFormaPagamento] = useState<'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro'>('pix');
 
-  // Módulo Fiscal / NF-e (emissão opcional por venda — o operador escolhe quando emitir)
+  // Módulo Fiscal / NF-e (somente emitido quando produtos marcados com NF-e estiverem no pedido)
   const [cpfNaNota, setCpfNaNota] = useState('');
   const [emitirNfeCheck, setEmitirNfeCheck] = useState(false);
   const [emitirNfeComandaDireta, setEmitirNfeComandaDireta] = useState(false);
   const [modalNfe, setModalNfe] = useState<{ aberto: boolean; nota: NotaFiscal | null }>({ aberto: false, nota: null });
   const [configFiscal, setConfigFiscal] = useState<ConfiguracaoFiscal>(INITIAL_CONFIG_FISCAL);
+
+  const itemTemNotaFiscal = useCallback((item: ItemCarrinho): boolean => {
+    const prodCatalogo = produtos.find(
+      p =>
+        p.id === item.produto.id ||
+        p.nome.trim().toLowerCase() === (item.produto.nome || '').trim().toLowerCase()
+    );
+    if (prodCatalogo) return Boolean(prodCatalogo.emitir_nota_fiscal);
+    return Boolean(item.produto.emitir_nota_fiscal);
+  }, [produtos]);
+
+  const itensComNotaCarrinho = useMemo(
+    () => carrinho.filter(itemTemNotaFiscal),
+    [carrinho, itemTemNotaFiscal]
+  );
+
+  const totalComNotaCarrinho = useMemo(
+    () => Number(itensComNotaCarrinho.reduce((acc, i) => acc + (Number(i.subtotal) || 0), 0).toFixed(2)),
+    [itensComNotaCarrinho]
+  );
+
+  const temProdutoComNotaNoCarrinho = itensComNotaCarrinho.length > 0;
+
+  // Liga/desliga automaticamente o switch de NFC-e conforme existam produtos marcados com nota no carrinho
+  useEffect(() => {
+    if (temProdutoComNotaNoCarrinho) {
+      setEmitirNfeCheck(true);
+    } else {
+      setEmitirNfeCheck(false);
+      setCpfNaNota('');
+    }
+  }, [temProdutoComNotaNoCarrinho]);
+
+  // Liga/desliga automaticamente a opção de NFC-e na cobrança rápida ao abrir uma comanda
+  useEffect(() => {
+    if (!mesaComandaModal) {
+      setEmitirNfeComandaDireta(false);
+      return;
+    }
+    const mesaAtiva = mesasAbertas.find(m => m.mesa_numero === mesaComandaModal.mesa_numero) || mesaComandaModal;
+    const itensNorm = normalizarItensMesa(mesaAtiva, produtos);
+    setEmitirNfeComandaDireta(itensNorm.some(itemTemNotaFiscal));
+  }, [mesaComandaModal, mesasAbertas, produtos, itemTemNotaFiscal]);
 
   // Modal de prêmio
   const [modalPremio, setModalPremio] = useState<{
@@ -432,12 +475,20 @@ export const CaixaPage: React.FC = () => {
         setTimeout(() => setSucessoMensagem(null), 3500);
       }
 
-      // Emissão Fiscal Opcional (apenas quando o operador selecionou Emitir NFC-e nesta venda)
-      if (compraRegistrada && emitirNfeCheck) {
+      // Emissão Fiscal: somente quando houver produtos marcados com NF-e no pedido e opção ativa
+      const itensComNotaSnapshot = carrinhoSnapshot.filter(itemTemNotaFiscal);
+      if (compraRegistrada && emitirNfeCheck && itensComNotaSnapshot.length > 0) {
         try {
+          const totalFiscalSnapshot = Number(
+            itensComNotaSnapshot.reduce((acc, i) => acc + (Number(i.subtotal) || 0), 0).toFixed(2)
+          );
+          const compraFiscal: Compra = {
+            ...compraRegistrada,
+            valor: totalFiscalSnapshot
+          };
           const notaFiscal = await emitirNotaFiscal(
-            compraRegistrada,
-            carrinhoSnapshot,
+            compraFiscal,
+            itensComNotaSnapshot,
             {
               nome: clienteNome,
               cpf: clienteCpf,
@@ -856,11 +907,19 @@ export const CaixaPage: React.FC = () => {
         }
       }
 
-      if (emitirNfeComandaDireta && compraRegistrada) {
+      const itensComNotaComanda = itensNormalizados.filter(itemTemNotaFiscal);
+      if (emitirNfeComandaDireta && compraRegistrada && itensComNotaComanda.length > 0) {
         try {
+          const totalFiscalComanda = Number(
+            itensComNotaComanda.reduce((acc, i) => acc + (Number(i.subtotal) || 0), 0).toFixed(2)
+          );
+          const compraFiscalComanda: Compra = {
+            ...compraRegistrada,
+            valor: totalFiscalComanda
+          };
           const nota = await emitirNotaFiscal(
-            compraRegistrada,
-            itensNormalizados,
+            compraFiscalComanda,
+            itensComNotaComanda,
             { nome: mesaMaisAtual.cliente_nome || 'Consumidor', whatsapp: mesaMaisAtual.cliente_telefone }
           );
           setModalNfe({ aberto: true, nota });
@@ -1890,36 +1949,42 @@ export const CaixaPage: React.FC = () => {
               </div>
             </div>
 
-            {/* OPÇÃO DE EMISSÃO FISCAL (ESCOLHA POR VENDA) & CPF NA NOTA */}
+            {/* EMISSÃO FISCAL CONDICIONADA A PRODUTOS MARCADOS COM NF-E */}
             <div className={`rounded-2xl p-4 border transition-colors space-y-3 ${
-              emitirNfeCheck
+              temProdutoComNotaNoCarrinho && emitirNfeCheck
                 ? 'bg-emerald-50/60 border-emerald-300'
                 : 'bg-stone-50 border-stone-200/80'
             }`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
-                  <Receipt className={`w-4 h-4 shrink-0 ${emitirNfeCheck ? 'text-emerald-600' : 'text-stone-400'}`} />
+                  <Receipt className={`w-4 h-4 shrink-0 ${temProdutoComNotaNoCarrinho && emitirNfeCheck ? 'text-emerald-600' : 'text-stone-400'}`} />
                   <div>
                     <span className="text-xs font-bold text-stone-800 block">
                       Nota Fiscal (NFC-e)
                     </span>
                     <span className="text-[11px] text-stone-500 block">
-                      {emitirNfeCheck
-                        ? 'Será emitida ao confirmar esta venda'
-                        : 'Opcional — marque apenas quando desejar emitir'}
+                      {!temProdutoComNotaNoCarrinho
+                        ? 'Nenhum produto marcado com NF-e neste pedido'
+                        : emitirNfeCheck
+                          ? `${itensComNotaCarrinho.length} ${itensComNotaCarrinho.length === 1 ? 'item com nota' : 'itens com nota'} • R$ ${totalComNotaCarrinho.toFixed(2)}`
+                          : 'Há produtos com nota, mas a emissão está desativada nesta venda'}
                     </span>
                   </div>
                 </div>
 
-                <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 select-none">
-                  <span className={`text-xs font-bold ${emitirNfeCheck ? 'text-emerald-700' : 'text-stone-500'}`}>
-                    {emitirNfeCheck ? 'Emitir' : 'Não emitir'}
+                <label className={`inline-flex items-center gap-2 shrink-0 select-none ${
+                  temProdutoComNotaNoCarrinho ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+                }`}>
+                  <span className={`text-xs font-bold ${temProdutoComNotaNoCarrinho && emitirNfeCheck ? 'text-emerald-700' : 'text-stone-500'}`}>
+                    {temProdutoComNotaNoCarrinho && emitirNfeCheck ? 'Emitir' : 'Não emitir'}
                   </span>
                   <div className="relative inline-flex items-center">
                     <input
                       type="checkbox"
-                      checked={emitirNfeCheck}
+                      disabled={!temProdutoComNotaNoCarrinho}
+                      checked={temProdutoComNotaNoCarrinho && emitirNfeCheck}
                       onChange={e => {
+                        if (!temProdutoComNotaNoCarrinho) return;
                         setEmitirNfeCheck(e.target.checked);
                         if (!e.target.checked) setCpfNaNota('');
                       }}
@@ -1930,7 +1995,7 @@ export const CaixaPage: React.FC = () => {
                 </label>
               </div>
 
-              {emitirNfeCheck && (
+              {temProdutoComNotaNoCarrinho && emitirNfeCheck && (
                 <div className="space-y-1.5 pt-2 border-t border-emerald-200/70 animate-fadeIn">
                   <div className="flex items-center justify-between">
                     <label className="text-[11px] font-bold text-emerald-900">
@@ -2377,6 +2442,11 @@ export const CaixaPage: React.FC = () => {
         const totalModalCalculado = itensModalNormalizados.length > 0
           ? Number(itensModalNormalizados.reduce((acc, i) => acc + (Number(i.subtotal) || 0), 0).toFixed(2))
           : Number((mesaModalAtiva.total || 0).toFixed(2));
+        const itensModalComNota = itensModalNormalizados.filter(itemTemNotaFiscal);
+        const totalModalComNota = Number(
+          itensModalComNota.reduce((acc, i) => acc + (Number(i.subtotal) || 0), 0).toFixed(2)
+        );
+        const comandaTemNota = itensModalComNota.length > 0;
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
@@ -2486,15 +2556,24 @@ export const CaixaPage: React.FC = () => {
                       ⚡ Cobrança Rápida Direta (1 Clique):
                     </span>
 
-                    <label className="inline-flex items-center gap-2 cursor-pointer select-none bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-xs font-semibold text-stone-700">
-                      <input
-                        type="checkbox"
-                        checked={emitirNfeComandaDireta}
-                        onChange={e => setEmitirNfeComandaDireta(e.target.checked)}
-                        className="rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
-                      />
-                      <span>Emitir NFC-e</span>
-                    </label>
+                    {comandaTemNota ? (
+                      <label className="inline-flex items-center gap-2 cursor-pointer select-none bg-white px-2.5 py-1 rounded-lg border border-emerald-300 text-xs font-semibold text-emerald-800">
+                        <input
+                          type="checkbox"
+                          checked={emitirNfeComandaDireta}
+                          onChange={e => setEmitirNfeComandaDireta(e.target.checked)}
+                          className="rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                        />
+                        <span>
+                          Emitir NFC-e ({itensModalComNota.length} {itensModalComNota.length === 1 ? 'item' : 'itens'} • R$ {totalModalComNota.toFixed(2)})
+                        </span>
+                      </label>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 bg-white/80 px-2.5 py-1 rounded-lg border border-stone-200 text-[11px] font-medium text-stone-500">
+                        <Receipt className="w-3.5 h-3.5 text-stone-400" />
+                        <span>Sem produtos com NF-e</span>
+                      </span>
+                    )}
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <button

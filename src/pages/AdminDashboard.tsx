@@ -13,7 +13,7 @@ import { CmvDashboard } from '../components/CmvDashboard';
 import { GestaoFiscalTab } from '../components/GestaoFiscalTab';
 import { ChecklistTab } from '../components/ChecklistTab';
 import { GestaoAcessosTab } from '../components/GestaoAcessosTab';
-import { fetchProdutos, fetchCategorias, saveProduto, saveCategoria, deleteProduto, deleteCategoria } from '../services/db';
+import { fetchProdutos, fetchCategorias, saveProduto, saveCategoria, deleteProduto, deleteCategoria, setProdutoEmitirNota } from '../services/db';
 import { 
   Users,
   User, 
@@ -978,14 +978,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           {categorias.length > 0 && (
             <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-stone-200">
               <button
+                type="button"
                 onClick={() => setCategoriaCatalogoFiltro('todos')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 cursor-pointer ${
                   categoriaCatalogoFiltro === 'todos'
                     ? 'bg-stone-900 text-white shadow-sm'
                     : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
                 }`}
               >
                 Todos ({produtos.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setCategoriaCatalogoFiltro('com_nfe')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 cursor-pointer border ${
+                  categoriaCatalogoFiltro === 'com_nfe'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                    : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                }`}
+              >
+                <Receipt className="w-3.5 h-3.5" />
+                <span>Com NF-e ({produtos.filter(p => p.emitir_nota_fiscal).length})</span>
               </button>
               {categorias.map(cat => {
                 const qtd = produtos.filter(p => p.categoria_id === cat.id).length;
@@ -1080,25 +1093,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                 + Cadastrar Produto
               </button>
             </div>
-          ) : produtos.filter(p => categoriaCatalogoFiltro === 'todos' || p.categoria_id === categoriaCatalogoFiltro).length === 0 ? (
+          ) : produtos.filter(p => categoriaCatalogoFiltro === 'todos' || (categoriaCatalogoFiltro === 'com_nfe' ? Boolean(p.emitir_nota_fiscal) : p.categoria_id === categoriaCatalogoFiltro)).length === 0 ? (
             <div className="bg-white p-8 text-center rounded-2xl border border-stone-200 my-4 text-stone-500 text-sm">
-              <p>Nenhum produto vinculado a esta categoria ainda.</p>
+              <p>
+                {categoriaCatalogoFiltro === 'com_nfe'
+                  ? 'Nenhum produto marcado para emissão de Nota Fiscal (NFC-e) ainda.'
+                  : 'Nenhum produto vinculado a esta categoria ainda.'}
+              </p>
               <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => setProdutoModalConfig({ isOpen: true, produto: null })}
-                  className="text-amber-700 font-bold hover:underline text-xs cursor-pointer"
-                >
-                  + Adicionar Produto nesta Categoria
-                </button>
+                {categoriaCatalogoFiltro === 'com_nfe' ? (
+                  <button
+                    type="button"
+                    onClick={() => setCategoriaCatalogoFiltro('todos')}
+                    className="text-emerald-700 font-bold hover:underline text-xs cursor-pointer"
+                  >
+                    Ver todos os produtos e selecionar os que emitem NF-e
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setProdutoModalConfig({ isOpen: true, produto: null })}
+                    className="text-amber-700 font-bold hover:underline text-xs cursor-pointer"
+                  >
+                    + Adicionar Produto nesta Categoria
+                  </button>
+                )}
               </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {produtos
-                .filter(p => categoriaCatalogoFiltro === 'todos' || p.categoria_id === categoriaCatalogoFiltro)
+                .filter(p => categoriaCatalogoFiltro === 'todos' || (categoriaCatalogoFiltro === 'com_nfe' ? Boolean(p.emitir_nota_fiscal) : p.categoria_id === categoriaCatalogoFiltro))
                 .map(produto => {
                   const categoria = categorias.find(c => c.id === produto.categoria_id);
+                  const emiteNota = Boolean(produto.emitir_nota_fiscal);
                   return (
                     <div key={produto.id} className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm flex flex-col justify-between hover:border-amber-300 transition-all">
                       <div>
@@ -1107,11 +1135,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                             <Tag className="w-3 h-3 text-amber-600" />
                             {categoria?.nome || 'Sem Categoria'}
                           </span>
-                          {produto.controlar_estoque && (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-stone-500 bg-stone-100 px-2 py-0.5 rounded-md">
-                              <Box className="w-3 h-3" /> Estoque: {produto.estoque_atual ?? 0}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const proximo = !emiteNota;
+                                setProdutos(prev =>
+                                  prev.map(item =>
+                                    item.id === produto.id ? { ...item, emitir_nota_fiscal: proximo } : item
+                                  )
+                                );
+                                await setProdutoEmitirNota(produto.id, proximo);
+                              }}
+                              className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
+                                emiteNota
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                  : 'bg-stone-50 text-stone-500 border-stone-200 hover:bg-stone-100 hover:text-stone-700'
+                              }`}
+                              title={emiteNota ? 'Clique para desativar emissão de NF-e neste produto' : 'Clique para ativar emissão de NF-e neste produto'}
+                            >
+                              <Receipt className="w-3 h-3" />
+                              <span>{emiteNota ? 'Com NF-e' : 'Sem NF-e'}</span>
+                            </button>
+                            {produto.controlar_estoque && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-stone-500 bg-stone-100 px-2 py-0.5 rounded-md">
+                                <Box className="w-3 h-3" /> Estoque: {produto.estoque_atual ?? 0}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <h3 className="font-bold text-lg text-stone-900">{produto.nome}</h3>
                         <div className="flex flex-wrap items-baseline gap-2 mt-1">
