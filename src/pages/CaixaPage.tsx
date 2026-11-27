@@ -400,19 +400,30 @@ export const CaixaPage: React.FC = () => {
         );
         setTimeout(() => setSucessoMensagem(null), 3500);
       } else {
-        // VENDA RÁPIDA / BALCÃO / ANÔNIMO - Zero atrito na hora da pressa
-        const resultado = await cadastrarERegistrarCompra(
-          'Venda Balcão / Anônimo',
-          '0',
-          totalCarrinho,
-          detalhesCompra,
-          null,
-          null,
-          'Venda rápida balcão sem identificação',
-          carrinho,
-          formaPagamento
+        // VENDA RÁPIDA / BALCÃO / ANÔNIMO - Reaproveita o cliente balcão existente para não duplicar cadastros
+        const clienteBalcao = clientes.find(c =>
+          cleanPhone(c.whatsapp || '') === '0' ||
+          c.nome.toLowerCase().includes('balcão') ||
+          c.nome.toLowerCase().includes('anônimo')
         );
-        compraRegistrada = resultado.compra;
+
+        if (clienteBalcao) {
+          const resultado = await registrarNovaCompra(clienteBalcao.id, totalCarrinho, detalhesCompra, carrinho, formaPagamento);
+          compraRegistrada = resultado.compra;
+        } else {
+          const resultado = await cadastrarERegistrarCompra(
+            'Venda Balcão / Anônimo',
+            '0',
+            totalCarrinho,
+            detalhesCompra,
+            null,
+            null,
+            'Venda rápida balcão sem identificação',
+            carrinho,
+            formaPagamento
+          );
+          compraRegistrada = resultado.compra;
+        }
 
         const labelPgto = formaPagamento === 'pix' ? 'PIX' : formaPagamento === 'dinheiro' ? 'DINHEIRO' : formaPagamento === 'cartao_credito' ? 'CRÉDITO' : 'DÉBITO';
         setSucessoMensagem(
@@ -798,13 +809,18 @@ export const CaixaPage: React.FC = () => {
       }
 
       let compraRegistrada: Compra | null = null;
+      const telMesaLimpo = cleanPhone(mesaMaisAtual.cliente_telefone || '');
+      if (!cliParaVenda && telMesaLimpo.length >= 8) {
+        cliParaVenda = clientes.find(c => cleanPhone(c.whatsapp || '') === telMesaLimpo) || null;
+      }
+
       if (cliParaVenda) {
         const res = await registrarNovaCompra(cliParaVenda.id, total, detalhesCompra, itensNormalizados, forma);
         compraRegistrada = res.compra;
-      } else {
+      } else if (telMesaLimpo.length >= 8) {
         const res = await cadastrarERegistrarCompra(
           mesaMaisAtual.cliente_nome || `Mesa ${mesaMaisAtual.mesa_numero}`,
-          mesaMaisAtual.cliente_telefone || '0',
+          telMesaLimpo,
           total,
           detalhesCompra,
           null,
@@ -814,6 +830,30 @@ export const CaixaPage: React.FC = () => {
           forma
         );
         compraRegistrada = res.compra;
+      } else {
+        const clienteBalcao = clientes.find(c =>
+          cleanPhone(c.whatsapp || '') === '0' ||
+          c.nome.toLowerCase().includes('balcão') ||
+          c.nome.toLowerCase().includes('anônimo')
+        );
+        const detalhesComanda = `Comanda ${mesaMaisAtual.mesa_numero}: ${detalhesCompra}`;
+        if (clienteBalcao) {
+          const res = await registrarNovaCompra(clienteBalcao.id, total, detalhesComanda, itensNormalizados, forma);
+          compraRegistrada = res.compra;
+        } else {
+          const res = await cadastrarERegistrarCompra(
+            'Venda Balcão / Anônimo',
+            '0',
+            total,
+            detalhesComanda,
+            null,
+            null,
+            'Venda rápida balcão sem identificação',
+            itensNormalizados,
+            forma
+          );
+          compraRegistrada = res.compra;
+        }
       }
 
       if (emitirNfeComandaDireta && compraRegistrada) {

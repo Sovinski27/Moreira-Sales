@@ -68,13 +68,19 @@ export function calcProdutosMaisVendidos(compras: Compra[]) {
   const map: Record<string, number> = {};
   compras.forEach(c => {
     if (c.detalhes) {
-      const parts = c.detalhes.split(', ');
+      const cleaned = c.detalhes
+        .replace(/\s*\[(PIX|DINHEIRO|CARTAO_CREDITO|CARTAO_DEBITO|OUTROS)\]\s*/gi, '')
+        .replace(/^Comanda\s+\d+:\s*/i, '')
+        .replace(/^Mesa\s+\d+\s*\([^)]*\):\s*/i, '');
+      const parts = cleaned.split(', ');
       parts.forEach(part => {
-        const match = part.match(/^(\d+)x (.*)$/);
+        const match = part.trim().match(/^(\d+(?:\.\d+)?)x\s+(.*)$/);
         if (match) {
-          const qtd = parseInt(match[1]);
-          const nome = match[2];
-          map[nome] = (map[nome] || 0) + qtd;
+          const qtd = parseFloat(match[1]);
+          const nome = match[2].trim();
+          if (nome) {
+            map[nome] = (map[nome] || 0) + qtd;
+          }
         } else if (part === 'Item Avulso' || part.includes('Avulso')) {
           map['Itens Avulsos'] = (map['Itens Avulsos'] || 0) + 1;
         }

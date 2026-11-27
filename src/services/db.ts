@@ -276,19 +276,127 @@ export async function fetchClientes(): Promise<Cliente[]> {
   return clientesList;
 }
 
+function extrairFormaPagamentoDetalhes(detalhes?: string | null): string | undefined {
+  if (!detalhes) return undefined;
+  const match = detalhes.match(/\[(PIX|DINHEIRO|CARTAO_CREDITO|CARTAO_DEBITO|OUTROS)\]/i);
+  if (match) return match[1].toLowerCase();
+  return undefined;
+}
+
 export async function fetchCompras(): Promise<Compra[]> {
+  const localCompras = getLocal<Compra[]>(STORAGE_KEYS.COMPRAS, INITIAL_COMPRAS);
+  let remoteCompras: Compra[] = [];
+
   if (isSupabaseConfigured && supabase) {
     try {
-      const { data, error } = await supabase
-        .from('compras')
-        .select('*')
-        .order('criado_em', { ascending: false });
-      if (!error && data && data.length > 0) return data as Compra[];
+      const [comprasRes, notasRes, clientesRes] = await Promise.all([
+        supabase
+          .from('compras')
+          .select('*')
+          .order('criado_em', { ascending: false })
+          .limit(2000),
+        supabase
+          .from('notas_fiscais')
+          .select('id,compra_id,valor_total,cliente_nome,cliente_whatsapp,cliente_telefone,forma_pagamento,status,data_emissao,criado_em,itens')
+          .order('criado_em', { ascending: false })
+          .limit(2000),
+        supabase
+          .from('clientes')
+          .select('id,nome,whatsapp')
+      ]);
+
+      if (!comprasRes.error && Array.isArray(comprasRes.data)) {
+        remoteCompras = (comprasRes.data as Compra[]).map(c => ({
+          ...c,
+          valor: Number(c.valor) || 0,
+          forma_pagamento: c.forma_pagamento || extrairFormaPagamentoDetalhes(c.detalhes)
+        }));
+      }
+
+      // Recuperar vendas históricas registradas em notas_fiscais que não entraram em compras
+      // (devido à antiga incompatibilidade da coluna custo_total no schema de compras)
+      if (!notasRes.error && Array.isArray(notasRes.data) && notasRes.data.length > 0) {
+        const clientesBase = (!clientesRes.error && Array.isArray(clientesRes.data))
+          ? clientesRes.data as Array<{ id: string; nome?: string; whatsapp?: string }>
+          : getLocal<Cliente[]>(STORAGE_KEYS.CLIENTES, INITIAL_CLIENTES);
+
+        const clienteBalcao = clientesBase.find(c =>
+          cleanPhone(c.whatsapp || '') === '0' ||
+          (c.nome || '').toLowerCase().includes('balcão') ||
+          (c.nome || '').toLowerCase().includes('anônimo')
+        );
+        const fallbackClienteId = clienteBalcao?.id || 'balcao-anonimo';
+
+        const existingIds = new Set(remoteCompras.map(c => c.id));
+        const existingNotaIds = new Set(remoteCompras.map(c => c.nota_fiscal_id).filter(Boolean));
+
+        for (const nota of notasRes.data as any[]) {
+          if (nota.status === 'cancelada') continue;
+          const compId = nota.compra_id || nota.id;
+          if (existingIds.has(compId) || existingNotaIds.has(nota.id)) continue;
+
+          const telNota = cleanPhone(nota.cliente_whatsapp || nota.cliente_telefone || '');
+          const nomeNota = (nota.cliente_nome || '').trim().toLowerCase();
+
+          let matchedCli = telNota.length >= 8
+            ? clientesBase.find(c => cleanPhone(c.whatsapp || '') === telNota)
+            : undefined;
+
+          if (!matchedCli && nomeNota && !nomeNota.startsWith('comanda') && !nomeNota.startsWith('mesa') && !nomeNota.includes('consumidor')) {
+            matchedCli = clientesBase.find(c => (c.nome || '').trim().toLowerCase() === nomeNota);
+          }
+
+          const itensArr = Array.isArray(nota.itens) ? nota.itens : [];
+          const detalhesItens = itensArr
+            .map((it: any) => `${Number(it.quantidade) || 1}x ${it.nome || 'Produto'}`)
+            .join(', ');
+          const dataIso = (nota.criado_em || nota.data_emissao || new Date().toISOString());
+          const dataCompra = String(dataIso).slice(0, 10);
+
+          remoteCompras.push({
+            id: compId,
+            cliente_id: matchedCli?.id || fallbackClienteId,
+            valor: Number(nota.valor_total) || 0,
+            custo_total: 0,
+            data_compra: dataCompra,
+            criado_em: dataIso,
+            detalhes: detalhesItens || (nota.cliente_nome ? `Venda ${nota.cliente_nome}` : 'Venda Balcão'),
+            pontuou_fidelidade: true,
+            forma_pagamento: nota.forma_pagamento || undefined,
+            nota_fiscal_id: nota.id
+          });
+          existingIds.add(compId);
+        }
+      }
+
+      // Mesclar compras locais que ainda não estejam na lista remota (sem duplicar)
+      const byId = new Map<string, Compra>();
+      for (const c of remoteCompras) {
+        byId.set(c.id, c);
+      }
+      for (const lc of localCompras) {
+        if (!byId.has(lc.id)) {
+          byId.set(lc.id, {
+            ...lc,
+            valor: Number(lc.valor) || 0,
+            forma_pagamento: lc.forma_pagamento || extrairFormaPagamentoDetalhes(lc.detalhes)
+          });
+        }
+      }
+
+      const merged = Array.from(byId.values()).sort(
+        (a, b) => new Date(b.criado_em || b.data_compra).getTime() - new Date(a.criado_em || a.data_compra).getTime()
+      );
+
+      if (merged.length > 0) {
+        setLocal(STORAGE_KEYS.COMPRAS, merged);
+      }
+      return merged;
     } catch (e) {
       console.warn('Falha ao buscar compras no Supabase, usando local:', e);
     }
   }
-  return getLocal<Compra[]>(STORAGE_KEYS.COMPRAS, INITIAL_COMPRAS);
+  return localCompras;
 }
 
 export async function createCliente(nome: string, whatsapp: string, data_nascimento?: string | null, email?: string | null, notas?: string | null): Promise<Cliente> {
@@ -308,6 +416,23 @@ export async function createCliente(nome: string, whatsapp: string, data_nascime
 
   if (isSupabaseConfigured && supabase) {
     try {
+      // Reaproveitar cliente existente com o mesmo WhatsApp (evita duplicatas de balcão '0' ou telefone já cadastrado)
+      if (cleanNumber === '0' || cleanNumber.length >= 8) {
+        const { data: existing } = await supabase
+          .from('clientes')
+          .select('*')
+          .eq('whatsapp', cleanNumber)
+          .limit(1);
+        if (existing && existing.length > 0) {
+          const found = existing[0] as Cliente;
+          const clientesLocais = getLocal<Cliente[]>(STORAGE_KEYS.CLIENTES, INITIAL_CLIENTES);
+          if (!clientesLocais.some(c => c.id === found.id)) {
+            setLocal(STORAGE_KEYS.CLIENTES, [...clientesLocais, found]);
+          }
+          return found;
+        }
+      }
+
       const { data, error } = await supabase
         .from('clientes')
         .insert([{
@@ -321,13 +446,37 @@ export async function createCliente(nome: string, whatsapp: string, data_nascime
         }])
         .select()
         .single();
-      if (!error && data) return data as Cliente;
+      if (!error && data) {
+        const created = data as Cliente;
+        const clientesLocais = getLocal<Cliente[]>(STORAGE_KEYS.CLIENTES, INITIAL_CLIENTES);
+        if (!clientesLocais.some(c => c.id === created.id)) {
+          setLocal(STORAGE_KEYS.CLIENTES, [...clientesLocais, created]);
+        }
+        return created;
+      }
+
+      // Em caso de conflito (ex: unique constraint em whatsapp), recuperar o registro existente
+      if (error && cleanNumber) {
+        const { data: existingAfterErr } = await supabase
+          .from('clientes')
+          .select('*')
+          .eq('whatsapp', cleanNumber)
+          .limit(1);
+        if (existingAfterErr && existingAfterErr.length > 0) {
+          return existingAfterErr[0] as Cliente;
+        }
+      }
     } catch (e) {
       console.warn('Falha ao inserir cliente no Supabase, salvando local:', e);
     }
   }
 
   const clientes = getLocal<Cliente[]>(STORAGE_KEYS.CLIENTES, INITIAL_CLIENTES);
+  const existingLocal = (cleanNumber === '0' || cleanNumber.length >= 8)
+    ? clientes.find(c => cleanPhone(c.whatsapp || '') === cleanNumber)
+    : undefined;
+  if (existingLocal) return existingLocal;
+
   const updated = [...clientes, newCliente];
   setLocal(STORAGE_KEYS.CLIENTES, updated);
   return newCliente;
@@ -482,37 +631,57 @@ export async function registerCompra(
   });
   setLocal(STORAGE_KEYS.CLIENTES, updatedClientes);
 
-  // Sincronizar compra e histórico no Supabase (compras não possui coluna forma_pagamento no schema)
+  // Sincronizar compra e histórico no Supabase (schema real de compras: id, cliente_id, valor, data_compra, criado_em, detalhes, pontuou_fidelidade)
   if (isSupabaseConfigured && supabase) {
-    (async () => {
-      try {
-        const pgtoLabel = forma_pagamento ? `[${forma_pagamento.toUpperCase()}]` : '';
-        const detalhesSync = pgtoLabel && !(newCompra.detalhes || '').includes(pgtoLabel)
-          ? `${newCompra.detalhes ? `${newCompra.detalhes} ` : ''}${pgtoLabel}`
-          : (newCompra.detalhes || null);
+    try {
+      const pgtoLabel = forma_pagamento ? `[${forma_pagamento.toUpperCase()}]` : '';
+      const detalhesSync = pgtoLabel && !(newCompra.detalhes || '').includes(pgtoLabel)
+        ? `${newCompra.detalhes ? `${newCompra.detalhes} ` : ''}${pgtoLabel}`
+        : (newCompra.detalhes || null);
 
-        const { error: compErr } = await supabase.from('compras').insert([{
-          id: newCompra.id,
-          cliente_id: newCompra.cliente_id,
-          valor: newCompra.valor,
-          custo_total: newCompra.custo_total,
-          data_compra: newCompra.data_compra,
-          criado_em: newCompra.criado_em,
-          detalhes: detalhesSync,
-          pontuou_fidelidade: newCompra.pontuou_fidelidade
-        }]);
-        if (compErr) {
-          console.warn('Erro ao inserir compra no Supabase:', compErr.message);
+      let targetClienteId = newCompra.cliente_id;
+      const payloadCompra = {
+        id: newCompra.id,
+        cliente_id: targetClienteId,
+        valor: newCompra.valor,
+        data_compra: newCompra.data_compra,
+        criado_em: newCompra.criado_em,
+        detalhes: detalhesSync,
+        pontuou_fidelidade: newCompra.pontuou_fidelidade
+      };
+
+      const { error: compErr } = await supabase.from('compras').insert([payloadCompra]);
+      if (compErr) {
+        console.warn('Erro ao inserir compra no Supabase, tentando fallback de cliente:', compErr.message);
+        // Se falhou por chave estrangeira em cliente_id, vincular ao cliente padrão de balcão no Supabase
+        const { data: cliBalcao } = await supabase
+          .from('clientes')
+          .select('id')
+          .eq('whatsapp', '0')
+          .limit(1);
+        const fallbackId = cliBalcao && cliBalcao.length > 0 ? cliBalcao[0].id : null;
+        if (fallbackId && fallbackId !== targetClienteId) {
+          targetClienteId = fallbackId;
+          newCompra.cliente_id = fallbackId;
+          const { error: retryErr } = await supabase.from('compras').insert([{
+            ...payloadCompra,
+            cliente_id: fallbackId
+          }]);
+          if (retryErr) {
+            console.warn('Falha definitiva ao inserir compra no Supabase:', retryErr.message);
+          }
         }
+      }
 
+      if (isUuid(targetClienteId)) {
         await supabase
           .from('clientes')
           .update({ total_compras_historico: novoTotalCli })
-          .eq('id', clienteId);
-      } catch (e) {
-        console.warn('Erro ao salvar compra/histórico no Supabase:', e);
+          .eq('id', targetClienteId);
       }
-    })();
+    } catch (e) {
+      console.warn('Erro ao salvar compra/histórico no Supabase:', e);
+    }
   }
 
   if (typeof window !== 'undefined') {
@@ -2985,17 +3154,7 @@ export async function updateCompraComFiscal(compraId: string, dadosFiscal: {
   danfe_url?: string;
   cpf_na_nota?: string;
 }): Promise<void> {
-  if (isSupabaseConfigured && supabase) {
-    try {
-      await supabase
-        .from('compras')
-        .update(dadosFiscal)
-        .eq('id', compraId);
-    } catch (e) {
-      console.warn('Falha ao atualizar compra com dados fiscais no Supabase:', e);
-    }
-  }
-
+  // Tabela compras no Supabase não possui colunas fiscais dedicadas; vínculo oficial fica em notas_fiscais.compra_id
   const compras = getLocal<Compra[]>(STORAGE_KEYS.COMPRAS, []);
   const updated = compras.map(c => c.id === compraId ? { ...c, ...dadosFiscal } : c);
   setLocal(STORAGE_KEYS.COMPRAS, updated);

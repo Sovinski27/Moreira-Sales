@@ -78,9 +78,9 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
   const [loading, setLoading] = useState(false);
 
-  const carregarTudo = useCallback(async () => {
+  const carregarTudo = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [cList, cmpList, cfg] = await Promise.all([
         fetchClientes(),
         fetchCompras(),
@@ -92,12 +92,38 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (err) {
       console.error('Erro ao carregar dados:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    carregarTudo();
+    carregarTudo(false);
+
+    let syncTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleSync = () => {
+      if (syncTimer) clearTimeout(syncTimer);
+      syncTimer = setTimeout(() => {
+        carregarTudo(true);
+      }, 150);
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        handleSync();
+      }
+    };
+
+    window.addEventListener('compras_atualizadas', handleSync);
+    window.addEventListener('clientes_atualizados', handleSync);
+    window.addEventListener('notas_fiscais_atualizadas', handleSync);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      if (syncTimer) clearTimeout(syncTimer);
+      window.removeEventListener('compras_atualizadas', handleSync);
+      window.removeEventListener('clientes_atualizados', handleSync);
+      window.removeEventListener('notas_fiscais_atualizadas', handleSync);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [carregarTudo]);
 
   // Cálculos reativos do ciclo mensal via loyaltyEngine
@@ -112,8 +138,8 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Métricas gerais para o Dashboard
   const metricas: MetricasGerais = useMemo(() => {
-    return calcularMetricas(resumosMensais, clientesSumidos);
-  }, [resumosMensais, clientesSumidos]);
+    return calcularMetricas(resumosMensais, clientesSumidos, compras);
+  }, [resumosMensais, clientesSumidos, compras]);
 
   const obterResumoCliente = useCallback((clienteId: string): ClienteResumoMensal | null => {
     return resumosMensais.find((r) => r.cliente.id === clienteId) || null;
@@ -125,11 +151,11 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const novaCompra = await dbRegisterCompra(clienteId, valor, avaliacao.pontuou, detalhes, carrinho, forma_pagamento);
     
-    // Atualiza estado local de compras
-    setCompras((prev) => [novaCompra, ...prev]);
+    // Atualiza estado local de compras sem duplicar
+    setCompras((prev) => prev.some(c => c.id === novaCompra.id) ? prev : [novaCompra, ...prev]);
     // Atualiza clientes (total histórico)
     setClientes((prev) => prev.map((c) => 
-      c.id === clienteId ? { ...c, total_compras_historico: (c.total_compras_historico || 0) + 1 } : c
+      c.id === novaCompra.cliente_id ? { ...c, total_compras_historico: (c.total_compras_historico || 0) + 1 } : c
     ));
 
     // Se bateu a meta e tiver webhook configurado, faz o disparo silencioso em background
@@ -157,7 +183,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const cadastrarERegistrarCompra = useCallback(async (nome: string, whatsapp: string, valor: number, detalhesCompra?: string | null, data_nascimento?: string | null, email?: string | null, notas?: string | null, carrinho?: ItemCarrinho[], forma_pagamento?: string) => {
     const novoCliente = await dbCreateCliente(nome, whatsapp, data_nascimento, email, notas);
-    setClientes((prev) => [...prev, novoCliente]);
+    setClientes((prev) => prev.some(c => c.id === novoCliente.id) ? prev : [...prev, novoCliente]);
 
     const res = await registrarNovaCompra(novoCliente.id, valor, detalhesCompra, carrinho, forma_pagamento);
     return {

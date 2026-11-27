@@ -97,7 +97,11 @@ export function calcularResumosMensais(
     let ultimaDataTimestamp = 0;
 
     for (const comp of clienteCompras) {
-      const compDate = new Date(comp.data_compra ? comp.data_compra + 'T00:00:00' : comp.criado_em);
+      const rawDate = comp.data_compra || comp.criado_em;
+      const compDate = rawDate && rawDate.length === 10
+        ? new Date(`${rawDate}T12:00:00`)
+        : new Date(rawDate);
+      if (Number.isNaN(compDate.getTime())) continue;
       const compYear = compDate.getFullYear();
       const compMonth = compDate.getMonth();
       const compTime = compDate.getTime();
@@ -164,7 +168,9 @@ export function calcularClientesSumidos(resumos: ClienteResumoMensal[]): Cliente
  */
 export function calcularMetricas(
   resumos: ClienteResumoMensal[], 
-  clientesSumidos?: ClienteResumoMensal[]
+  clientesSumidos?: ClienteResumoMensal[],
+  compras?: Compra[],
+  referenceDate?: Date
 ): MetricasGerais {
   const sumidos = clientesSumidos || calcularClientesSumidos(resumos);
 
@@ -181,6 +187,39 @@ export function calcularMetricas(
     }
     if (resumo.atingiu_meta) {
       premiosEntregues++;
+    }
+  }
+
+  // Quando a lista completa de compras é fornecida, soma todas as vendas do mês atual
+  // diretamente (garantindo que vendas balcão/comandas nunca fiquem de fora do KPI)
+  if (compras && compras.length > 0) {
+    const now = referenceDate ? new Date(referenceDate) : new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    let visitasDiretas = 0;
+    let faturamentoDireto = 0;
+    const clientesAtivosSet = new Set<string>();
+
+    for (const comp of compras) {
+      const rawDate = comp.data_compra || comp.criado_em;
+      const compDate = rawDate && rawDate.length === 10
+        ? new Date(`${rawDate}T12:00:00`)
+        : new Date(rawDate);
+      if (Number.isNaN(compDate.getTime())) continue;
+
+      if (compDate.getFullYear() === currentYear && compDate.getMonth() === currentMonth) {
+        visitasDiretas++;
+        faturamentoDireto += Number(comp.valor) || 0;
+        if (comp.cliente_id) {
+          clientesAtivosSet.add(comp.cliente_id);
+        }
+      }
+    }
+
+    totalVisitasMes = visitasDiretas;
+    faturamentoMes = faturamentoDireto;
+    if (clientesAtivos === 0 && clientesAtivosSet.size > 0) {
+      clientesAtivos = clientesAtivosSet.size;
     }
   }
 
