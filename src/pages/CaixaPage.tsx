@@ -141,9 +141,10 @@ export const CaixaPage: React.FC = () => {
   const [notasNovoCliente, setNotasNovoCliente] = useState('');
   const [formaPagamento, setFormaPagamento] = useState<'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro'>('pix');
 
-  // Módulo Fiscal / NF-e
+  // Módulo Fiscal / NF-e (emissão opcional por venda — o operador escolhe quando emitir)
   const [cpfNaNota, setCpfNaNota] = useState('');
-  const [emitirNfeCheck, setEmitirNfeCheck] = useState(true);
+  const [emitirNfeCheck, setEmitirNfeCheck] = useState(false);
+  const [emitirNfeComandaDireta, setEmitirNfeComandaDireta] = useState(false);
   const [modalNfe, setModalNfe] = useState<{ aberto: boolean; nota: NotaFiscal | null }>({ aberto: false, nota: null });
   const [configFiscal, setConfigFiscal] = useState<ConfiguracaoFiscal>(INITIAL_CONFIG_FISCAL);
 
@@ -185,7 +186,6 @@ export const CaixaPage: React.FC = () => {
     const carregarFiscal = () => {
       fetchConfigFiscal().then((cfg: ConfiguracaoFiscal) => {
         setConfigFiscal(cfg);
-        setEmitirNfeCheck(Boolean(cfg.emissao_automatica_pdv));
       });
     };
     carregarFiscal();
@@ -421,8 +421,8 @@ export const CaixaPage: React.FC = () => {
         setTimeout(() => setSucessoMensagem(null), 3500);
       }
 
-      // Emissão Fiscal Automática (NFC-e)
-      if (compraRegistrada && (emitirNfeCheck || cpfNaNota.trim() || configFiscal?.emissao_automatica_pdv)) {
+      // Emissão Fiscal Opcional (apenas quando o operador selecionou Emitir NFC-e nesta venda)
+      if (compraRegistrada && emitirNfeCheck) {
         try {
           const notaFiscal = await emitirNotaFiscal(
             compraRegistrada,
@@ -435,9 +435,11 @@ export const CaixaPage: React.FC = () => {
           );
           setModalNfe({ aberto: true, nota: notaFiscal });
         } catch (fiscalErr) {
-          console.warn('Emissão fiscal automática no PDV ignorada ou pendente:', fiscalErr);
+          console.warn('Emissão fiscal no PDV ignorada ou pendente:', fiscalErr);
         }
       }
+      setEmitirNfeCheck(false);
+      setCpfNaNota('');
 
       // REGRA DO USUÁRIO: Ao fechar pagamento da mesa, ela é liberada (sinal verde) e os pedidos da cozinha são concluídos
       if (mesaSelecionada) {
@@ -814,7 +816,7 @@ export const CaixaPage: React.FC = () => {
         compraRegistrada = res.compra;
       }
 
-      if (configFiscal.emissao_automatica_pdv && compraRegistrada) {
+      if (emitirNfeComandaDireta && compraRegistrada) {
         try {
           const nota = await emitirNotaFiscal(
             compraRegistrada,
@@ -823,9 +825,10 @@ export const CaixaPage: React.FC = () => {
           );
           setModalNfe({ aberto: true, nota });
         } catch (e) {
-          console.warn('Emissão fiscal automática pendente:', e);
+          console.warn('Emissão fiscal da comanda pendente:', e);
         }
       }
+      setEmitirNfeComandaDireta(false);
 
       await liberarMesaTotal(mesaMaisAtual.id, mesaMaisAtual.mesa_numero);
       setMesasAbertas(prev => prev.filter(m => m.id !== mesaMaisAtual.id && m.mesa_numero !== mesaMaisAtual.mesa_numero));
@@ -1847,47 +1850,74 @@ export const CaixaPage: React.FC = () => {
               </div>
             </div>
 
-            {/* OPÇÃO DE CPF NA NOTA & EMISSÃO FISCAL */}
-            <div className="bg-stone-50 rounded-2xl p-4 border border-stone-200/80 space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Receipt className="w-4 h-4 text-emerald-600" />
-                  <span>CPF na Nota Fiscal</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  {cpfNaNota && (
-                    <button
-                      type="button"
-                      onClick={() => setCpfNaNota('')}
-                      className="text-[11px] font-bold text-stone-400 hover:text-stone-600 transition-colors cursor-pointer"
-                    >
-                      Sem CPF
-                    </button>
-                  )}
-                  <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+            {/* OPÇÃO DE EMISSÃO FISCAL (ESCOLHA POR VENDA) & CPF NA NOTA */}
+            <div className={`rounded-2xl p-4 border transition-colors space-y-3 ${
+              emitirNfeCheck
+                ? 'bg-emerald-50/60 border-emerald-300'
+                : 'bg-stone-50 border-stone-200/80'
+            }`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Receipt className={`w-4 h-4 shrink-0 ${emitirNfeCheck ? 'text-emerald-600' : 'text-stone-400'}`} />
+                  <div>
+                    <span className="text-xs font-bold text-stone-800 block">
+                      Nota Fiscal (NFC-e)
+                    </span>
+                    <span className="text-[11px] text-stone-500 block">
+                      {emitirNfeCheck
+                        ? 'Será emitida ao confirmar esta venda'
+                        : 'Opcional — marque apenas quando desejar emitir'}
+                    </span>
+                  </div>
+                </div>
+
+                <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 select-none">
+                  <span className={`text-xs font-bold ${emitirNfeCheck ? 'text-emerald-700' : 'text-stone-500'}`}>
+                    {emitirNfeCheck ? 'Emitir' : 'Não emitir'}
+                  </span>
+                  <div className="relative inline-flex items-center">
                     <input
                       type="checkbox"
                       checked={emitirNfeCheck}
-                      onChange={e => setEmitirNfeCheck(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                      onChange={e => {
+                        setEmitirNfeCheck(e.target.checked);
+                        if (!e.target.checked) setCpfNaNota('');
+                      }}
+                      className="sr-only peer"
                     />
-                    <span>Emitir NFC-e</span>
-                  </label>
-                </div>
+                    <div className="w-10 h-6 bg-stone-300 rounded-full peer peer-checked:bg-emerald-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:shadow-xs after:transition-all peer-checked:after:translate-x-4" />
+                  </div>
+                </label>
               </div>
 
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="000.000.000-00 (Opcional)"
-                  value={cpfNaNota}
-                  onChange={e => {
-                    const raw = e.target.value.replace(/\D/g, '').slice(0, 11);
-                    setCpfNaNota(formatarCpf(raw));
-                  }}
-                  className="w-full px-4 py-2.5 bg-white border border-stone-300 rounded-xl text-sm font-mono font-bold focus:border-emerald-600 outline-none placeholder:text-stone-300"
-                />
-              </div>
+              {emitirNfeCheck && (
+                <div className="space-y-1.5 pt-2 border-t border-emerald-200/70 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-emerald-900">
+                      CPF na Nota (Opcional)
+                    </label>
+                    {cpfNaNota && (
+                      <button
+                        type="button"
+                        onClick={() => setCpfNaNota('')}
+                        className="text-[11px] font-bold text-stone-500 hover:text-stone-700 transition-colors cursor-pointer"
+                      >
+                        Limpar CPF
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="000.000.000-00 (Opcional)"
+                    value={cpfNaNota}
+                    onChange={e => {
+                      const raw = e.target.value.replace(/\D/g, '').slice(0, 11);
+                      setCpfNaNota(formatarCpf(raw));
+                    }}
+                    className="w-full px-4 py-2.5 bg-white border border-emerald-300 rounded-xl text-sm font-mono font-bold focus:border-emerald-600 outline-none placeholder:text-stone-300"
+                  />
+                </div>
+              )}
             </div>
 
             {/* CASO A: Cliente Identificado */}
@@ -2410,10 +2440,22 @@ export const CaixaPage: React.FC = () => {
                 </div>
 
                 {/* Ações de Cobrança Rápida Direta */}
-                <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-200/80">
-                  <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-800 block mb-2.5">
-                    ⚡ Cobrança Rápida Direta (1 Clique):
-                  </span>
+                <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-200/80 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-800">
+                      ⚡ Cobrança Rápida Direta (1 Clique):
+                    </span>
+
+                    <label className="inline-flex items-center gap-2 cursor-pointer select-none bg-white px-2.5 py-1 rounded-lg border border-emerald-200 text-xs font-semibold text-stone-700">
+                      <input
+                        type="checkbox"
+                        checked={emitirNfeComandaDireta}
+                        onChange={e => setEmitirNfeComandaDireta(e.target.checked)}
+                        className="rounded text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                      />
+                      <span>Emitir NFC-e</span>
+                    </label>
+                  </div>
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"

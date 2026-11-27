@@ -14,7 +14,7 @@ import {
 } from './db';
 import { cleanPhone, dispararWebhookWhatsApp, getWhatsAppUrl } from './whatsapp';
 
-export { fetchConfigFiscal, saveConfigFiscal, fetchNotasFiscais };
+export { fetchConfigFiscal, saveConfigFiscal, fetchNotasFiscais, saveNotaFiscal };
 
 /**
  * Cálculo do Dígito Verificador (Módulo 11) oficial da SEFAZ para Chave de Acesso (44 dígitos).
@@ -294,6 +294,91 @@ export async function cancelarDocumentoFiscal(
   } catch (err: any) {
     return { success: false, error: err?.message || 'Falha ao cancelar nota fiscal.' };
   }
+}
+
+/**
+ * Atualiza os dados editáveis de uma nota fiscal já registrada (cliente, CPF, WhatsApp,
+ * forma de pagamento, status e itens com recálculo automático de totais).
+ */
+export async function atualizarNotaFiscal(
+  notaOriginal: NotaFiscal,
+  alteracoes: {
+    cliente_nome?: string;
+    cliente_cpf?: string;
+    cliente_whatsapp?: string;
+    forma_pagamento?: string;
+    status?: NotaFiscal['status'];
+    motivo_cancelamento?: string;
+    itens?: ItemNotaFiscal[];
+  }
+): Promise<NotaFiscal> {
+  const itensNormalizados: ItemNotaFiscal[] = (alteracoes.itens ?? notaOriginal.itens).map(
+    (item, idx) => {
+      const qtd = Number(item.quantidade) || 1;
+      const vlUnit = Number(item.valor_unitario) || 0;
+      const sub = Number((qtd * vlUnit).toFixed(2));
+      return {
+        ...item,
+        numero_item: idx + 1,
+        quantidade: qtd,
+        valor_unitario: vlUnit,
+        subtotal: sub,
+        valor_total: sub
+      };
+    }
+  );
+
+  const valorProdutos = Number(
+    itensNormalizados.reduce((acc, i) => acc + Number(i.subtotal || 0), 0).toFixed(2)
+  );
+  const valorDesconto = Number(notaOriginal.valor_desconto || 0);
+  const valorTotal = Math.max(0, Number((valorProdutos - valorDesconto).toFixed(2)));
+  const cleanCpf = alteracoes.cliente_cpf !== undefined
+    ? alteracoes.cliente_cpf.replace(/\D/g, '') || undefined
+    : notaOriginal.cliente_cpf;
+  const cleanTel = alteracoes.cliente_whatsapp !== undefined
+    ? cleanPhone(alteracoes.cliente_whatsapp) || undefined
+    : notaOriginal.cliente_whatsapp;
+
+  const statusFinal = alteracoes.status || notaOriginal.status;
+  const motivoCancel =
+    statusFinal === 'cancelada'
+      ? (alteracoes.motivo_cancelamento?.trim() || notaOriginal.motivo_cancelamento || 'Cancelada via edição manual')
+      : undefined;
+
+  const notaAtualizada: NotaFiscal = {
+    ...notaOriginal,
+    cliente_nome: alteracoes.cliente_nome !== undefined ? (alteracoes.cliente_nome.trim() || undefined) : notaOriginal.cliente_nome,
+    cliente_cpf: cleanCpf,
+    cliente_cpf_cnpj: cleanCpf,
+    cliente_telefone: cleanTel,
+    cliente_whatsapp: cleanTel,
+    forma_pagamento: alteracoes.forma_pagamento || notaOriginal.forma_pagamento,
+    status: statusFinal,
+    motivo_cancelamento: motivoCancel,
+    motivo_status:
+      statusFinal === 'cancelada'
+        ? `Nota cancelada: ${motivoCancel}`
+        : 'Autorizado o uso da NF-e / NFC-e',
+    itens: itensNormalizados,
+    valor_produtos: valorProdutos,
+    valor_total: valorTotal,
+    valor_tributos_estimados: Number((valorTotal * 0.18).toFixed(2))
+  };
+
+  await saveNotaFiscal(notaAtualizada);
+
+  if (notaAtualizada.compra_id) {
+    await updateCompraComFiscal(notaAtualizada.compra_id, {
+      nota_fiscal_id: notaAtualizada.id,
+      nota_fiscal_chave: notaAtualizada.chave_acesso,
+      nota_fiscal_numero: notaAtualizada.numero,
+      danfe_url: notaAtualizada.danfe_url,
+      cpf_na_nota: notaAtualizada.cliente_cpf
+    });
+  }
+
+  return notaAtualizada;
 }
 
 /**
