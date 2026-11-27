@@ -1,41 +1,89 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend 
 } from 'recharts';
-import { Calendar, TrendingUp, Package, Users, Activity, BarChart2, Download, DollarSign, PieChart as PieChartIcon, ChevronDown, FileSpreadsheet, Loader2, Clock, ShoppingBag } from 'lucide-react';
+import { Calendar, TrendingUp, Package, Users, Activity, BarChart2, Download, DollarSign, PieChart as PieChartIcon, ChevronDown, FileSpreadsheet, Loader2, Clock, ShoppingBag, RefreshCw } from 'lucide-react';
 import { useLoyalty } from '../context/LoyaltyContext';
-import { Compra } from '../types';
+import { Compra, CustosFixosConfig, Produto, FichaTecnica, Insumo } from '../types';
 import { 
   filterComprasByDate, DateFilter, calcReceitaMensal, calcHorariosDePico, 
-  calcProdutosMaisVendidos, calcTicketMedioMensal, calcFidelizados,
-  calcFormasPagamento
+  calcProdutosMaisVendidos, calcFidelizados,
+  calcFormasPagamento, estimarCustoCompra, parseCompraDate
 } from '../services/bi';
-import { supabase, isSupabaseConfigured } from '../services/supabase';
-import { getLocal, STORAGE_KEYS, fetchCustosFixos, saveCustosFixos, fetchProdutos, fetchInsumos, fetchFichasTecnicas, fetchFornecedores } from '../services/db';
+import { 
+  fetchCustosFixos, saveCustosFixos, fetchProdutos, fetchInsumos, 
+  fetchFichasTecnicas, fetchFornecedores 
+} from '../services/db';
 import { AlertModal } from './AlertModal';
-import { CustosFixosConfig } from '../types';
 import { exportarRelatorioExcelProfissional, exportarRelatorioCSVFormatado } from '../services/excelReport';
 
 const COLORS = ['#d97706', '#9ca3af', '#059669', '#3b82f6'];
+const PAYMENT_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#78716c'];
 
 export const BiReports: React.FC = () => {
-  const { compras: contextCompras, loading: contextLoading } = useLoyalty();
+  const { compras: contextCompras, clientes, loading: contextLoading, recarregarDados } = useLoyalty();
   const [filter, setFilter] = useState<DateFilter>('30d');
-  const [fallbackCompras, setFallbackCompras] = useState<Compra[]>([]);
-  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'dre'>('overview');
   const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: 'Aviso', message: '' });
   const customAlert = (msg: string) => setAlertConfig({ isOpen: true, title: 'Aviso', message: msg });
   const [custosConfig, setCustosConfig] = useState<CustosFixosConfig>({ tipo: 'percentual', valor: 0 });
   const [custosLoading, setCustosLoading] = useState(true);
+  const [atualizando, setAtualizando] = useState(false);
+
+  // Dados de Catálogo & CMV conectados ao BI/DRE em tempo real
+  const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [fichas, setFichas] = useState<FichaTecnica[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
+
+  const carregarDadosApoio = useCallback(async () => {
+    try {
+      const [cfg, prods, fts, ins] = await Promise.all([
+        fetchCustosFixos(),
+        fetchProdutos(),
+        fetchFichasTecnicas(),
+        fetchInsumos()
+      ]);
+      setCustosConfig(cfg);
+      setProdutos(prods);
+      setFichas(fts);
+      setInsumos(ins);
+    } catch (e) {
+      console.warn('Erro ao carregar dados de apoio do BI:', e);
+    } finally {
+      setCustosLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    fetchCustosFixos().then(config => {
-      setCustosConfig(config);
-      setCustosLoading(false);
-    });
-  }, []);
+    carregarDadosApoio();
+    recarregarDados(true);
+
+    const handleSyncApoio = () => {
+      carregarDadosApoio();
+    };
+
+    window.addEventListener('produtos_atualizados', handleSyncApoio);
+    window.addEventListener('catalogo_atualizado', handleSyncApoio);
+    window.addEventListener('fichas_atualizadas', handleSyncApoio);
+    window.addEventListener('insumos_atualizados', handleSyncApoio);
+
+    return () => {
+      window.removeEventListener('produtos_atualizados', handleSyncApoio);
+      window.removeEventListener('catalogo_atualizado', handleSyncApoio);
+      window.removeEventListener('fichas_atualizadas', handleSyncApoio);
+      window.removeEventListener('insumos_atualizados', handleSyncApoio);
+    };
+  }, [carregarDadosApoio, recarregarDados]);
+
+  const handleAtualizarManual = async () => {
+    setAtualizando(true);
+    try {
+      await Promise.all([recarregarDados(true), carregarDadosApoio()]);
+    } finally {
+      setAtualizando(false);
+    }
+  };
 
   const handleSaveCustos = async () => {
     await saveCustosFixos(custosConfig);
@@ -44,10 +92,52 @@ export const BiReports: React.FC = () => {
 
   const [gerandoExcel, setGerandoExcel] = useState(false);
 
+  // Enriquece cada compra com CMV real calculado pelas Fichas Técnicas / Insumos / Custo do Catálogo
+  const comprasEnriquecidas: Compra[] = useMemo(() => {
+    return (contextCompras || []).map(c => {
+      const custoEstimado = estimarCustoCompra(c, produtos, fichas, insumos);
+      return {
+        ...c,
+        valor: Number(c.valor) || 0,
+        custo_total: custoEstimado
+      };
+    });
+  }, [contextCompras, produtos, fichas, insumos]);
+
+  const filtered = useMemo(
+    () => filterComprasByDate(comprasEnriquecidas, filter),
+    [comprasEnriquecidas, filter]
+  );
+
+  const receitaData = useMemo(() => calcReceitaMensal(filtered), [filtered]);
+  const horariosData = useMemo(() => calcHorariosDePico(filtered), [filtered]);
+  const produtosData = useMemo(() => calcProdutosMaisVendidos(filtered), [filtered]);
+  const fidelizadosData = useMemo(() => calcFidelizados(filtered, clientes), [filtered, clientes]);
+  const formasPagamentoData = useMemo(() => calcFormasPagamento(filtered), [filtered]);
+
+  const totalReceita = useMemo(
+    () => filtered.reduce((acc, c) => acc + (Number(c.valor) || 0), 0),
+    [filtered]
+  );
+  const totalVisitas = filtered.length;
+  const ticketMedio = totalVisitas > 0 ? totalReceita / totalVisitas : 0;
+
+  // Totais consolidados do DRE
+  const dreResumo = useMemo(() => {
+    const diasNoFiltro = filter === 'hoje' ? 1 : filter === '7d' ? 7 : 30;
+    const totalCmv = filtered.reduce((acc, c) => acc + (Number(c.custo_total) || 0), 0);
+    const totalCustoFixo = custosConfig.tipo === 'mensal'
+      ? (custosConfig.valor / 30) * diasNoFiltro
+      : totalReceita * (custosConfig.valor / 100);
+    const lucroLiquido = totalReceita - totalCmv - totalCustoFixo;
+    const margemPct = totalReceita > 0 ? (lucroLiquido / totalReceita) * 100 : 0;
+    return { totalCmv, totalCustoFixo, lucroLiquido, margemPct };
+  }, [filtered, filter, custosConfig, totalReceita]);
+
   const handleExportExcel = async () => {
     try {
       setGerandoExcel(true);
-      const [produtos, insumos, fichas, fornecedores] = await Promise.all([
+      const [prodsAtual, insAtual, fichasAtual, fornecedores] = await Promise.all([
         fetchProdutos(),
         fetchInsumos(),
         fetchFichasTecnicas(),
@@ -63,9 +153,9 @@ export const BiReports: React.FC = () => {
 
       await exportarRelatorioExcelProfissional({
         vendas: filtered,
-        produtos,
-        insumos,
-        fichas,
+        produtos: prodsAtual,
+        insumos: insAtual,
+        fichas: fichasAtual,
         fornecedores,
         custosConfig,
         filtroNome: filtroLabelMap[filter] || 'Personalizado'
@@ -88,30 +178,13 @@ export const BiReports: React.FC = () => {
     exportarRelatorioCSVFormatado(filtered, custosConfig, filtroLabelMap[filter] || 'Personalizado');
   };
 
-
-  useEffect(() => {
-    if (!contextCompras || contextCompras.length === 0) {
-      const data = getLocal<Compra[]>(STORAGE_KEYS.COMPRAS, []);
-      setFallbackCompras(data);
-    }
-  }, [contextCompras]);
-
-  const compras = (contextCompras && contextCompras.length > 0) ? contextCompras : fallbackCompras;
-  const filtered = useMemo(() => filterComprasByDate(compras, filter), [compras, filter]);
-
-  const receitaData = useMemo(() => calcReceitaMensal(filtered), [filtered]);
-  const horariosData = useMemo(() => calcHorariosDePico(filtered), [filtered]);
-  const produtosData = useMemo(() => calcProdutosMaisVendidos(filtered), [filtered]);
-  const ticketData = useMemo(() => calcTicketMedioMensal(filtered), [filtered]);
-  const fidelizadosData = useMemo(() => calcFidelizados(filtered), [filtered]);
-  const formasPagamentoData = useMemo(() => calcFormasPagamento(filtered), [filtered]);
-
-  const totalReceita = filtered.reduce((acc, c) => acc + c.valor, 0);
-  const totalVisitas = filtered.length;
-  const ticketMedio = totalVisitas > 0 ? totalReceita / totalVisitas : 0;
-
-  if (loading) {
-    return <div className="p-8 text-center text-stone-500 font-bold">Carregando dados...</div>;
+  if (contextLoading && contextCompras.length === 0) {
+    return (
+      <div className="bg-white rounded-3xl border border-stone-200 p-12 text-center text-stone-500 font-bold flex items-center justify-center gap-2">
+        <Loader2 className="w-5 h-5 animate-spin text-amber-600" />
+        <span>Carregando inteligência de vendas...</span>
+      </div>
+    );
   }
 
   return (
@@ -124,46 +197,64 @@ export const BiReports: React.FC = () => {
             Inteligência de Vendas (BI)
           </h2>
           <p className="text-sm text-stone-500 mt-1 mb-4">
-            Análise detalhada de faturamento, ticket médio e comportamento de compra.
+            Análise integrada em tempo real com Caixa, Comandas, NF-e e CMV / Fichas Técnicas.
           </p>
-          <div className="flex bg-stone-100 p-1 rounded-xl w-fit">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex bg-stone-100 p-1 rounded-xl w-fit">
               <button
+                type="button"
                 onClick={() => setActiveTab('overview')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'overview' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${activeTab === 'overview' ? 'bg-white shadow text-amber-700' : 'text-stone-500 hover:text-stone-700'}`}
               >
                 <PieChartIcon className="w-4 h-4" /> Visão Geral
               </button>
               <button
+                type="button"
                 onClick={() => setActiveTab('dre')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'dre' ? 'bg-white shadow text-green-700' : 'text-stone-500 hover:text-stone-700'}`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${activeTab === 'dre' ? 'bg-white shadow text-green-700' : 'text-stone-500 hover:text-stone-700'}`}
               >
                 <DollarSign className="w-4 h-4" /> DRE / Lucratividade
               </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleAtualizarManual}
+              disabled={atualizando}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-stone-700 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+              title="Sincronizar vendas e custos agora"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${atualizando ? 'animate-spin text-amber-600' : 'text-stone-500'}`} />
+              <span>{atualizando ? 'Sincronizando...' : 'Atualizar'}</span>
+            </button>
           </div>
         </div>
         
         <div className="flex overflow-x-auto bg-stone-100 p-1 rounded-xl w-full sm:w-auto hide-scrollbar">
           <button
+            type="button"
             onClick={() => setFilter('hoje')}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filter === 'hoje' ? 'bg-white shadow text-stone-900' : 'text-stone-500 hover:text-stone-700'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${filter === 'hoje' ? 'bg-white shadow text-stone-900' : 'text-stone-500 hover:text-stone-700'}`}
           >
             Hoje
           </button>
           <button
+            type="button"
             onClick={() => setFilter('7d')}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filter === '7d' ? 'bg-white shadow text-stone-900' : 'text-stone-500 hover:text-stone-700'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${filter === '7d' ? 'bg-white shadow text-stone-900' : 'text-stone-500 hover:text-stone-700'}`}
           >
             7 Dias
           </button>
           <button
+            type="button"
             onClick={() => setFilter('30d')}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filter === '30d' ? 'bg-white shadow text-stone-900' : 'text-stone-500 hover:text-stone-700'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${filter === '30d' ? 'bg-white shadow text-stone-900' : 'text-stone-500 hover:text-stone-700'}`}
           >
             30 Dias
           </button>
           <button
+            type="button"
             onClick={() => setFilter('tudo')}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filter === 'tudo' ? 'bg-white shadow text-stone-900' : 'text-stone-500 hover:text-stone-700'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${filter === 'tudo' ? 'bg-white shadow text-stone-900' : 'text-stone-500 hover:text-stone-700'}`}
           >
             Tudo
           </button>
@@ -179,7 +270,7 @@ export const BiReports: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-bold text-stone-500 uppercase">Receita Bruta</p>
-            <p className="text-2xl font-black text-stone-900 font-mono">R$ {totalReceita.toFixed(2)}</p>
+            <p className="text-2xl font-black text-stone-900 font-mono tabular-nums">R$ {totalReceita.toFixed(2)}</p>
           </div>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm flex items-center gap-4">
@@ -188,7 +279,7 @@ export const BiReports: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-bold text-stone-500 uppercase">Total de Vendas</p>
-            <p className="text-2xl font-black text-stone-900 font-mono">{totalVisitas}</p>
+            <p className="text-2xl font-black text-stone-900 font-mono tabular-nums">{totalVisitas}</p>
           </div>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm flex items-center gap-4">
@@ -197,7 +288,7 @@ export const BiReports: React.FC = () => {
           </div>
           <div>
             <p className="text-xs font-bold text-stone-500 uppercase">Ticket Médio</p>
-            <p className="text-2xl font-black text-stone-900 font-mono">R$ {ticketMedio.toFixed(2)}</p>
+            <p className="text-2xl font-black text-stone-900 font-mono tabular-nums">R$ {ticketMedio.toFixed(2)}</p>
           </div>
         </div>
       </div>
@@ -209,15 +300,21 @@ export const BiReports: React.FC = () => {
             <TrendingUp className="w-5 h-5 text-amber-500" /> Receita por Dia
           </h3>
           <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={receitaData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="data" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} tickFormatter={(v) => `R${v}`} />
-                <Tooltip formatter={(val: any) => [`R$ ${Number(val).toFixed(2)}`, 'Receita']} labelStyle={{ color: '#1f2937', fontWeight: 'bold' }} />
-                <Line type="monotone" dataKey="receita" stroke="#d97706" strokeWidth={3} dot={{ r: 4, fill: '#d97706', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {receitaData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={receitaData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="data" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} tickFormatter={(v) => `R$${v}`} />
+                  <Tooltip formatter={(val: any) => [`R$ ${Number(val).toFixed(2)}`, 'Receita']} labelStyle={{ color: '#1f2937', fontWeight: 'bold' }} />
+                  <Line type="monotone" dataKey="receita" stroke="#d97706" strokeWidth={3} dot={{ r: 4, fill: '#d97706', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-stone-400 font-medium">
+                Nenhuma venda registrada neste período.
+              </div>
+            )}
           </div>
         </div>
 
@@ -227,15 +324,21 @@ export const BiReports: React.FC = () => {
             <Calendar className="w-5 h-5 text-blue-500" /> Horários de Pico
           </h3>
           <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={horariosData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="hora" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
-                <Tooltip cursor={{ fill: '#f3f4f6' }} formatter={(val: any) => [val, 'Vendas']} labelStyle={{ color: '#1f2937', fontWeight: 'bold' }} />
-                <Bar dataKey="volume" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {totalVisitas > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={horariosData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="hora" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
+                  <Tooltip cursor={{ fill: '#f3f4f6' }} formatter={(val: any) => [val, 'Vendas']} labelStyle={{ color: '#1f2937', fontWeight: 'bold' }} />
+                  <Bar dataKey="volume" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-stone-400 font-medium">
+                Nenhuma venda registrada neste período.
+              </div>
+            )}
           </div>
         </div>
 
@@ -245,15 +348,21 @@ export const BiReports: React.FC = () => {
             <Package className="w-5 h-5 text-emerald-500" /> Top 10 Produtos
           </h3>
           <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={produtosData} layout="vertical" margin={{ left: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
-                <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
-                <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#4b5563' }} width={100} />
-                <Tooltip cursor={{ fill: '#f3f4f6' }} formatter={(val: any) => [val, 'Unidades']} labelStyle={{ color: '#1f2937', fontWeight: 'bold' }} />
-                <Bar dataKey="qtd" fill="#10b981" radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
+            {produtosData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={produtosData} layout="vertical" margin={{ left: 20, right: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
+                  <YAxis type="category" dataKey="nome" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#4b5563' }} width={120} />
+                  <Tooltip cursor={{ fill: '#f3f4f6' }} formatter={(val: any) => [val, 'Unidades']} labelStyle={{ color: '#1f2937', fontWeight: 'bold' }} />
+                  <Bar dataKey="qtd" fill="#10b981" radius={[0, 4, 4, 0]} barSize={18} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-stone-400 font-medium">
+                Nenhum item detalhado neste período.
+              </div>
+            )}
           </div>
         </div>
 
@@ -263,53 +372,65 @@ export const BiReports: React.FC = () => {
             <Users className="w-5 h-5 text-purple-500" /> Identificados vs Anônimos
           </h3>
           <div className="h-64 w-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={fidelizadosData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {fidelizadosData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(val: any) => [`${val} vendas`, 'Quantidade']} />
-                <Legend verticalAlign="bottom" height={36} iconType="circle" />
-              </PieChart>
-            </ResponsiveContainer>
+            {fidelizadosData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={fidelizadosData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {fidelizadosData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(val: any) => [`${val} vendas`, 'Quantidade']} />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-sm text-stone-400 font-medium">
+                Nenhuma venda registrada neste período.
+              </div>
+            )}
           </div>
         </div>
 
         {/* Receita por Forma de Pagamento */}
-        <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm">
+        <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm lg:col-span-2">
           <h3 className="text-lg font-black text-stone-900 mb-4 flex items-center gap-2">
             <Activity className="w-5 h-5 text-indigo-500" /> Formas de Pagamento
           </h3>
           <div className="h-64 w-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={formasPagamentoData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {formasPagamentoData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444'][index % 5]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(val: any) => [`R$ ${Number(val).toFixed(2)}`, 'Receita']} />
-                <Legend verticalAlign="bottom" height={36} iconType="circle" />
-              </PieChart>
-            </ResponsiveContainer>
+            {formasPagamentoData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={formasPagamentoData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={85}
+                    paddingAngle={4}
+                    dataKey="value"
+                  >
+                    {formasPagamentoData.map((entry, index) => (
+                      <Cell key={`cell-pgto-${index}`} fill={PAYMENT_COLORS[index % PAYMENT_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(val: any) => [`R$ ${Number(val).toFixed(2)}`, 'Receita']} />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-sm text-stone-400 font-medium">
+                Nenhum pagamento registrado neste período.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -317,6 +438,37 @@ export const BiReports: React.FC = () => {
 
       {activeTab === 'dre' && (
         <div className="space-y-6 animate-fadeIn">
+          {/* Resumo DRE Consolidado */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
+              <p className="text-xs font-bold text-stone-500 uppercase">Receita Bruta</p>
+              <p className="text-2xl font-black text-stone-900 font-mono tabular-nums mt-1">
+                R$ {totalReceita.toFixed(2)}
+              </p>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
+              <p className="text-xs font-bold text-red-500 uppercase">CMV (Insumos / Fichas)</p>
+              <p className="text-2xl font-black text-red-600 font-mono tabular-nums mt-1">
+                - R$ {dreResumo.totalCmv.toFixed(2)}
+              </p>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
+              <p className="text-xs font-bold text-amber-600 uppercase">Custos Fixos (Rateio)</p>
+              <p className="text-2xl font-black text-amber-700 font-mono tabular-nums mt-1">
+                - R$ {dreResumo.totalCustoFixo.toFixed(2)}
+              </p>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-sm">
+              <p className="text-xs font-bold text-emerald-700 uppercase">Lucro Líquido Real</p>
+              <p className="text-2xl font-black text-emerald-700 font-mono tabular-nums mt-1">
+                R$ {dreResumo.lucroLiquido.toFixed(2)}
+              </p>
+              <p className="text-xs text-stone-500 mt-0.5 font-medium">
+                Margem líquida: <strong className="text-stone-800">{dreResumo.margemPct.toFixed(1)}%</strong>
+              </p>
+            </div>
+          </div>
+
           <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm flex flex-col md:flex-row gap-6 justify-between items-start">
             <div>
               <h3 className="text-lg font-black text-stone-900 mb-2">Configuração de Custos Fixos</h3>
@@ -328,14 +480,17 @@ export const BiReports: React.FC = () => {
                 <div className="flex flex-col sm:flex-row gap-4 items-end">
                   <div>
                     <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1">Modo de Abatimento</label>
-                    <div className="relative"><select 
-                      className="bg-stone-50 border border-stone-200 text-stone-700 py-2.5 px-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 w-full appearance-none"
-                      value={custosConfig.tipo}
-                      onChange={(e) => setCustosConfig({...custosConfig, tipo: e.target.value as 'mensal' | 'percentual'})}
-                    >
-                      <option value="mensal">Valor Fixo Mensal (R$)</option>
-                      <option value="percentual">Porcentagem das Vendas (%)</option>
-                    </select><ChevronDown className="w-4 h-4 absolute right-3 top-3.5 text-stone-400 pointer-events-none" /></div>
+                    <div className="relative">
+                      <select 
+                        className="bg-stone-50 border border-stone-200 text-stone-700 py-2.5 px-3 pr-9 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 w-full appearance-none"
+                        value={custosConfig.tipo}
+                        onChange={(e) => setCustosConfig({...custosConfig, tipo: e.target.value as 'mensal' | 'percentual'})}
+                      >
+                        <option value="mensal">Valor Fixo Mensal (R$)</option>
+                        <option value="percentual">Porcentagem das Vendas (%)</option>
+                      </select>
+                      <ChevronDown className="w-4 h-4 absolute right-3 top-3.5 text-stone-400 pointer-events-none" />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1">
@@ -349,8 +504,9 @@ export const BiReports: React.FC = () => {
                     />
                   </div>
                   <button 
+                    type="button"
                     onClick={handleSaveCustos}
-                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-6 rounded-xl transition-colors shadow-sm"
+                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-6 rounded-xl transition-colors shadow-sm cursor-pointer"
                   >
                     Salvar Regra
                   </button>
@@ -360,6 +516,7 @@ export const BiReports: React.FC = () => {
             
             <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
                <button 
+                  type="button"
                   onClick={handleExportExcel}
                   disabled={gerandoExcel}
                   className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold py-3 px-5 rounded-xl transition-all shadow-md disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
@@ -379,8 +536,9 @@ export const BiReports: React.FC = () => {
                 </button>
 
                 <button 
+                  type="button"
                   onClick={handleExportCSV}
-                  className="flex items-center justify-center gap-1.5 text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 font-semibold py-3 px-4 rounded-xl text-xs transition-colors"
+                  className="flex items-center justify-center gap-1.5 text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 font-semibold py-3 px-4 rounded-xl text-xs transition-colors cursor-pointer"
                   title="Exporta arquivo .CSV formatado para Excel Brasil (separador ponto e vírgula)"
                 >
                   <Download className="w-4 h-4" />
@@ -404,9 +562,7 @@ export const BiReports: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-stone-100">
                     {filtered.map(c => {
-                       let diasNoFiltro = 30;
-                       if (filter === 'hoje') diasNoFiltro = 1;
-                       if (filter === '7d') diasNoFiltro = 7;
+                       const diasNoFiltro = filter === 'hoje' ? 1 : filter === '7d' ? 7 : 30;
                        let totalCustoFixoAbater = 0;
                        if (custosConfig.tipo === 'mensal') {
                          totalCustoFixoAbater = (custosConfig.valor / 30) * diasNoFiltro;
@@ -414,37 +570,26 @@ export const BiReports: React.FC = () => {
                        const countVendas = filtered.length;
                        const custoFixoPorVenda = countVendas > 0 ? (totalCustoFixoAbater / countVendas) : 0;
                        
-                       const custoVar = c.custo_total || 0;
-                       const faturamento = c.valor || 0;
-                       let custoFixoDaVenda = 0;
-                       if (custosConfig.tipo === 'mensal') {
-                         custoFixoDaVenda = custoFixoPorVenda;
-                       } else {
-                         custoFixoDaVenda = faturamento * (custosConfig.valor / 100);
-                       }
+                       const custoVar = Number(c.custo_total) || 0;
+                       const faturamento = Number(c.valor) || 0;
+                       const custoFixoDaVenda = custosConfig.tipo === 'mensal'
+                         ? custoFixoPorVenda
+                         : faturamento * (custosConfig.valor / 100);
                        const lucroLiquido = faturamento - custoVar - custoFixoDaVenda;
 
-                       // Formatação precisa da data e hora da venda
-                       let dataFormatada = c.data_compra || '';
-                       let horaFormatada = '--:--';
-                       if (c.criado_em) {
-                         try {
-                           const d = new Date(c.criado_em);
-                           if (!isNaN(d.getTime())) {
-                             dataFormatada = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                             horaFormatada = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                           }
-                         } catch {
-                           // fallback
-                         }
-                       } else if (c.data_compra && c.data_compra.includes('-')) {
-                         const pts = c.data_compra.split('-');
-                         if (pts.length === 3) dataFormatada = `${pts[2]}/${pts[1]}/${pts[0]}`;
-                       }
+                       const dt = parseCompraDate(c);
+                       const dataFormatada = dt.getTime() > 0
+                         ? dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                         : (c.data_compra || '');
+                       const horaFormatada = dt.getTime() > 0 && c.criado_em
+                         ? dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                         : '--:--';
 
-                       // Extrair os produtos vendidos da venda
-                       const produtosVendidos = c.detalhes 
-                         ? c.detalhes.split(',').map(p => p.trim()).filter(Boolean)
+                       const detalhesLimpos = (c.detalhes || '')
+                         .replace(/\s*\[(PIX|DINHEIRO|CARTAO_CREDITO|CARTAO_DEBITO|OUTROS)\]\s*/gi, '')
+                         .trim();
+                       const produtosVendidos = detalhesLimpos
+                         ? detalhesLimpos.split(',').map(p => p.trim()).filter(Boolean)
                          : ['Venda no Caixa (Geral)'];
 
                        return (
@@ -471,16 +616,16 @@ export const BiReports: React.FC = () => {
                                ))}
                              </div>
                            </td>
-                           <td className="py-4 px-6 font-bold text-stone-900 whitespace-nowrap">
+                           <td className="py-4 px-6 font-bold text-stone-900 whitespace-nowrap font-mono tabular-nums">
                              R$ {faturamento.toFixed(2)}
                            </td>
-                           <td className="py-4 px-6 text-red-600 font-semibold whitespace-nowrap">
+                           <td className="py-4 px-6 text-red-600 font-semibold whitespace-nowrap font-mono tabular-nums">
                              - R$ {custoVar.toFixed(2)}
                            </td>
-                           <td className="py-4 px-6 text-orange-600 font-semibold whitespace-nowrap">
+                           <td className="py-4 px-6 text-orange-600 font-semibold whitespace-nowrap font-mono tabular-nums">
                              - R$ {custoFixoDaVenda.toFixed(2)}
                            </td>
-                           <td className="py-4 px-6 font-black text-green-600 whitespace-nowrap">
+                           <td className="py-4 px-6 font-black text-green-600 whitespace-nowrap font-mono tabular-nums">
                              R$ {lucroLiquido.toFixed(2)}
                            </td>
                          </tr>

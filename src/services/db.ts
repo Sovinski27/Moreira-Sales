@@ -586,6 +586,21 @@ export async function registerCompra(
 
     if (insumosUpdated) {
       setLocal(STORAGE_KEYS.INSUMOS, newInsumos);
+      if (isSupabaseConfigured && supabase) {
+        const alterados = newInsumos.filter((ins, idx) =>
+          insumosDb[idx] && ins.quantidade_estoque !== insumosDb[idx].quantidade_estoque
+        );
+        for (const ins of alterados) {
+          supabase
+            .from('insumos')
+            .update({
+              quantidade_estoque: ins.quantidade_estoque,
+              estoque_atual: ins.quantidade_estoque
+            })
+            .eq('id', ins.id)
+            .then(() => {}, () => {});
+        }
+      }
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('insumos_atualizados'));
       }
@@ -3157,6 +3172,59 @@ export async function updateCompraComFiscal(compraId: string, dadosFiscal: {
   // Tabela compras no Supabase não possui colunas fiscais dedicadas; vínculo oficial fica em notas_fiscais.compra_id
   const compras = getLocal<Compra[]>(STORAGE_KEYS.COMPRAS, []);
   const updated = compras.map(c => c.id === compraId ? { ...c, ...dadosFiscal } : c);
+  setLocal(STORAGE_KEYS.COMPRAS, updated);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('compras_atualizadas'));
+  }
+}
+
+/**
+ * Mantém a tabela `compras` (KPIs e BI) sincronizada quando uma NF-e é editada ou cancelada.
+ */
+export async function syncCompraComNota(
+  compraId: string,
+  alteracoes: {
+    valor?: number;
+    detalhes?: string;
+    forma_pagamento?: string;
+    cancelada?: boolean;
+  }
+): Promise<void> {
+  if (!compraId) return;
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      if (alteracoes.cancelada) {
+        await supabase.from('compras').delete().eq('id', compraId);
+      } else {
+        const updatePayload: Record<string, any> = {};
+        if (alteracoes.valor !== undefined) updatePayload.valor = Number(alteracoes.valor.toFixed(2));
+        if (alteracoes.detalhes !== undefined) {
+          const pgtoTag = alteracoes.forma_pagamento ? ` [${alteracoes.forma_pagamento.toUpperCase()}]` : '';
+          updatePayload.detalhes = `${alteracoes.detalhes}${pgtoTag}`.trim();
+        }
+        if (Object.keys(updatePayload).length > 0) {
+          await supabase.from('compras').update(updatePayload).eq('id', compraId);
+        }
+      }
+    } catch (e) {
+      console.warn('Falha ao sincronizar compra após edição de NF-e:', e);
+    }
+  }
+
+  const compras = getLocal<Compra[]>(STORAGE_KEYS.COMPRAS, []);
+  const updated = alteracoes.cancelada
+    ? compras.filter(c => c.id !== compraId)
+    : compras.map(c => {
+        if (c.id !== compraId) return c;
+        return {
+          ...c,
+          valor: alteracoes.valor !== undefined ? Number(alteracoes.valor.toFixed(2)) : c.valor,
+          detalhes: alteracoes.detalhes !== undefined ? alteracoes.detalhes : c.detalhes,
+          forma_pagamento: alteracoes.forma_pagamento || c.forma_pagamento
+        };
+      });
+
   setLocal(STORAGE_KEYS.COMPRAS, updated);
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('compras_atualizadas'));

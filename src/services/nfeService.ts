@@ -10,7 +10,8 @@ import {
   saveConfigFiscal, 
   fetchNotasFiscais, 
   saveNotaFiscal, 
-  updateCompraComFiscal 
+  updateCompraComFiscal,
+  syncCompraComNota
 } from './db';
 import { cleanPhone, dispararWebhookWhatsApp, getWhatsAppUrl } from './whatsapp';
 
@@ -290,6 +291,9 @@ export async function cancelarDocumentoFiscal(
     };
 
     await saveNotaFiscal(notaAtualizada);
+    if (notaAtualizada.compra_id) {
+      await syncCompraComNota(notaAtualizada.compra_id, { cancelada: true });
+    }
     return { success: true, nota: notaAtualizada };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Falha ao cancelar nota fiscal.' };
@@ -369,6 +373,15 @@ export async function atualizarNotaFiscal(
   await saveNotaFiscal(notaAtualizada);
 
   if (notaAtualizada.compra_id) {
+    const detalhesItens = itensNormalizados
+      .map(i => `${i.quantidade}x ${i.nome}`)
+      .join(', ');
+    await syncCompraComNota(notaAtualizada.compra_id, {
+      valor: valorTotal,
+      detalhes: detalhesItens,
+      forma_pagamento: notaAtualizada.forma_pagamento,
+      cancelada: statusFinal === 'cancelada'
+    });
     await updateCompraComFiscal(notaAtualizada.compra_id, {
       nota_fiscal_id: notaAtualizada.id,
       nota_fiscal_chave: notaAtualizada.chave_acesso,

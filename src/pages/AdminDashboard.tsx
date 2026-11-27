@@ -67,7 +67,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     config, 
     salvarConfiguracoes,
     marcarContatoRealizado,
-    reiniciarDadosDemo
+    reiniciarDadosDemo,
+    recarregarDados
   } = useLoyalty();
 
   // Modal Profile
@@ -190,6 +191,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       window.removeEventListener('storage', recarregarCatalogoAdmin);
     };
   }, [recarregarCatalogoAdmin]);
+
+  // Sempre sincronizar vendas, clientes e KPIs ao trocar de aba no painel
+  useEffect(() => {
+    recarregarDados(true);
+  }, [activeSubTab, recarregarDados]);
 
   // Sincroniza campos do formulário quando config for atualizada externamente (ex: restauração de demo)
   useEffect(() => {

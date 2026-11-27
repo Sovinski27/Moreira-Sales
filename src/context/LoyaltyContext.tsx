@@ -21,7 +21,7 @@ import {
   updateCliente as dbUpdateCliente
 } from '../services/db';
 import { dispararWebhookWhatsApp, buildWhatsAppMessage } from '../services/whatsapp';
-import { isSupabaseConfigured } from '../services/supabase';
+import { isSupabaseConfigured, supabase } from '../services/supabase';
 import { 
   calcularResumosMensais, 
   calcularClientesSumidos, 
@@ -47,6 +47,7 @@ interface LoyaltyContextType {
   obterResumoCliente: (clienteId: string) => ClienteResumoMensal | null;
   marcarContatoRealizado: (clienteId: string) => Promise<void>;
   atualizarCliente: (clienteId: string, updates: Partial<Cliente>) => Promise<Cliente | null>;
+  recarregarDados: (silent?: boolean) => Promise<void>;
 }
 
 const LoyaltyContext = createContext<LoyaltyContextType | undefined>(undefined);
@@ -115,13 +116,45 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     window.addEventListener('compras_atualizadas', handleSync);
     window.addEventListener('clientes_atualizados', handleSync);
     window.addEventListener('notas_fiscais_atualizadas', handleSync);
+    window.addEventListener('storage', handleSync);
     document.addEventListener('visibilitychange', handleVisibility);
+
+    // Sincronização periódica leve (10s) enquanto a aba estiver visível para conversar entre dispositivos (Caixa -> Admin/BI)
+    const pollInterval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        carregarTudo(true);
+      }
+    }, 10000);
+
+    // Supabase Realtime para atualização instantânea entre dispositivos
+    let realtimeChannel: any = null;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        realtimeChannel = supabase
+          .channel('moreira-sales-global-sync')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'compras' }, handleSync)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, handleSync)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'notas_fiscais' }, handleSync)
+          .subscribe();
+      } catch (e) {
+        console.warn('Realtime indisponível, mantendo polling periódico:', e);
+      }
+    }
 
     return () => {
       if (syncTimer) clearTimeout(syncTimer);
+      clearInterval(pollInterval);
+      if (realtimeChannel && supabase) {
+        try {
+          supabase.removeChannel(realtimeChannel);
+        } catch {
+          // noop
+        }
+      }
       window.removeEventListener('compras_atualizadas', handleSync);
       window.removeEventListener('clientes_atualizados', handleSync);
       window.removeEventListener('notas_fiscais_atualizadas', handleSync);
+      window.removeEventListener('storage', handleSync);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [carregarTudo]);
@@ -235,7 +268,8 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         reiniciarDadosDemo,
         obterResumoCliente,
         marcarContatoRealizado,
-        atualizarCliente
+        atualizarCliente,
+        recarregarDados: carregarTudo
       }}
     >
       {children}
